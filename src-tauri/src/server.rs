@@ -7,19 +7,67 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// 从 ~/.seedagent/.env 解析用户显式指定的 PORT 意向（桌面端只读不写该文件）。
-pub fn read_env_port(home: &Path) -> Option<u16> {
-    let content = std::fs::read_to_string(home.join(".env")).ok()?;
+/// 从 dir/.env 中读取 key 的首个定义（简易解析，dotenv 子集：
+/// 键值两边容忍空格；未加引号的值遇 # 截断行内注释；配对引号包裹则整体为值、
+/// 内部 # 不算注释；桌面端只读不写该文件）。
+fn read_env_value(dir: &Path, key: &str) -> Option<String> {
+    let content = std::fs::read_to_string(dir.join(".env")).ok()?;
     for line in content.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("PORT=") {
-            let rest = rest.trim().trim_matches('"').trim_matches('\'');
-            if let Ok(port) = rest.parse::<u16>() {
-                return Some(port);
-            }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        if k.trim() != key {
+            continue;
         }
+        let v = v.trim_start();
+        let v = if v.starts_with('"') || v.starts_with('\'') {
+            let quote = v.chars().next().unwrap();
+            match v[1..].find(quote) {
+                Some(i) => &v[1..1 + i], // 配对闭引号内是值，内部 # 不算注释
+                None => v.split('#').next().unwrap_or("").trim(), // 无闭引号：退化为无引号处理
+            }
+        } else {
+            v.split('#').next().unwrap_or("").trim()
+        };
+        return Some(v.to_string());
     }
     None
+}
+
+/// 从 <exe 目录>/.env 解析用户显式指定的 PORT 意向（客户端配置文件，与 DATA_DIR 同源；
+/// 数据目录下的 .env 属服务端，客户端不读）。
+pub fn read_env_port(exe_dir: &Path) -> Option<u16> {
+    read_env_value(exe_dir, "PORT")?.parse::<u16>().ok()
+}
+
+/// 从 <exe 目录>/.env 读取 DATA_DIR 覆盖（便携模式入口；空值视为未定义）。
+fn read_env_data_dir(exe_dir: &Path) -> Option<String> {
+    read_env_value(exe_dir, "DATA_DIR").filter(|v| !v.is_empty())
+}
+
+/// 把 .env 里的 DATA_DIR 原始值解析成绝对路径：
+/// 绝对路径直接用；相对路径相对 exe_dir（便携语义：DATA_DIR=data → <exe 目录>\\data）；
+/// 支持 ~/ 前缀展开（与服务端 paths.ts 约定一致）。
+fn resolve_data_dir(exe_dir: &Path, raw: &str) -> PathBuf {
+    let raw = raw.trim();
+    if raw == "~" {
+        return home_dir();
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        return home_dir().join(rest);
+    }
+    let p = Path::new(raw);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        exe_dir.join(p)
+    }
+}
+
+/// 数据目录决策：<exe 目录>/.env 的 DATA_DIR 覆盖优先，否则默认 ~/.seedcode。
+fn resolve_default_data_dir(exe_dir: Option<&Path>) -> PathBuf {
+    exe_dir
+        .and_then(|d| read_env_data_dir(d).map(|raw| resolve_data_dir(d, &raw)))
+        .unwrap_or_else(|| home_dir().join(".seedcode"))
 }
 
 /// 端口候选：用户意向优先，随后 18789~18798（去重）。
@@ -36,9 +84,9 @@ pub fn port_candidates(preferred: Option<u16>) -> Vec<u16> {
     out
 }
 
-/// 读取/生成 ~/.seedagent/desktop.json 的 bearerToken（uuid v4），首次生成后固定复用。
-pub fn load_or_create_token(home: &Path) -> String {
-    let file = home.join("desktop.json");
+/// 读取/生成 <数据目录>/desktop.json 的 bearerToken（uuid v4），首次生成后固定复用。
+pub fn load_or_create_token(data_dir: &Path) -> String {
+    let file = data_dir.join("desktop.json");
     if let Ok(content) = std::fs::read_to_string(&file) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(token) = v.get("bearerToken").and_then(|t| t.as_str()) {
@@ -49,7 +97,7 @@ pub fn load_or_create_token(home: &Path) -> String {
         }
     }
     let token = uuid::Uuid::new_v4().to_string();
-    let _ = std::fs::create_dir_all(home);
+    let _ = std::fs::create_dir_all(data_dir);
     let json = serde_json::json!({ "bearerToken": token });
     let _ = std::fs::write(&file, serde_json::to_string_pretty(&json).unwrap());
     token
@@ -78,13 +126,15 @@ pub struct ServerStatus {
     pub token: Option<String>,
     pub pid: Option<u32>,
     pub last_error: Option<String>,
-    /// 数据目录（~/.seedagent）绝对路径，供前端展示/复制日志路径
+    /// 数据目录（默认 ~/.seedcode，可被 <exe 目录>/.env 的 DATA_DIR 覆盖）绝对路径，供前端状态展示
     pub data_dir: Option<String>,
 }
 
 pub struct ServerManager {
     bundled: bool,
-    home: PathBuf,
+    data_dir: PathBuf,
+    /// exe 所在目录：<exe 目录>/.env 是客户端配置文件（DATA_DIR/PORT），init 时定死
+    exe_dir: Option<PathBuf>,
     server_dir: Option<PathBuf>,
     token: String,
     status: Mutex<ServerStatus>,
@@ -222,9 +272,26 @@ pub fn init(app: &AppHandle) -> ServerManager {
         .unwrap_or_else(|_| PathBuf::from("."));
     let server_dir = resolve_server_dir(&resource_dir);
     let bundled = server_dir.is_some();
-    let home = home_dir().join(".seedagent");
+    // ⚠ 勿用 app.path().executable_dir()：Tauri 只是 dirs::executable_dir() 的薄包装，
+    // 而 dirs 在 Windows 上恒返回 None（文档表格明确 Windows 列为 –）——
+    // 会导致 .env 永远不被读取。改用 current_exe（GetModuleFileNameW，Windows 可靠）。
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    let data_dir = resolve_default_data_dir(exe_dir.as_deref());
+    // 诊断：确认 .env 加载链路（exe_dir → .env → DATA_DIR/PORT → 最终 data_dir）。
+    // 落到 tauri-plugin-log（%LOCALAPPDATA%\com.godgodgame.seedcode\logs）；
+    // 只记本约定键的解析值，不转储文件全文（防用户把敏感键写进 .env 后随日志落盘）
+    log::info!(
+        "[server][diag] exe_dir={:?} env_exists={} DATA_DIR={:?} PORT={:?} data_dir={:?}",
+        exe_dir,
+        exe_dir.as_deref().map(|d| d.join(".env").exists()).unwrap_or(false),
+        exe_dir.as_deref().and_then(|d| read_env_value(d, "DATA_DIR")),
+        exe_dir.as_deref().and_then(|d| read_env_value(d, "PORT")),
+        data_dir
+    );
 
-    let token = if bundled { load_or_create_token(&home) } else { String::new() };
+    let token = if bundled { load_or_create_token(&data_dir) } else { String::new() };
 
     let status = Mutex::new(ServerStatus {
         bundled,
@@ -238,12 +305,13 @@ pub fn init(app: &AppHandle) -> ServerManager {
         token: if bundled { Some(token.clone()) } else { None },
         pid: None,
         last_error: None,
-        data_dir: if bundled { Some(home.to_string_lossy().into_owned()) } else { None },
+        data_dir: if bundled { Some(data_dir.to_string_lossy().into_owned()) } else { None },
     });
 
     ServerManager {
         bundled,
-        home,
+        data_dir,
+        exe_dir,
         server_dir,
         token,
         status,
@@ -375,11 +443,11 @@ fn attach_job(child: &std::process::Child) -> Result<(), String> {
 
 fn spawn_child(
     server_dir: &Path,
-    home: &Path,
+    data_dir: &Path,
     port: u16,
     token: &str,
 ) -> std::io::Result<std::process::Child> {
-    let logs = home.join("logs");
+    let logs = data_dir.join("logs");
     std::fs::create_dir_all(&logs)?;
     let stdout = std::fs::OpenOptions::new()
         .create(true).write(true).truncate(true)
@@ -392,14 +460,15 @@ fn spawn_child(
         .current_dir(server_dir)
         .env("PORT", port.to_string())
         .env("BEARER_TOKEN", token)
-        .env("DATA_DIR", home)
+        .env("DATA_DIR", data_dir)
         .env("NODE_ENV", "production")
         // 单文件 bundle 部署：显式指定代码根，供服务端定位 .env 与资源
         // （见 seedagent src/config/paths.ts / env-loader.ts）
         .env("SEEDAGENT_CODE_ROOT", server_dir.join("dist"))
         // pi 工具（fd/rg）下载目录 = DATA_DIR/bin。bundle 内模块初始化顺序
-        // （compat 先于 config）可能导致进程内赋值太晚，这里直接在 spawn 前注入兜底
-        .env("PI_CODING_AGENT_DIR", home)
+        // （compat 先于 config）可能导致进程内赋值太晚，这里直接在 spawn 前注入兜底。
+        // 必须与 DATA_DIR 同值，否则 fd/rg 会下载到旧目录
+        .env("PI_CODING_AGENT_DIR", data_dir)
         .stdout(std::process::Stdio::from(stdout))
         .stderr(std::process::Stdio::from(stderr));
     #[cfg(target_os = "windows")]
@@ -427,7 +496,7 @@ fn run_loop(app: AppHandle) {
         mgr.monitor_running.store(false, Ordering::SeqCst);
         return;
     }
-    let home = mgr.home.clone();
+    let data_dir = mgr.data_dir.clone();
     let token = mgr.token.clone();
     let server_dir = match &mgr.server_dir {
         Some(d) => d.clone(),
@@ -437,10 +506,11 @@ fn run_loop(app: AppHandle) {
         }
     };
 
-    // 选端口：.env PORT 意向 → 18789~18798，一次性探测
+    // 选端口：<exe 目录>/.env 的 PORT 意向 → 18789~18798，一次性探测
     let mut chosen: Option<u16> = None;
     let mut reused = false;
-    for port in port_candidates(read_env_port(&home)) {
+    let preferred_port = mgr.exe_dir.as_deref().and_then(read_env_port);
+    for port in port_candidates(preferred_port) {
         match probe_port(port, &token) {
             PortProbe::Ours => {
                 chosen = Some(port);
@@ -488,7 +558,7 @@ fn run_loop(app: AppHandle) {
             mgr.monitor_running.store(false, Ordering::SeqCst);
             return;
         }
-        match spawn_child(&server_dir, &home, port, &token) {
+        match spawn_child(&server_dir, &data_dir, port, &token) {
             Ok(mut child) => {
                 let pid = child.id();
                 // 绑定 Job Object：本进程无论以何种方式退出（正常退出/崩溃/被强杀/
@@ -625,19 +695,80 @@ mod tests {
 
     #[test]
     fn read_env_port_parses_port() {
-        let home = temp_home("port-ok");
-        std::fs::write(home.join(".env"), "BEARER_TOKEN=x\nPORT=18789\n").unwrap();
-        assert_eq!(read_env_port(&home), Some(18789));
-        let _ = std::fs::remove_dir_all(&home);
+        let exe = temp_home("port-ok");
+        std::fs::write(exe.join(".env"), "BEARER_TOKEN=x\nPORT=18789\n").unwrap();
+        assert_eq!(read_env_port(&exe), Some(18789));
+        let _ = std::fs::remove_dir_all(&exe);
     }
 
     #[test]
     fn read_env_port_missing_or_invalid() {
-        let home = temp_home("port-miss");
-        assert_eq!(read_env_port(&home), None);
-        std::fs::write(home.join(".env"), "PORT=notanumber\n").unwrap();
-        assert_eq!(read_env_port(&home), None);
-        let _ = std::fs::remove_dir_all(&home);
+        let exe = temp_home("port-miss");
+        assert_eq!(read_env_port(&exe), None);
+        std::fs::write(exe.join(".env"), "PORT=notanumber\n").unwrap();
+        assert_eq!(read_env_port(&exe), None);
+        let _ = std::fs::remove_dir_all(&exe);
+    }
+
+    #[test]
+    fn read_env_value_trims_and_strips_quotes() {
+        let dir = temp_home("env-value");
+        std::fs::write(dir.join(".env"), "DATA_DIR =  \"D:/some dir/data\"  \nOTHER=1\n").unwrap();
+        assert_eq!(read_env_value(&dir, "DATA_DIR").as_deref(), Some("D:/some dir/data"));
+        assert_eq!(read_env_value(&dir, "MISSING"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_env_value_strips_inline_comment_and_keeps_hash_in_quotes() {
+        let dir = temp_home("env-comment");
+        // 行内注释（用户 .env 最自然的写法）：未加引号值遇 # 截断
+        std::fs::write(dir.join(".env"), "DATA_DIR=data      # 数据目录说明\nPORT=18800 # port\n").unwrap();
+        assert_eq!(read_env_value(&dir, "DATA_DIR").as_deref(), Some("data"));
+        assert_eq!(read_env_value(&dir, "PORT").as_deref(), Some("18800"));
+        // 配对引号包裹：# 属于值本身
+        std::fs::write(dir.join(".env"), "DATA_DIR=\"D:/da#ta\" # comment\n").unwrap();
+        assert_eq!(read_env_value(&dir, "DATA_DIR").as_deref(), Some("D:/da#ta"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_env_data_dir_empty_value_treated_as_undefined() {
+        let dir = temp_home("env-datadir");
+        std::fs::write(dir.join(".env"), "DATA_DIR=\n").unwrap();
+        assert_eq!(read_env_data_dir(&dir), None);
+        std::fs::write(dir.join(".env"), "DATA_DIR=data\n").unwrap();
+        assert_eq!(read_env_data_dir(&dir).as_deref(), Some("data"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_data_dir_relative_absolute_and_home() {
+        let exe = Path::new("/exe-dir");
+        // 相对路径：相对 exe 目录（便携语义）
+        assert_eq!(resolve_data_dir(exe, "data"), PathBuf::from("/exe-dir").join("data"));
+        assert_eq!(resolve_data_dir(exe, " ./data "), PathBuf::from("/exe-dir").join("./data"));
+        // 绝对路径：直接用
+        let abs = std::env::temp_dir();
+        assert_eq!(resolve_data_dir(exe, abs.to_str().unwrap()), abs);
+        // ~/ 展开（与服务端 paths.ts 约定一致）
+        assert_eq!(resolve_data_dir(exe, "~"), home_dir());
+        assert_eq!(resolve_data_dir(exe, "~/seedcode-data"), home_dir().join("seedcode-data"));
+    }
+
+    #[test]
+    fn resolve_default_data_dir_env_override_and_fallback() {
+        let default = home_dir().join(".seedcode");
+        // exe 目录缺失/无 .env/.env 无 DATA_DIR/DATA_DIR 为空 → 默认 ~/.seedcode
+        assert_eq!(resolve_default_data_dir(None), default);
+        let dir = temp_home("default-datadir");
+        assert_eq!(resolve_default_data_dir(Some(&dir)), default);
+        std::fs::write(dir.join(".env"), "DATA_DIR=\n").unwrap();
+        assert_eq!(resolve_default_data_dir(Some(&dir)), default);
+        // 有 DATA_DIR → 覆盖（相对 exe 目录）
+        std::fs::write(dir.join(".env"), "PORT=18790\nDATA_DIR=data\n").unwrap();
+        assert_eq!(resolve_default_data_dir(Some(&dir)), dir.join("data"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -660,12 +791,12 @@ mod tests {
 
     #[test]
     fn token_created_then_reused() {
-        let home = temp_home("token");
-        let t1 = load_or_create_token(&home);
+        let dir = temp_home("token");
+        let t1 = load_or_create_token(&dir);
         assert!(uuid::Uuid::parse_str(&t1).is_ok());
-        let t2 = load_or_create_token(&home);
+        let t2 = load_or_create_token(&dir);
         assert_eq!(t1, t2);
-        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

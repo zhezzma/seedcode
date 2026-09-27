@@ -250,11 +250,6 @@ const localStateText = () => {
 
 const onRestartServer = () => { restartLocalServer() }
 
-const onCopyLogPath = () => {
-    const dir = localServer.dataDir ? `${localServer.dataDir}\\logs` : '~/.seedagent/logs'
-    navigator.clipboard.writeText(dir)
-}
-
 const onCopyToken = () => {
     if (localServer.token) navigator.clipboard.writeText(localServer.token)
 }

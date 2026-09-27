@@ -22,10 +22,6 @@ const onBootRestart = async () => {
     await restartLocalServer()
     window.location.reload()
 }
-const onBootCopyLog = () => {
-    const dir = localServer.dataDir ? `${localServer.dataDir}\\logs` : '~/.seedagent/logs'
-    navigator.clipboard.writeText(dir)
-}
 
 // Initialize app
 const uiSettings = useUiSettingsStore()
@@ -172,7 +168,6 @@ onUnmounted(() => {
             <p v-if="localServer.lastError" class="text-sm text-base-content/60 text-center max-w-md">{{ localServer.lastError }}</p>
             <div class="flex gap-2 mt-2">
                 <button class="btn btn-primary btn-sm" @click="onBootRestart">{{ $t('settings.restartServer') }}</button>
-                <button class="btn btn-ghost btn-sm" @click="onBootCopyLog">{{ $t('settings.copyLogPath') }}</button>
             </div>
         </div>
         <div v-else-if="bootGateVisible" class="absolute inset-0 z-40 bg-base-100/30 backdrop-blur-[2px] pointer-events-none"></div>

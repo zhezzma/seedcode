@@ -862,8 +862,6 @@ export default {
         removeGateway: '删除服务器',
         removeGatewayConfirm: '确定删除服务器「{name}」？删除后可通过「添加服务器」重新添加。',
         localServerManagedHint: '本地服务由应用自动管理，地址与令牌不可修改',
-        localServerLogHint: '日志目录',
-        copyLogPath: '复制日志路径',
         tokenPlaceholder: '请输入您的 Token',
         baseUrlPlaceholder: '例如: https://voice.godgodgame.com',
         engineTokenPlaceholder: '请输入当前引擎的 Token',

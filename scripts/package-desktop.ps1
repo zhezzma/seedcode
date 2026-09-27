@@ -259,8 +259,11 @@ if (-not $SkipDeploy) {
     # 否则 exe/node_modules 被锁，robocopy 覆盖会失败。
     Stop-ProcessesUnder $DeployDir "部署目录内运行中的旧实例"
 
-    # /MIR 镜像同步：部署目录与便携版完全一致（清掉旧文件）；robocopy 走 \\?\ 长路径 API
-    robocopy $portable $DeployDir /MIR /NFL /NDL /NJH /NJS | Out-Null
+    # /MIR 镜像同步：部署目录与便携版完全一致（清掉旧文件）；robocopy 走 \\?\ 长路径 API。
+    # 例外：/XD + /XF 绝对路径写法只豁免部署目录根下的 data/（便携模式数据目录）与
+    # .env（DATA_DIR/PORT 覆盖配置）——运行时/用户数据不随镜像被清；
+    # 自定义 DATA_DIR 指向其他名字/位置的不在此保护范围。
+    robocopy $portable $DeployDir /MIR /XD "$DeployDir\data" /XF "$DeployDir\.env" /NFL /NDL /NJH /NJS | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "deploy robocopy failed (exit $LASTEXITCODE)" }
     Write-Host "==> deploy OK: $DeployDir"
     $deployed = $true

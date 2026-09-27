@@ -861,8 +861,6 @@ export default {
         removeGateway: 'Remove server',
         removeGatewayConfirm: 'Remove server {name}? You can add it back later.',
         localServerManagedHint: 'The local server is managed by the app; URL and token are read-only',
-        localServerLogHint: 'Log directory',
-        copyLogPath: 'Copy log path',
         tokenPlaceholder: 'Enter your Token',
         baseUrlPlaceholder: 'e.g. https://voice.godgodgame.com',
         engineTokenPlaceholder: 'Enter the token for the current engine',
