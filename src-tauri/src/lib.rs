@@ -56,6 +56,23 @@ fn write_clipboard_image(rgba: Vec<u8>, width: usize, height: usize) -> Result<(
     }
 }
 
+// 选中复制（Ctrl+C / 右键菜单）拦截后用的富文本写入：text + html 双格式，
+// 粘贴到支持 HTML 的目标不失格式。见 src/utils/clipboard.ts 的 installNativeCopyInterceptor。
+#[tauri::command]
+fn write_clipboard_html(text: String, html: String) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_html(html, Some(text)))
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (text, html);
+        Err("write_clipboard_html is only supported on desktop".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -147,6 +164,7 @@ pub fn run() {
             greet,
             write_clipboard_text,
             write_clipboard_image,
+            write_clipboard_html,
             notify::notify_connect,
             notify::notify_disconnect,
             notify::notify_send,

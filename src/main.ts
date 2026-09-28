@@ -8,7 +8,11 @@ import { i18n } from "./i18n";
 import { parseTunnelHash, applyTunnelBootstrap, stripHashFromUrl } from './utils/tunnel-hash'
 import { useUiSettingsStore } from './stores/setting'
 import { isTauri } from './composables/notify-server-connection'
+import { installNativeCopyInterceptor } from './utils/clipboard'
 
+// 桌面端拦截选中复制（Ctrl+C/右键菜单/Ctrl+X）改走原生剪贴板写入，
+// 否则内容进不了 Windows 剪贴板历史（内部自带环境判断，非 Tauri 环境为 no-op）
+installNativeCopyInterceptor()
 
 const app = createApp(App)
 app.use(i18n)

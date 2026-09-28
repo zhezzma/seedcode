@@ -26,6 +26,20 @@ test('image copy has a native branch with WebView fallback', () => {
 test('rust side registers the clipboard commands', () => {
   assert.match(libRsSource, /fn write_clipboard_text/)
   assert.match(libRsSource, /fn write_clipboard_image/)
+  assert.match(libRsSource, /fn write_clipboard_html/)
   assert.match(libRsSource, /write_clipboard_text,/)
   assert.match(libRsSource, /write_clipboard_image,/)
+  assert.match(libRsSource, /write_clipboard_html,/)
+})
+
+test('selection copy is intercepted to native clipboard on desktop', () => {
+  const mainTsSource = readFileSync(path.join(repoRoot, 'src/main.ts'), 'utf8')
+  // 富文本原生命令 + 拦截器
+  assert.match(clipboardSource, /invoke\('write_clipboard_html'/)
+  assert.match(clipboardSource, /export const installNativeCopyInterceptor/)
+  assert.match(clipboardSource, /addEventListener\('copy'/)
+  assert.match(clipboardSource, /event\.preventDefault\(\)/)
+  // 拦截器不改变移动端/非 Tauri 环境行为
+  assert.match(clipboardSource, /MOBILE_USER_AGENT\.test\(navigator\.userAgent\)/)
+  assert.match(mainTsSource, /installNativeCopyInterceptor\(\)/)
 })
