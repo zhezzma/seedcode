@@ -43,7 +43,11 @@ test('writeClipboard strips a leading BOM before writing text without exporting 
 
   assert.deepEqual(writes, ['hello', 'a\uFEFFb'])
   assert.match(clipboardUtilsSource, /const buildClipboardTextPayload = \(text: string\) => text\.replace\(\/\^\\uFEFF\/, ''\)/)
-  assert.match(clipboardUtilsSource, /export const writeClipboard = \(text: string\) => navigator\.clipboard\.writeText\(buildClipboardTextPayload\(text\)\)/)
+  // 原生优先（invoke write_clipboard_text），但两条路径都必须写入清洗后的 payload
+  assert.match(clipboardUtilsSource, /export const writeClipboard = async \(text: string\) =>/)
+  assert.match(clipboardUtilsSource, /const payload = buildClipboardTextPayload\(text\)/)
+  assert.match(clipboardUtilsSource, /invoke\('write_clipboard_text', \{ text: payload \}\)/)
+  assert.match(clipboardUtilsSource, /return navigator\.clipboard\.writeText\(payload\)/)
   assert.doesNotMatch(clipboardUtilsSource, /export const buildClipboardTextPayload/)
 })
 

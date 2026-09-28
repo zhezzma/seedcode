@@ -45,6 +45,12 @@ log = "0.4"
 # WebSocket 使用 native-tls (在 Windows/Linux 上使用系统 SSL，Android 上我们需要手动编译 OpenSSL)
 # WS 消息需在 Rust 层直接处理（check_notification → 系统通知），因此用 tungstenite 而非 tauri-plugin-websocket 的 JS 通道
 tauri-plugin-websocket = { version = "2", default-features = false, features = ["native-tls"] }
+# 原生剪贴板写入：WebView 的 navigator.clipboard 异步写入会被 Windows
+# 剪贴板历史（Win+V）按隐私数据处理而排除，复制按钮统一走 invoke 到
+# lib.rs 的 write_clipboard_text / write_clipboard_image（前端封装见 src/utils/clipboard.ts）。
+# 仅桌面平台依赖（arboard 不支持移动端 target，lib.rs 中引用也已用 cfg(desktop) 隔离）。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+arboard = "3"
 # Android 平台特有配置：强制编译 OpenSSL (vendored)，因为 Android 系统不提供标准 OpenSSL 库
 [target.'cfg(target_os = "android")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

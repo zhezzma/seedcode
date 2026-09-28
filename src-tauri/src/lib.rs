@@ -18,6 +18,44 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// 原生剪贴板写入。WebView 的 navigator.clipboard 异步写入会被 Windows
+// 剪贴板历史服务（Win+V）排除，前端复制统一走这两个命令；
+// 移动端不支持原生写入，返回错误由前端回退 WebView API。
+#[tauri::command]
+fn write_clipboard_text(text: String) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_text(text))
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = text;
+        Err("write_clipboard_text is only supported on desktop".into())
+    }
+}
+
+#[tauri::command]
+fn write_clipboard_image(rgba: Vec<u8>, width: usize, height: usize) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        let image = arboard::ImageData {
+            width,
+            height,
+            bytes: std::borrow::Cow::Owned(rgba),
+        };
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_image(image))
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (rgba, width, height);
+        Err("write_clipboard_image is only supported on desktop".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -107,6 +145,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            write_clipboard_text,
+            write_clipboard_image,
             notify::notify_connect,
             notify::notify_disconnect,
             notify::notify_send,

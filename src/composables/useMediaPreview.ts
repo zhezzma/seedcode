@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { ensureFileExtension, getImageExtension, saveBlob } from '../utils/fileDownload.ts'
 import { useToast } from './useToast.ts'
+import { isTauri } from '../utils/clipboard.ts'
 
 // ==================== Image Lightbox State ====================
 
@@ -222,6 +223,27 @@ const downloadImage = async (src: string, defaultName?: string) => {
     }
 }
 
+// Tauri 桌面端走原生剪贴板写入（WebView 的 Clipboard API 写入不进 Windows 剪贴板历史）。
+const writeImageToClipboardNative = async (blob: Blob) => {
+    const bitmap = await createImageBitmap(blob)
+    try {
+        const canvas = document.createElement('canvas')
+        canvas.width = bitmap.width
+        canvas.height = bitmap.height
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('write_clipboard_image', {
+            rgba: new Uint8Array(imageData.data.buffer),
+            width: imageData.width,
+            height: imageData.height,
+        })
+    } finally {
+        bitmap.close()
+    }
+}
+
 const copyImageToClipboard = async (src: string) => {
     const toast = useToast()
     const { i18n } = await import('../i18n')
@@ -229,6 +251,17 @@ const copyImageToClipboard = async (src: string) => {
     try {
         const response = await fetch(src)
         const blob = await response.blob()
+
+        // Tauri 桌面端优先原生写入；失败（如移动端不支持）回退 WebView API
+        if (isTauri()) {
+            try {
+                await writeImageToClipboardNative(blob)
+                toast.success(_t('common.copied'))
+                return
+            } catch (error) {
+                console.warn('Native clipboard write failed, fallback to WebView API:', error)
+            }
+        }
 
         // The Clipboard API requires image/png. Convert if needed.
         let pngBlob = blob

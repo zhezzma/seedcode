@@ -30,6 +30,7 @@ import {
 import ViewHeader from '@/components/ViewHeader.vue'
 import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
+import { writeClipboard } from '../utils/clipboard'
 import { localServer, restartLocalServer, switchGateway, gatewaySwitchBlockReason } from '../composables/local-server'
 import type { GatewayProfile } from '../stores/setting'
 
@@ -251,7 +252,7 @@ const localStateText = () => {
 const onRestartServer = () => { restartLocalServer() }
 
 const onCopyToken = () => {
-    if (localServer.token) navigator.clipboard.writeText(localServer.token)
+    if (localServer.token) writeClipboard(localServer.token)
 }
 
 const saveSilenceDuration = (event: Event) => {

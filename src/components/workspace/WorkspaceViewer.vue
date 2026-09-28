@@ -34,6 +34,7 @@ import { previewableExt } from '../../composables/workspace-api'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useConfirm } from '../../composables/useConfirm'
 import { useToast } from '../../composables/useToast'
+import { writeClipboard } from '../../utils/clipboard'
 
 const props = defineProps<{
     agentId: string
@@ -125,7 +126,7 @@ async function onClickCopy() {
     const text = fileViewRef.value?.content ?? ''
     if (!text) return
     try {
-        await navigator.clipboard.writeText(text)
+        await writeClipboard(text)
         useToast().success(t('common.copied'))
     } catch {
         // 剪贴板权限失败：静默即可（浏览器/WebView 受限场景罕见）
@@ -150,7 +151,7 @@ async function onClickCopyDiff() {
     try {
         const text = await diffViewRef.value.getUnifiedDiff()
         if (!text) return
-        await navigator.clipboard.writeText(text)
+        await writeClipboard(text)
         useToast().success(t('common.copied'))
     } catch {
         // 拉取 diff 走网络，失败给出可感知提示（与 file 复制仅剪贴板静默失败不同）

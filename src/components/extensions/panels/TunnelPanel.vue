@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
 import { apiGet, apiPost } from '../../../composables/api-client'
 import { useUiSettingsStore } from '../../../stores/setting'
+import { writeClipboard } from '../../../utils/clipboard'
 
 interface TunnelState {
     status: 'idle' | 'connecting' | 'ready' | 'failed'
@@ -182,7 +183,7 @@ async function stop() {
 async function copyText(text: string | null, elementId?: string) {
     if (!text) return
     try {
-        await navigator.clipboard.writeText(text)
+        await writeClipboard(text)
     } catch {
         // 剪贴板权限失败时退化选中文本，由用户手动复制
         if (!elementId) return
