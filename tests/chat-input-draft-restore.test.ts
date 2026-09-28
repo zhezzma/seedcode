@@ -29,3 +29,19 @@ test('session switch restores the draft in the existing route watcher', () => {
         'the session-switch branch should restore that session draft',
     )
 })
+
+test('attachment changes are persisted per session next to the text draft', () => {
+    assert.match(
+        chatInputSource,
+        /watch\(attachments, \(list\) => \{[\s\S]*?setDraftAttachments\(_sessionKeyResolver/,
+        'useChatInput should save attachments keyed by the current session (gateway sentinel on /new)',
+    )
+})
+
+test('session switch restores attachment drafts with regenerated runtime ids', () => {
+    assert.match(
+        chatInputSource,
+        /getDraftAttachments\(key\)[\s\S]{0,400}createRuntimeId\('attachment'\)/,
+        'restoreSessionDraft should restore attachments from the store and regenerate runtime ids',
+    )
+})

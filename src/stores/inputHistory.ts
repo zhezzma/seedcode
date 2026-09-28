@@ -2,8 +2,16 @@ import { defineStore } from 'pinia'
 
 export const INPUT_HISTORY_STORAGE_KEY = 'seedcode_input_history'
 export const INPUT_DRAFTS_STORAGE_KEY = 'seedcode_input_drafts'
+export const INPUT_DRAFT_ATTACHMENTS_STORAGE_KEY = 'seedcode_input_draft_attachments'
 export const INPUT_HISTORY_MAX = 100
 export const INPUT_DRAFT_MAX_LENGTH = 20000
+/** 单会话附件草稿序列化长度上限：图片是 base64 dataUrl，超限跳过落盘（内存保留，切会话可恢复，仅刷新后丢） */
+export const INPUT_DRAFT_ATTACHMENTS_MAX_LENGTH = 2 * 1024 * 1024
+/** 附件草稿落盘总预算：防止多会话累计撑爆 localStorage 配额（超预算从最早写入的会话开始整会话淘汰，仅影响落盘） */
+export const INPUT_DRAFT_ATTACHMENTS_TOTAL_MAX_LENGTH = 4 * 1024 * 1024
+
+/** 序列化超限的 session key：内存保留但跳过落盘（persist 时排除），刷新后丢。模块级：随 store 生命周期，勿在加载路径写入 */
+const unpersistableDraftAttachmentKeys = new Set<string>()
 /** 旧版 /new 草稿哨兵：不分网关，本地/远程切换会窜台，已废弃（load 时剥离，不迁移——草稿是临时态） */
 const LEGACY_NEW_SESSION_DRAFT_KEY = '__new_session__'
 /** /new 新会话页没有 sessionKey，其输入草稿按激活网关条目落到哨兵 key：
@@ -19,6 +27,15 @@ export const newSessionDraftKeyFor = (gatewayId: string): string => `__new_sessi
 export interface InputHistoryState {
     histories: Record<string, string[]>
     drafts: Record<string, string>
+    draftAttachments: Record<string, PersistedDraftAttachment[]>
+}
+
+/** 持久化的附件草稿条目：id 是运行时标识，恢复时重新生成，不落盘 */
+export interface PersistedDraftAttachment {
+    name: string
+    mimeType: string
+    dataUrl: string
+    content?: string
 }
 
 const getStorage = (): Storage | null => {
@@ -63,6 +80,32 @@ const normalizeDraftRecord = (value: unknown): Record<string, string> => {
     return normalized
 }
 
+const normalizeDraftAttachmentsRecord = (value: unknown): Record<string, PersistedDraftAttachment[]> => {
+    if (!value || typeof value !== 'object') return {}
+
+    const normalized: Record<string, PersistedDraftAttachment[]> = {}
+    for (const [sessionKey, list] of Object.entries(value)) {
+        if (!sessionKey || !Array.isArray(list)) continue
+
+        const cleaned = (list as unknown[])
+            .filter((entry): entry is PersistedDraftAttachment =>
+                !!entry && typeof entry === 'object'
+                && typeof (entry as Record<string, unknown>).name === 'string'
+                && typeof (entry as Record<string, unknown>).mimeType === 'string'
+                && typeof (entry as Record<string, unknown>).dataUrl === 'string'
+                && ((entry as Record<string, unknown>).content === undefined
+                    || typeof (entry as Record<string, unknown>).content === 'string'))
+            // 图片走 dataUrl，非图片文件走 content，两者必居其一
+            .filter(entry => entry.dataUrl || entry.content)
+
+        if (cleaned.length > 0) {
+            normalized[sessionKey] = cleaned
+        }
+    }
+
+    return normalized
+}
+
 const loadHistoryState = (): InputHistoryState['histories'] => {
     try {
         const storage = getStorage()
@@ -93,8 +136,22 @@ export const loadDraftsForTest = (storage: Storage | null | undefined): Record<s
 
 const loadDrafts = (): Record<string, string> => loadDraftsForTest(getStorage())
 
+/** loadDraftAttachments 的可测形态：storage 显式注入 */
+export const loadDraftAttachmentsForTest = (storage: Storage | null | undefined): Record<string, PersistedDraftAttachment[]> => {
+    try {
+        const raw = storage?.getItem(INPUT_DRAFT_ATTACHMENTS_STORAGE_KEY)
+        if (!raw) return {}
+        return normalizeDraftAttachmentsRecord(JSON.parse(raw))
+    } catch (error) {
+        console.error('Failed to load input draft attachments:', error)
+        return {}
+    }
+}
+
+const loadDraftAttachments = (): Record<string, PersistedDraftAttachment[]> => loadDraftAttachmentsForTest(getStorage())
+
 export const useInputHistoryStore = defineStore('input-history', {
-    state: (): InputHistoryState => ({ histories: loadHistoryState(), drafts: loadDrafts() }),
+    state: (): InputHistoryState => ({ histories: loadHistoryState(), drafts: loadDrafts(), draftAttachments: loadDraftAttachments() }),
 
     getters: {
         getHistory: (state) => (sessionKey: string): string[] => {
@@ -104,6 +161,10 @@ export const useInputHistoryStore = defineStore('input-history', {
 
         getDraft: (state) => (sessionKey: string): string => {
             return state.drafts[sessionKey] ?? ''
+        },
+
+        getDraftAttachments: (state) => (sessionKey: string): PersistedDraftAttachment[] => {
+            return state.draftAttachments[sessionKey] ?? []
         },
     },
 
@@ -124,8 +185,29 @@ export const useInputHistoryStore = defineStore('input-history', {
                 } else {
                     storage.setItem(INPUT_DRAFTS_STORAGE_KEY, JSON.stringify(this.drafts))
                 }
+
+                this.persistDraftAttachments(storage)
             } catch (error) {
                 console.error('Failed to persist input history:', error)
+            }
+        },
+
+        /** 附件草稿落盘：超限会话跳过；剩余条目超总预算时从最早写入的会话开始整会话淘汰（内存保留） */
+        persistDraftAttachments(storage: Storage) {
+            const persistable: Record<string, PersistedDraftAttachment[]> = {}
+            for (const [k, v] of Object.entries(this.draftAttachments)) {
+                if (!unpersistableDraftAttachmentKeys.has(k)) persistable[k] = v
+            }
+            let keys = Object.keys(persistable)
+            while (keys.length > 0 && JSON.stringify(persistable).length > INPUT_DRAFT_ATTACHMENTS_TOTAL_MAX_LENGTH) {
+                delete persistable[keys.shift() as string]
+                keys = Object.keys(persistable)
+            }
+
+            if (keys.length === 0) {
+                storage.removeItem(INPUT_DRAFT_ATTACHMENTS_STORAGE_KEY)
+            } else {
+                storage.setItem(INPUT_DRAFT_ATTACHMENTS_STORAGE_KEY, JSON.stringify(persistable))
             }
         },
 
@@ -166,19 +248,64 @@ export const useInputHistoryStore = defineStore('input-history', {
             this.persist()
         },
 
+        /** 记录 session 当前输入框附件（草稿）；空列表表示清除。
+         *  id 是运行时标识不落盘；单会话序列化超限则跳过落盘，内存仍保留（切会话可恢复，仅刷新后丢）。 */
+        setDraftAttachments(sessionKey: string, list: (PersistedDraftAttachment & { id?: string })[]) {
+            const key = sessionKey.trim()
+            if (!key) return
+
+            const value = list
+                .filter(a => !!a && typeof a.name === 'string' && typeof a.mimeType === 'string' && typeof a.dataUrl === 'string')
+                .map(({ id: _id, name, mimeType, dataUrl, content }) =>
+                    content === undefined ? { name, mimeType, dataUrl } : { name, mimeType, dataUrl, content })
+                // 与加载侧 normalize 对齐：图片走 dataUrl、文件走 content，两者必居其一
+                .filter(a => a.dataUrl || a.content)
+
+            const serialized = JSON.stringify(value)
+
+            if (value.length === 0) {
+                unpersistableDraftAttachmentKeys.delete(key)
+                if (key in this.draftAttachments) {
+                    delete this.draftAttachments[key]
+                    this.persist()
+                }
+                return
+            }
+
+            // 去重早退（含超限内存副本的重复写入）：不得触碰 unpersistable 标记
+            if (JSON.stringify(this.draftAttachments[key] ?? []) === serialized) return
+
+            if (serialized.length > INPUT_DRAFT_ATTACHMENTS_MAX_LENGTH) {
+                // 超限：内存保留（切会话可从 store 恢复），仅跳过落盘（刷新后丢）；
+                // 立即 persist 一次以排除残留的旧存储条目
+                unpersistableDraftAttachmentKeys.add(key)
+                this.draftAttachments[key] = value
+                this.persist()
+                return
+            }
+
+            unpersistableDraftAttachmentKeys.delete(key)
+            this.draftAttachments[key] = value
+            this.persist()
+        },
+
         removeSessionHistory(sessionKey: string) {
             const key = sessionKey.trim()
-            if (!key || (!(key in this.histories) && !(key in this.drafts))) return
+            if (!key || (!(key in this.histories) && !(key in this.drafts) && !(key in this.draftAttachments))) return
 
             delete this.histories[key]
-            // 会话已删除，其输入草稿一并清理
+            // 会话已删除，其输入草稿与附件草稿一并清理
             delete this.drafts[key]
+            delete this.draftAttachments[key]
+            unpersistableDraftAttachmentKeys.delete(key)
             this.persist()
         },
 
         clearAll() {
             this.histories = {}
             this.drafts = {}
+            this.draftAttachments = {}
+            unpersistableDraftAttachmentKeys.clear()
             this.persist()
         },
     },

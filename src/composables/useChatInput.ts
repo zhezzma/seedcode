@@ -84,6 +84,12 @@ watch(inputText, (val) => {
     }
 })
 
+// 附件草稿 watch（模块级，只注册一次）：与 inputText 同款按 session 持久化（图片 dataUrl / 文件内容）。
+// 发送后清空 attachments（HomeView 乐观清空）、移除单个附件都会触发，存储随之同步。
+watch(attachments, (list) => {
+    useInputHistoryStore().setDraftAttachments(_sessionKeyResolver?.() || newSessionDraftKeyFor(useUiSettingsStore().activeGatewayId), list)
+}, { deep: true })
+
 // ==================== Actions ====================
 
 const selectCommand = (cmd: string) => {
@@ -207,10 +213,13 @@ const pushInputHistory = (text: string, sessionKey?: string) => {
     historyIndex.value = -1
 }
 
-/** 会话切换时调用：把该 session 的草稿恢复到输入框（无草稿则清空） */
+/** 会话切换时调用：把该 session 的草稿恢复到输入框（无草稿则清空），附件草稿同步恢复 */
 const restoreSessionDraft = () => {
     const key = _sessionKeyResolver?.() || newSessionDraftKeyFor(useUiSettingsStore().activeGatewayId)
-    inputText.value = useInputHistoryStore().getDraft(key)
+    const historyStore = useInputHistoryStore()
+    inputText.value = historyStore.getDraft(key)
+    // 附件草稿恢复：id 是运行时标识，重新生成
+    attachments.value = historyStore.getDraftAttachments(key).map(a => ({ ...a, id: createRuntimeId('attachment') }))
     // 切换会话退出历史浏览态
     historyIndex.value = -1
     savedDraft.value = ''
