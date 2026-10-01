@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 import { useSkillsState } from '../../../composables/useSkillsState'
 import { useToast } from '../../../composables/useToast'
 import { useI18n } from 'vue-i18n'
-import { TrashIcon, CubeTransparentIcon, DocumentTextIcon } from '@heroicons/vue/24/outline'
+import { TrashIcon, CubeTransparentIcon, DocumentTextIcon, PuzzlePieceIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 
 // Props
 const props = defineProps<{
@@ -21,6 +21,13 @@ const processing = ref<Record<string, boolean>>({})
 const globalSkills = ref<any[]>([])
 const systemSkills = ref<any[]>([])
 
+// 扩展技能分组视图：每个注册了技能的扩展一行，展开看全部技能
+const extensionSkills = ref<any[]>([])
+const expandedExtensions = ref<Record<string, boolean>>({})
+
+// 系统技能区只展示文件技能；extension-skill 归入「扩展技能」分区
+const systemSkillsView = computed(() => systemSkills.value.filter(s => s.kind !== 'extension-skill'))
+
 // Agent skills are now full objects, not just strings
 const agentSkills = ref<any[]>([])
 
@@ -28,14 +35,16 @@ const fetchSkills = async () => {
     if (!props.agent?.id) return
     loading.value = true
     try {
-        const [agent, global, system] = await Promise.all([
+        const [agent, global, system, extensions] = await Promise.all([
             skillsState.loadAgentSkills(props.agent.id),
             skillsState.fetchGlobalSkills(props.agent.id),
-            skillsState.fetchSystemSkills(props.agent.id)
+            skillsState.fetchSystemSkills(props.agent.id),
+            skillsState.fetchExtensionSkills(props.agent.id)
         ])
         agentSkills.value = agent
         globalSkills.value = global
         systemSkills.value = system
+        extensionSkills.value = extensions
     } finally {
         loading.value = false
     }
@@ -128,6 +137,41 @@ const toggleGlobalOrSystemSkill = async (skill: any, event?: Event) => {
     } finally {
         processing.value[skillId] = false
     }
+}
+
+// 扩展开关：语义 = 启停整个扩展（服务端按根技能名路由到 disabledExtensions）。
+// 无根技能（无身份技能位）的扩展开关不可用；全局禁用下不允许 agent 级重新打开。
+const revertExtToggle = (ext: any, event?: Event) => {
+    const input = event?.target as HTMLInputElement | null
+    if (input) input.checked = !!ext.enabled
+}
+
+const toggleExtension = async (ext: any, event?: Event) => {
+    if (ext.globallyDisabled) {
+        revertExtToggle(ext, event)
+        toast.error(t('skills.extensionGloballyDisabledHint'))
+        return
+    }
+    if (!ext.hasRootSkill || !ext.rootSkillName) {
+        revertExtToggle(ext, event)
+        toast.error(t('skills.extensionNoRootSkillHint'))
+        return
+    }
+    processing.value[ext.extensionId] = true
+    try {
+        const newEnabled = !ext.enabled
+        await skillsState.toggleAgentSkill(props.agent.id, ext.rootSkillName, newEnabled)
+        ext.enabled = newEnabled
+    } catch (e: any) {
+        revertExtToggle(ext, event)
+        toast.error(t('skills.updateFailed', { error: e.message }))
+    } finally {
+        processing.value[ext.extensionId] = false
+    }
+}
+
+const toggleExpand = (ext: any) => {
+    expandedExtensions.value[ext.extensionId] = !expandedExtensions.value[ext.extensionId]
 }
 
 // View Skill Doc Logic
@@ -237,15 +281,16 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'system' | 'global') => 
             <h3
                 class="text-sm font-bold text-base-content/70 uppercase tracking-wider mb-4 px-1 flex items-center gap-2">
                 {{ $t('skills.systemSkills') }}
-                <span class="badge badge-ghost badge-sm font-normal normal-case">{{ systemSkills.length }}</span>
+                <span class="badge badge-ghost badge-sm font-normal normal-case">{{ systemSkillsView.length }}</span>
             </h3>
 
-            <div v-if="!systemSkills.length" class="text-center p-8 border-2 border-dashed border-base-300 rounded-lg">
+            <div v-if="!systemSkillsView.length"
+                class="text-center p-8 border-2 border-dashed border-base-300 rounded-lg">
                 <p class="text-base-content/50">{{ $t('skills.noSystemSkills') }}</p>
             </div>
 
             <div v-else class="grid grid-cols-1 gap-3">
-                <div v-for="skill in systemSkills" :key="skill.id"
+                <div v-for="skill in systemSkillsView" :key="skill.id"
                     class="card bg-base-200 border border-base-300 shadow-sm opacity-90 hover:opacity-100 transition-opacity">
                     <div class="card-body p-4 flex-row items-center justify-between gap-4">
                         <div class="flex items-center gap-3 overflow-hidden">
@@ -277,6 +322,79 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'system' | 'global') => 
                                     @change="toggleGlobalOrSystemSkill(skill, $event)" />
                             </span>
                             <div class="badge badge-ghost badge-sm border-info/20 text-info">{{ $t('common.system') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Extension Skills（按扩展分组：开关 = 启停整个扩展；展开看全部技能） -->
+        <div>
+            <h3
+                class="text-sm font-bold text-base-content/70 uppercase tracking-wider mb-4 px-1 flex items-center gap-2">
+                {{ $t('skills.extensionSkills') }}
+                <span class="badge badge-ghost badge-sm font-normal normal-case">{{ extensionSkills.length }}</span>
+            </h3>
+
+            <div v-if="!extensionSkills.length"
+                class="text-center p-8 border-2 border-dashed border-base-300 rounded-lg">
+                <p class="text-base-content/50">{{ $t('skills.noExtensionSkills') }}</p>
+            </div>
+
+            <div v-else class="grid grid-cols-1 gap-3">
+                <div v-for="ext in extensionSkills" :key="ext.extensionId"
+                    class="card bg-base-200 border border-base-300 shadow-sm">
+                    <div class="card-body p-4 !gap-2">
+                        <!-- 扩展行：图标/名称/技能数 + 开关 + 展开箭头 -->
+                        <div class="flex-row flex items-center justify-between gap-4">
+                            <div class="flex items-center gap-3 overflow-hidden cursor-pointer select-none flex-1 min-w-0"
+                                @click="toggleExpand(ext)">
+                                <div
+                                    class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                                    <PuzzlePieceIcon class="w-6 h-6" />
+                                </div>
+                                <div class="min-w-0">
+                                    <h3 class="font-bold truncate" :title="ext.description || ext.extensionId">
+                                        {{ ext.name }}
+                                    </h3>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-base-content/60 font-mono truncate">{{
+                                            ext.extensionId }}</span>
+                                        <span class="badge badge-ghost badge-xs">{{
+                                            $t('skills.extensionSkillCount', { n: ext.skills.length }) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span v-if="ext.globallyDisabled"
+                                    class="badge badge-xs badge-warning">{{ $t('skills.extensionGloballyDisabled') }}</span>
+                                <span :title="!ext.hasRootSkill
+                                    ? $t('skills.extensionNoRootSkillHint')
+                                    : (ext.globallyDisabled ? $t('skills.extensionGloballyDisabledHint') : $t('skills.extensionToggleHint'))">
+                                    <input type="checkbox" class="toggle toggle-sm toggle-accent" :checked="ext.enabled"
+                                        :disabled="processing[ext.extensionId] || !ext.hasRootSkill || ext.globallyDisabled"
+                                        @change="toggleExtension(ext, $event)" />
+                                </span>
+                                <button class="btn btn-ghost btn-square btn-sm text-base-content/40"
+                                    @click="toggleExpand(ext)">
+                                    <ChevronDownIcon class="w-4 h-4 transition-transform"
+                                        :class="expandedExtensions[ext.extensionId] ? 'rotate-180' : ''" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 展开区：该扩展全部技能（根 + 子目录 + vendor，只读） -->
+                        <div v-if="expandedExtensions[ext.extensionId]"
+                            class="mt-1 pt-2 border-t border-base-300/60 space-y-1">
+                            <div v-for="skill in ext.skills" :key="skill.name"
+                                class="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-base-300/30">
+                                <span v-if="skill.root" class="badge badge-xs badge-accent/80 shrink-0 mt-0.5">{{
+                                    $t('skills.extensionRootSkill') }}</span>
+                                <span class="font-mono text-xs font-semibold shrink-0">{{ skill.name }}</span>
+                                <span class="text-xs text-base-content/60 truncate" :title="skill.description">{{
+                                    skill.description }}</span>
                             </div>
                         </div>
                     </div>

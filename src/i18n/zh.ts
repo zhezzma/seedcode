@@ -916,6 +916,12 @@ export default {
         extensionGloballyDisabledHint: '该技能所属扩展已被全局禁用，请先在扩展页面启用',
         systemSkills: '系统技能 (System)',
         noSystemSkills: '暂无系统技能',
+        extensionSkills: '扩展技能 (Extensions)',
+        noExtensionSkills: '暂无扩展技能',
+        extensionSkillCount: '{n} 个技能',
+        extensionNoRootSkillHint: '该扩展无身份技能，请到扩展管理页启停',
+        extensionToggleHint: '开关将启停整个扩展（含全部技能）',
+        extensionRootSkill: '启动器',
         customSelection: '自定义选择',
         sort: {
             downloads: '下载量',

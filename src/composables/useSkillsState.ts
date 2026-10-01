@@ -136,6 +136,18 @@ const fetchSystemSkills = async (agentId?: string) => {
     }
 }
 
+// 扩展技能分组视图：每个注册了技能的扩展 + 其全部技能（根/子目录/vendor）
+const fetchExtensionSkills = async (agentId?: string) => {
+    try {
+        const query = agentId ? `?agentId=${agentId}` : ''
+        const res = await apiGet<{ extensions: any[] }>(`/api/skills/extensions${query}`)
+        return res?.extensions || []
+    } catch (err) {
+        console.error('Failed to fetch extension skills:', err)
+        return []
+    }
+}
+
 const getSystemSkillContent = async (skillId: string) => {
     try {
         const res = await apiGet<{ content: string }>(`/api/skills/system/${skillId}`)
@@ -174,6 +186,7 @@ const _skillsState = Object.assign(state, {
     installSkill,
     fetchGlobalSkills,
     fetchSystemSkills,
+    fetchExtensionSkills,
     uninstallGlobalSkill,
     loadAgentSkills,
     toggleAgentSkill,

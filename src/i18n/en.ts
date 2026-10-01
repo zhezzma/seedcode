@@ -917,6 +917,12 @@ export default {
         extensionGloballyDisabledHint: 'The extension providing this skill is globally disabled. Enable it on the Extensions page first.',
         systemSkills: 'System Skills',
         noSystemSkills: 'No system skills available',
+        extensionSkills: 'Extension Skills',
+        noExtensionSkills: 'No extension skills',
+        extensionSkillCount: '{n} skills',
+        extensionNoRootSkillHint: 'No identity skill; toggle it in the Extensions page',
+        extensionToggleHint: 'Toggles the whole extension (all skills)',
+        extensionRootSkill: 'Launcher',
         sort: {
             downloads: 'Downloads',
             installs: 'Installs',
