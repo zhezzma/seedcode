@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 
 import {
     defaultCronDeliveryTargets,
-    defaultHeartbeatDeliveryTargets,
     buildDeliveryValidationPayload,
     sanitizeDeliveryTargets,
     summarizeDeliveryTargets,
@@ -33,9 +32,8 @@ test('buildDeliveryValidationPayload collapses none to empty client state', () =
     assert.deepEqual(result.value, [])
 })
 
-test('new cron and heartbeat forms default to no delivery targets selected', () => {
+test('new cron form defaults to no delivery targets selected', () => {
     assert.deepEqual(defaultCronDeliveryTargets(), [])
-    assert.deepEqual(defaultHeartbeatDeliveryTargets(), [])
 })
 
 test('empty delivery targets are valid and mean no delivery', () => {

@@ -11,7 +11,6 @@ import {
     CpuChipIcon,
     ChevronUpIcon,
 } from '@heroicons/vue/24/outline'
-import DeliveryTargetsEditor from '@/components/delivery/DeliveryTargetsEditor.vue'
 import ModelSelectMenuContent from '../../models/ModelSelectMenuContent.vue'
 import WorkspaceBindDialog from '../../workspace/WorkspaceBindDialog.vue'
 import { useWorkspaceTree } from '../../../composables/useWorkspaceTree'
@@ -19,8 +18,6 @@ import { useWorkspaceGit } from '../../../composables/useWorkspaceGit'
 import { useAgentFiles } from '../../../composables/useAgentFiles'
 import { useWorkspaceViewer } from '../../../composables/useWorkspaceViewer'
 import { useWorkspacePanel } from '../../../composables/useWorkspacePanel'
-import { defaultHeartbeatDeliveryTargets, sanitizeDeliveryTargets, summarizeDeliveryTargets } from '../../../utils/delivery-targets'
-import { validateHeartbeatForm } from '../../../utils/form-validation'
 
 
 // Props
@@ -184,20 +181,6 @@ const defaultThinkingLevel = computed({
             await agentsState.updateAgent({
                 agentId: props.agent.id,
                 defaultThinkingLevel: val
-            })
-        } catch (err: any) {
-            toast.error(err.message || String(err))
-        }
-    }
-})
-
-const defaultProjectTrust = computed({
-    get: () => props.agent?.defaultProjectTrust || 'ask',
-    set: async (val: string) => {
-        try {
-            await agentsState.updateAgent({
-                agentId: props.agent.id,
-                defaultProjectTrust: val
             })
         } catch (err: any) {
             toast.error(err.message || String(err))
@@ -462,71 +445,6 @@ const saveThinkingBudgets = async () => {
     }
 }
 
-const heartbeatModal = ref<HTMLDialogElement | null>(null)
-const heartbeatEditorKey = ref(0)
-const heartbeatError = ref<string | null>(null)
-const heartbeatValidation = ref({ valid: true, errors: [] as string[] })
-const getHeartbeatSessionMode = () => props.agent?.heartbeat?.sessionMode || 'singleSession'
-const heartbeatSettings = ref({
-    every: props.agent?.heartbeat?.every || '30m',
-    sessionMode: getHeartbeatSessionMode() as 'singleSession' | 'newSession',
-    deliveryTargets: sanitizeDeliveryTargets(props.agent?.heartbeat?.deliveryTargets || defaultHeartbeatDeliveryTargets()),
-})
-
-const heartbeatSessionModeLabel = computed(() => {
-    return t(`agent.heartbeatSessionModeOptions.${getHeartbeatSessionMode()}`)
-})
-
-const heartbeatSummary = computed(() => {
-    const every = props.agent?.heartbeat?.every || '30m'
-    const targets = props.agent?.heartbeat?.deliveryTargets?.length
-        ? props.agent.heartbeat.deliveryTargets
-        : defaultHeartbeatDeliveryTargets()
-    return t('agent.heartbeatSummary', {
-        every,
-        sessionMode: heartbeatSessionModeLabel.value,
-        deliveryTargets: summarizeDeliveryTargets(targets),
-    })
-})
-
-const openHeartbeatModal = () => {
-    heartbeatSettings.value = {
-        every: props.agent?.heartbeat?.every || '30m',
-        sessionMode: getHeartbeatSessionMode() as 'singleSession' | 'newSession',
-        deliveryTargets: sanitizeDeliveryTargets(props.agent?.heartbeat?.deliveryTargets || defaultHeartbeatDeliveryTargets()),
-    }
-    heartbeatValidation.value = { valid: true, errors: [] }
-    heartbeatError.value = null
-    heartbeatEditorKey.value += 1
-    heartbeatModal.value?.showModal()
-}
-
-const handleHeartbeatValidationChange = (payload: { valid: boolean; errors: string[] }) => {
-    heartbeatValidation.value = payload
-}
-
-const saveHeartbeat = async () => {
-    const errors = validateHeartbeatForm({ every: heartbeatSettings.value.every }, heartbeatValidation.value.valid)
-    if (errors.length > 0) {
-        heartbeatError.value = errors[0]
-        return
-    }
-
-    heartbeatError.value = null
-
-    try {
-        await agentsState.updateAgent({
-            agentId: props.agent.id,
-            heartbeat: { ...heartbeatSettings.value }
-        })
-        toast.success(t('common.savedSuccess'))
-        heartbeatModal.value?.close()
-    } catch (err: any) {
-        heartbeatError.value = err.message || String(err)
-        toast.error(err.message || String(err))
-    }
-}
-
 // Delete Agent Logic
 import { useRouter } from 'vue-router'
 import { useConfirm } from '../../../composables/useConfirm'
@@ -585,16 +503,6 @@ const handleDeleteAgent = async () => {
                                 </div>
                                 <button class="btn btn-ghost btn-xs shrink-0"
                                     @click="showWorkspaceDialog = true">{{ $t('workspaceBinding.editBinding') }}</button>
-                            </div>
-                        </li>
-                        <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('workspaceBinding.trustDefaultLabel') }}</span>
-                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
-                                <select v-model="defaultProjectTrust" class="select select-bordered select-sm w-full font-sans">
-                                    <option value="ask">{{ $t('workspaceBinding.trustDefaultAsk') }}</option>
-                                    <option value="always">{{ $t('workspaceBinding.trustDefaultAlways') }}</option>
-                                    <option value="never">{{ $t('workspaceBinding.trustDefaultNever') }}</option>
-                                </select>
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
@@ -689,15 +597,6 @@ const handleDeleteAgent = async () => {
                         <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="font-medium text-base-content/90">{{ $t('agent.thinkingBudgets') }}</span>
                             <button class="btn btn-sm btn-outline font-sans" @click="openThinkingBudgetsModal">{{ $t('common.settings') }}</button>
-                        </li>
-                        <li class="flex items-center justify-between p-4 bg-base-200">
-                            <div>
-                                <h5 class="font-medium text-base-content/90">{{ $t('agent.heartbeatSettings') }}</h5>
-                                <p class="text-xs text-base-content/60 mt-1 max-w-[200px] md:max-w-md">
-                                    {{ heartbeatSummary }}
-                                </p>
-                            </div>
-                            <button class="btn btn-sm btn-outline font-sans" @click="openHeartbeatModal">{{ $t('common.settings') }}</button>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="font-medium text-base-content/90">{{ $t('agent.hideThinkingBlock') }}</span>
@@ -894,55 +793,6 @@ const handleDeleteAgent = async () => {
                             <button class="btn btn-ghost mr-2">{{ $t('common.cancel') }}</button>
                         </form>
                         <button class="btn btn-primary px-8" @click="saveThinkingBudgets">{{ $t('common.save') }}</button>
-                    </div>
-                </div>
-                <form method="dialog" class="modal-backdrop">
-                    <button>close</button>
-                </form>
-            </dialog>
-
-            <dialog ref="heartbeatModal" class="modal">
-                <div class="modal-box max-w-2xl">
-                    <h3 class="font-bold text-lg mb-2">{{ $t('agent.heartbeatSettings') }}</h3>
-                    <p class="text-sm text-base-content/70 mb-4">{{ $t('agent.heartbeatSettingsDesc') }}</p>
-
-                    <div class="form-control w-full mb-4">
-                        <label class="label">
-                            <span class="label-text">{{ $t('agent.heartbeatEvery') }}</span>
-                        </label>
-                        <input
-                            v-model="heartbeatSettings.every"
-                            type="text"
-                            class="input input-bordered w-full"
-                            :placeholder="$t('agent.heartbeatEveryPlaceholder')"
-                        />
-                    </div>
-
-                    <div class="form-control w-full mb-4">
-                        <label class="label">
-                            <span class="label-text">{{ $t('agent.heartbeatSessionMode') }}</span>
-                        </label>
-                        <select v-model="heartbeatSettings.sessionMode" class="select select-bordered w-full font-sans">
-                            <option value="singleSession">{{ $t('agent.heartbeatSessionModeOptions.singleSession') }}</option>
-                            <option value="newSession">{{ $t('agent.heartbeatSessionModeOptions.newSession') }}</option>
-                        </select>
-                    </div>
-
-                    <DeliveryTargetsEditor
-                        :key="heartbeatEditorKey"
-                        v-model="heartbeatSettings.deliveryTargets"
-                        @validation-change="handleHeartbeatValidationChange"
-                    />
-
-                    <div v-if="heartbeatError" class="alert alert-error mt-4">
-                        <span class="text-sm">{{ heartbeatError }}</span>
-                    </div>
-
-                    <div class="modal-action mt-4">
-                        <form method="dialog">
-                            <button class="btn btn-ghost mr-2">{{ $t('common.cancel') }}</button>
-                        </form>
-                        <button class="btn btn-primary px-8" @click="saveHeartbeat">{{ $t('common.save') }}</button>
                     </div>
                 </div>
                 <form method="dialog" class="modal-backdrop">

@@ -24,6 +24,10 @@ interface CommandsResponse {
 
 const GLOBAL_COMMAND_SCOPE = '__global__'
 
+/** 服务端内置命令中客户端隐藏的名单：pi-harness 迁移后 Phase 3 桩（调用即 501）。
+ *  隐藏而非删除：服务端接回后移除名单即可恢复展示。手输完整命令仍会到达服务端。 */
+const HIDDEN_SERVER_COMMANDS = new Set(['share', 'export'])
+
 const state = reactive<{
     commandsByAgentId: Record<string, CommandInfo[]>
     loadedByAgentId: Record<string, boolean>
@@ -62,7 +66,9 @@ const loadCommands = async (agentId?: string, options?: { force?: boolean }) => 
     try {
         const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''
         const result = await apiGet<CommandsResponse>(`/api/commands${query}`)
-        state.commandsByAgentId[scopeKey] = result?.commands ?? []
+        state.commandsByAgentId[scopeKey] = (result?.commands ?? []).filter(
+            cmd => !HIDDEN_SERVER_COMMANDS.has(cmd.name)
+        )
         state.loadedByAgentId[scopeKey] = true
     } catch (err) {
         console.error('[useCommandState] 获取命令列表失败:', err)

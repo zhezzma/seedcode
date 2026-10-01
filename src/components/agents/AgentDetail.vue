@@ -8,7 +8,6 @@ import ViewHeader from '../ViewHeader.vue'
 
 // Tab components
 import AgentOverview from './tabs/AgentOverview.vue'
-import AgentSettings from './tabs/AgentSettings.vue'
 import AgentTools from './tabs/AgentTools.vue'
 import AgentSkills from './tabs/AgentSkills.vue'
 import AgentSubagents from './tabs/AgentSubagents.vue'
@@ -35,12 +34,9 @@ const agent = computed(() => {
     const rawAgent = list.find((a: any) => a.id === props.agentId)
     if (!rawAgent) return null
 
-    const identity = (rawAgent as any).identity || {}
     return {
         ...rawAgent,
-        name: rawAgent.name || identity.name || rawAgent.id,
-        avatarUrl: identity.avatarUrl as string | undefined,
-        icon: identity.emoji || '🤖',
+        name: rawAgent.name || rawAgent.id,
         description: (rawAgent as any).description || '',
         isDefault: false, // TODO: compare with actual default agent id if available
     }
@@ -57,7 +53,6 @@ const activeTab = ref('overview')
 
 const tabs = computed(() => [
     { id: 'overview', label: t('agent.tab.overview'), component: AgentOverview },
-    { id: 'settings', label: t('agent.tab.settings'), component: AgentSettings },
     { id: 'tools', label: t('agent.tab.tools'), component: AgentTools },
     { id: 'skills', label: t('agent.tab.skills'), component: AgentSkills },
     { id: 'subagents', label: t('agent.tab.subagents'), component: AgentSubagents },
@@ -94,7 +89,7 @@ const handleAgentSaved = async () => {
                     <div class="flex flex-col items-center gap-4">
                         <!-- Avatar with Edit Button -->
                         <div class="relative shrink-0 group">
-                            <AgentAvatar :avatar="agent.avatar" :emoji="agent.icon" :name="agent.name" size="lg"
+                            <AgentAvatar :avatar="agent.avatar" :name="agent.name" size="lg"
                                 class="shadow-sm ring-4 ring-base-100" />
                             <!-- Edit Button -->
                             <button @click="openEditModal"

@@ -5,21 +5,17 @@ import { useModelsState } from '../../composables/useModelsState'
 import { useToast } from '../../composables/useToast'
 import { useI18n } from 'vue-i18n'
 import {
-    ArrowPathIcon,
     PhotoIcon,
     XMarkIcon,
     UserCircleIcon,
-    IdentificationIcon,
     SparklesIcon,
     CpuChipIcon,
     FaceSmileIcon,
     TagIcon,
-    SwatchIcon,
     ChevronUpIcon
 } from '@heroicons/vue/24/outline'
 import WorkspacePathField from '../workspace/WorkspacePathField.vue'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
-import type { WorkspaceResolvePayload } from '../../composables/useWorkspaceBinding'
 
 
 const props = defineProps<{
@@ -53,10 +49,6 @@ const formData = ref({
     // 默认对齐服务端 DEFAULT_AGENT_CONFIG.defaultThinkingLevel: "high"，保留既有创建行为
     defaultThinkingLevel: 'high',
     workspaceDir: '',
-    identityName: 'seedagent',
-    identityCreature: '',
-    identityVibe: '',
-    identityEmoji: '🤖',
     avatarFile: null as File | null,
     avatarPreview: ''
 })
@@ -67,16 +59,9 @@ const workspaceFieldRef = ref<InstanceType<typeof WorkspacePathField> | null>(nu
 const idTouched = ref(false)
 const nameTouched = ref(false)
 
-// 新建模式「信任并启用」勾选：路径含 .pi 信任要求配置时展示，
-// 勾选则以 workspaceTrust=trust 随创建请求持久化信任决策（免创建后再信任）
-const workspaceTrustRequiring = ref(false)
-const workspaceTrustChecked = ref(true)
-
 const slugOf = (b: string) => b.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
 
-const onWorkspaceValidated = ({ basename, result }: { basename: string; result: WorkspaceResolvePayload | null }) => {
-    // 校验失败/清空时 result 为 null，需同步复位勾选可见性
-    workspaceTrustRequiring.value = !!result?.pi?.trustRequiring
+const onWorkspaceValidated = ({ basename }: { basename: string }) => {
     if (!basename) return
     // 字段联动（spec §5.1）：仅当字段为空且未被手动改过时预填
     if (props.mode === 'add' && !idTouched.value && !formData.value.id) {
@@ -89,17 +74,6 @@ const onWorkspaceValidated = ({ basename, result }: { basename: string; result: 
 const isBusy = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// Random emoji list
-const AGENT_EMOJIS = ['🤖', '🦥', '🦊', '🐱', '🐶', '🦉', '🐼', '🚀', '🎯', '💡', '🔥', '🌈', '🎨', '🎭']
-
-const generateRandomEmoji = () => {
-    return AGENT_EMOJIS[Math.floor(Math.random() * AGENT_EMOJIS.length)]
-}
-
-const randomizeEmoji = () => {
-    formData.value.identityEmoji = generateRandomEmoji()
-}
-
 // Watch for show changes to reset/populate form
 watch(() => props.show, (newVal) => {
     if (newVal) {
@@ -108,7 +82,6 @@ watch(() => props.show, (newVal) => {
 
         if (props.mode === 'edit' && props.agentData) {
             // Populate form with existing data
-            const identity = props.agentData.identity || {}
             formData.value = {
                 id: props.agentData.id,
                 name: props.agentData.name || '',
@@ -119,17 +92,11 @@ watch(() => props.show, (newVal) => {
                 // 必须用 raw 原始值（服务端 GET 详情提供 workspaceDirRaw）；
                 // 用解析/规范化值会把默认 agent 一保存就绑到自身 workspace
                 workspaceDir: props.agentData?.workspaceDirRaw || '',
-                identityName: identity.name || '',
-                identityCreature: identity.creature || '',
-                // Map theme to vibe if vibe is empty, compatible with old data
-                identityVibe: identity.vibe || identity.theme || '',
-                identityEmoji: identity.emoji || '🤖',
                 avatarFile: null,
                 avatarPreview: props.agentData.avatar || ''
             }
             idTouched.value = false
             nameTouched.value = false
-            workspaceTrustRequiring.value = false
         } else {
             // Reset form for add mode
             formData.value = {
@@ -140,17 +107,11 @@ watch(() => props.show, (newVal) => {
                 defaultProvider: '',
                 defaultThinkingLevel: 'high',
                 workspaceDir: '',
-                identityName: 'seedagent',
-                identityCreature: '',
-                identityVibe: '',
-                identityEmoji: generateRandomEmoji(),
                 avatarFile: null,
                 avatarPreview: ''
             }
             idTouched.value = false
             nameTouched.value = false
-            workspaceTrustRequiring.value = false
-            workspaceTrustChecked.value = true
         }
     }
 })
@@ -273,19 +234,6 @@ const submitForm = async () => {
             data.append('workspaceDir', formData.value.workspaceDir || '')
         }
 
-        // 新建 + 勾选「信任并启用」：随创建请求提交 workspaceTrust=trust，
-        // 服务端仅在 workspaceDir 非空且校验通过时接受。
-        // 守卫须与勾选框渲染条件同谓词：路径改为非信任要求目录后 requiring 复位、
-        // 勾选框隐藏，残留的 checked=true 不得再随请求提交 trust。
-        if (props.mode === 'add' && formData.value.workspaceDir && workspaceTrustRequiring.value && workspaceTrustChecked.value) {
-            data.append('workspaceTrust', 'trust')
-        }
-
-        if (formData.value.identityName) data.append('identityName', formData.value.identityName)
-        if (formData.value.identityCreature) data.append('identityCreature', formData.value.identityCreature)
-        if (formData.value.identityVibe) data.append('identityVibe', formData.value.identityVibe)
-        if (formData.value.identityEmoji) data.append('identityEmoji', formData.value.identityEmoji)
-
         if (formData.value.avatarFile) {
             data.append('avatar', formData.value.avatarFile)
         }
@@ -335,7 +283,7 @@ const submitForm = async () => {
 
                 <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
 
-                    <!-- Left Column: Avatar & Identity Identity (4 cols) -->
+                    <!-- Left Column: Avatar (4 cols) -->
                     <!-- On mobile, this stacks on top and is centered -->
                     <div class="md:col-span-4 flex flex-col items-center gap-6">
 
@@ -347,8 +295,7 @@ const submitForm = async () => {
                                     class="bg-neutral text-neutral-content rounded-full w-32 h-32 md:w-35 md:h-35 shadow-inner overflow-hidden flex items-center justify-center">
                                     <img v-if="formData.avatarPreview" :src="formData.avatarPreview"
                                         class="object-cover w-full h-full transition-transform duration-500 group-hover:scale-105" />
-                                    <span v-else class="text-5xl md:text-7xl select-none animate-pulse-slow">{{
-                                        formData.identityEmoji || '🤖' }}</span>
+                                    <span v-else class="text-5xl md:text-7xl select-none animate-pulse-slow">🤖</span>
                                 </div>
                             </div>
 
@@ -362,72 +309,6 @@ const submitForm = async () => {
 
                             <input ref="fileInput" type="file" accept="image/*" class="hidden"
                                 @change="handleFileChange" />
-                        </div>
-
-                        <!-- Identity Card (Grouped, Single Column Layout) -->
-                        <div class="w-full card bg-base-200/50 border border-base-300 p-4 space-y-4">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold text-base-content/40 uppercase tracking-widest pl-1 mb-1">
-                                <IdentificationIcon class="w-3 h-3" />
-                                {{ t('agent.identity') }}
-                            </div>
-
-                            <!-- Identity Name -->
-                            <div class="form-control w-full">
-                                <label class="label justify-start pb-1 pt-0">
-                                    <span class="label-text-alt text-xs opacity-60">{{ t('agent.form.identityName')
-                                        }}</span>
-                                </label>
-                                <input v-model="formData.identityName" type="text"
-                                    :placeholder="t('agent.form.identityNamePlaceholder')"
-                                    class="input input-bordered input-sm w-full" />
-                            </div>
-
-
-
-                            <!-- Identity Emoji -->
-                            <div class="form-control w-full">
-                                <label class="label justify-start pb-1 pt-0">
-                                    <span class="label-text-alt text-xs opacity-60">{{ t('agent.form.emoji') }}</span>
-                                </label>
-                                <div class="join w-full shadow-sm">
-                                    <input v-model="formData.identityEmoji" type="text"
-                                        class="input input-bordered input-sm w-full join-item text-center text-lg px-0"
-                                        :placeholder="t('agent.form.emoji')" />
-                                    <button
-                                        class="btn btn-sm btn-square join-item bg-base-200 border-base-300 hover:bg-base-300"
-                                        @click="randomizeEmoji" :title="t('agent.form.random')">
-                                        <ArrowPathIcon class="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Identity Vibe -->
-                            <div class="form-control w-full">
-                                <label class="label justify-start pb-1 pt-0">
-                                    <span class="label-text-alt text-xs opacity-60">{{ t('agent.form.vibe') }}</span>
-                                </label>
-                                <div class="relative w-full">
-                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                        <SwatchIcon class="h-4 w-4 text-base-content/30" />
-                                    </div>
-                                    <input v-model="formData.identityVibe" type="text"
-                                        :placeholder="t('agent.form.vibePlaceholder')"
-                                        class="input input-bordered input-sm w-full " />
-                                </div>
-                            </div>
-
-                            <!-- Identity Creature -->
-                            <div class="form-control w-full">
-                                <label class="label justify-start pb-1 pt-0">
-                                    <span class="label-text-alt text-xs opacity-60">{{ t('agent.form.creature')
-                                        }}</span>
-                                </label>
-                                <input v-model="formData.identityCreature" type="text"
-                                    :placeholder="t('agent.form.creaturePlaceholder')"
-                                    class="input input-bordered input-sm w-full px-3" />
-                            </div>
-
                         </div>
                     </div>
 
@@ -473,16 +354,6 @@ const submitForm = async () => {
                                 <WorkspacePathField ref="workspaceFieldRef" v-model="formData.workspaceDir"
                                     :agent-id="mode === 'edit' ? agentData?.id : undefined"
                                     @validated="onWorkspaceValidated" />
-                            </div>
-
-                            <!-- 信任并启用（仅新建）：路径含 .pi 信任要求配置时展示 -->
-                            <div v-if="mode === 'add' && formData.workspaceDir && workspaceTrustRequiring"
-                                class="form-control">
-                                <label class="label cursor-pointer justify-start gap-2">
-                                    <input v-model="workspaceTrustChecked" type="checkbox"
-                                        class="checkbox checkbox-sm checkbox-primary" />
-                                    <span class="label-text text-xs">{{ t('workspaceBinding.trustOnCreate') }}</span>
-                                </label>
                             </div>
 
                         </div>

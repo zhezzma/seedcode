@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { validateCronForm, validateHeartbeatForm } from '../src/utils/form-validation.ts'
+import { validateCronForm } from '../src/utils/form-validation.ts'
 
 test('cron form blocks save when delivery validation fails', () => {
     const errors = validateCronForm({
@@ -63,14 +63,4 @@ test('cron form allows save when no delivery targets are selected', () => {
     assert.equal(errors.length, 0)
 })
 
-test('heartbeat form blocks save when delivery validation fails', () => {
-    const errors = validateHeartbeatForm({ every: '30m' }, false)
 
-    assert.ok(errors.length > 0)
-})
-
-test('heartbeat form requires a cadence', () => {
-    const errors = validateHeartbeatForm({ every: '   ' }, true)
-
-    assert.ok(errors.length > 0)
-})

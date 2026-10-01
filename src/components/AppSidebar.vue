@@ -158,8 +158,7 @@ type DisplaySession = {
 }
 
 // agent 显示名：任务会话接口只带 agentId 不带 agentName，本地从 agent 列表解析。
-// 只取 name（如「万能助手」）——不取 identity.name（那是人设名，如「小段」），
-// 与对话 tab 直接显示 agentName 的结果保持一致
+// 取 name（如「万能助手」），与对话 tab 直接显示 agentName 的结果保持一致
 const agentDisplayName = (s: SessionRow): string => {
     if (s.agentName) return s.agentName
     const agent = agentsState.agentsList?.find(a => a.id === s.agentId)

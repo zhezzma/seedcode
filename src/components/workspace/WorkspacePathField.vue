@@ -5,12 +5,11 @@
  *   状态行展示 校验中/成功(git・.pi 标记)/失败(错误码→i18n)。
  * - 仅 Tauri 壳内且网关指向本机（回环/*.localhost）时显示原生文件夹选择器
  *   （plugin-dialog，选完回填即走同一校验管线）；Web 构建/远程网关一律手输。
- * - needsTrust（含 .pi 配置未信任且带 agentId 场景）时展示信任区块。
  * 注：binding 是含 refs 的普通对象，模板对其属性不自动解包，需 binding.x.value。
  */
 import { computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { CheckCircleIcon, XCircleIcon, ShieldCheckIcon, FolderIcon } from "@heroicons/vue/24/outline";
+import { CheckCircleIcon, XCircleIcon, FolderIcon } from "@heroicons/vue/24/outline";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useUiSettingsStore } from "../../stores/setting";
 import { isTauri } from "../../composables/notify-server-connection";
@@ -45,8 +44,6 @@ watch(() => [binding.basename.value, binding.result.value] as const, ([basename,
 
 const onInput = (e: Event) => emit("update:modelValue", (e.target as HTMLInputElement).value);
 
-const onTrust = async () => { await binding.trustProject(); };
-
 defineExpose({ revalidate: binding.revalidate });
 </script>
 
@@ -74,17 +71,6 @@ defineExpose({ revalidate: binding.revalidate });
             <span v-if="binding.result.value.pi.hasSettings || binding.result.value.pi.hasSkills
                 || binding.result.value.pi.hasExtensions || binding.result.value.pi.hasPrompts"
                 class="badge badge-ghost badge-xs font-mono">.pi</span>
-        </div>
-
-        <!-- 信任区块 -->
-        <div v-if="binding.needsTrust.value"
-            class="flex items-center justify-between gap-2 rounded-lg bg-warning/10 border border-warning/30 px-3 py-2">
-            <span class="text-xs text-base-content/80">{{ t('workspaceBinding.trustHint') }}</span>
-            <button class="btn btn-warning btn-xs" @click="onTrust">{{ t('workspaceBinding.trustAction') }}</button>
-        </div>
-        <div v-else-if="binding.result.value?.pi.trusted"
-            class="flex items-center gap-1 text-xs text-base-content/60">
-            <ShieldCheckIcon class="w-3.5 h-3.5" /> {{ t('workspaceBinding.trusted') }}
         </div>
 
         <!-- 已绑定提示 -->

@@ -157,10 +157,10 @@ const getImageSrc = (source: any): string => {
 
 // 当前 Agent 信息直接从 chatState 获取，无需额外 watch 和查询
 const currentAgent = computed(() => chatState.currentAgent)
-const assistantName = computed(() => props.agentName || currentAgent.value?.identity?.name || currentAgent.value?.name || 'Assistant')
+const assistantName = computed(() => props.agentName || currentAgent.value?.name || 'Assistant')
 const assistantAvatar = computed(() => {
     const avatar = currentAgent.value?.avatar
-    return isAvatarUrl(avatar) ? avatar : (currentAgent.value?.identity?.emoji || null)
+    return isAvatarUrl(avatar) ? avatar : null
 })
 
 // Parse user message blocks to extract file content and fix image data paths

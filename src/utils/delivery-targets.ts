@@ -31,10 +31,6 @@ export function defaultCronDeliveryTargets(): DeliveryTarget[] {
     return []
 }
 
-export function defaultHeartbeatDeliveryTargets(): DeliveryTarget[] {
-    return []
-}
-
 export function sanitizeDeliveryTargets(input: DeliveryTarget[]): DeliveryTarget[] {
     let hasNone = false
     let hasNotification = false

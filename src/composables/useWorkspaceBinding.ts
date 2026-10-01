@@ -1,13 +1,12 @@
 import { computed, ref, watch } from "vue";
 import type { ComputedRef, Ref } from "vue";
-import { apiGet, apiPost } from "./api-client";
+import { apiGet } from "./api-client";
 
 export interface WorkspaceResolvePayload {
     resolved: { path: string; basename: string; isGit: boolean };
     pi: {
         hasSettings: boolean; hasSkills: boolean; hasExtensions: boolean;
         hasPrompts: boolean; hasSystemMd: boolean;
-        trustRequiring: boolean; trusted: boolean | null;
     };
     boundAgents: Array<{ id: string; name: string }>;
     warnings: string[];
@@ -38,10 +37,6 @@ export function useWorkspaceBinding(options?: {
 
     const basename = computed(() => result.value?.resolved.basename ?? "");
     const boundAgents = computed(() => result.value?.boundAgents ?? []);
-    const needsTrust = computed(() => {
-        const r = result.value;
-        return !!(r && r.pi.trustRequiring && r.pi.trusted === false && options?.agentId?.());
-    });
 
     let seq = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -89,15 +84,5 @@ export function useWorkspaceBinding(options?: {
         if (path.value.trim()) await validate(path.value.trim());
     }
 
-    async function trustProject(): Promise<void> {
-        const agentId = options?.agentId?.();
-        if (!agentId || !result.value) return;
-        await apiPost(`/api/agents/${agentId}/workspace/trust`, {
-            cwd: result.value.resolved.path,
-            decision: "trust",
-        });
-        await revalidate();
-    }
-
-    return { path, checking, result, error, basename, boundAgents, needsTrust, setPath, trustProject, revalidate };
+    return { path, checking, result, error, basename, boundAgents, setPath, revalidate };
 }

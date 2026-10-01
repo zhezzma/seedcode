@@ -41,10 +41,3 @@ test('submitForm appends defaultThinkingLevel (server parses and enum-validates 
         /data\.append\('defaultThinkingLevel', formData\.value\.defaultThinkingLevel\)/,
     )
 })
-
-test('add-mode identityName defaults to seedagent', () => {
-    // 新建模式 identityName 默认 seedagent：初始 formData 与 add 分支重置各一处，
-    // 编辑分支保持 identity.name || '' 不受影响
-    const occurrences = modalSource.match(/identityName: 'seedagent'/g)?.length ?? 0
-    assert.equal(occurrences, 2, 'initial formData and add-branch reset must both default to seedagent')
-})

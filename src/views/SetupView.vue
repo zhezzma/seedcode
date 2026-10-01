@@ -81,7 +81,6 @@ watch(modelProviderId, (newId) => {
 
 // Step 3: Agent State
 const agentName = ref(t('setup.agentStep.defaultDescription'))
-const agentEmoji = ref('🤖')
 const avatarFile = ref<File | null>(null)
 const avatarPreview = ref('')
 const fileInput = ref<HTMLInputElement | null>(null) // Add ref for file input
@@ -305,10 +304,6 @@ const handleAgentSubmit = async () => {
         data.append('id', 'main') // Default ID for the first agent
         data.append('name', agentName.value)
         data.append('description', t('setup.agentStep.defaultDescription'))
-        data.append('identityEmoji', agentEmoji.value)
-        data.append('identityVibe', '')
-        data.append('identityCreature', '')
-        data.append('identityName', '')
         if (avatarFile.value) {
             data.append('avatar', avatarFile.value)
         }
@@ -568,8 +563,7 @@ const handleAgentSubmit = async () => {
                                     class="bg-neutral text-neutral-content rounded-full w-32 h-32 shadow-inner overflow-hidden flex items-center justify-center">
                                     <img v-if="avatarPreview" :src="avatarPreview"
                                         class="object-cover w-full h-full transition-transform duration-500 group-hover:scale-105" />
-                                    <span v-else class="text-6xl select-none animate-pulse-slow">{{
-                                        agentEmoji }}</span>
+                                    <span v-else class="text-6xl select-none animate-pulse-slow">🤖</span>
                                 </div>
                             </div>
 

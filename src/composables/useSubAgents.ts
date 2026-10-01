@@ -63,7 +63,7 @@ const state = reactive<SubagentsState>({
 const loadSubagents = async (agentId: string) => {
     state.loading = true
     try {
-        const result = await apiGet<SubagentConfig[]>(`/api/subagents/${agentId}`)
+        const result = await apiGet<SubagentConfig[]>(`/api/extensions/subagents/agents/${agentId}`)
         state.list = result || []
         return state.list
     } catch (err: any) {
@@ -77,7 +77,7 @@ const loadSubagents = async (agentId: string) => {
 
 const getSubagent = async (agentId: string, id: string) => {
     try {
-        const result = await apiGet<SubagentConfig>(`/api/subagents/${agentId}/${id}`)
+        const result = await apiGet<SubagentConfig>(`/api/extensions/subagents/agents/${agentId}/${id}`)
         return result
     } catch (err: any) {
         console.error(`Failed to get subagent ${id} for agent ${agentId}:`, err)
@@ -87,7 +87,7 @@ const getSubagent = async (agentId: string, id: string) => {
 
 const createSubagent = async (agentId: string, data: SubagentSaveInput) => {
     try {
-        const result = await apiPost<SubagentConfig>(`/api/subagents/${agentId}`, data)
+        const result = await apiPost<SubagentConfig>(`/api/extensions/subagents/agents/${agentId}`, data)
         state.list.push(result)
         return result
     } catch (err: any) {
@@ -98,7 +98,7 @@ const createSubagent = async (agentId: string, data: SubagentSaveInput) => {
 
 const updateSubagent = async (agentId: string, id: string, data: SubagentSaveInput) => {
     try {
-        const result = await apiPut<SubagentConfig>(`/api/subagents/${agentId}/${id}`, data)
+        const result = await apiPut<SubagentConfig>(`/api/extensions/subagents/agents/${agentId}/${id}`, data)
         const index = state.list.findIndex(s => s.id === id)
         if (index !== -1) {
             state.list[index] = result
@@ -112,7 +112,7 @@ const updateSubagent = async (agentId: string, id: string, data: SubagentSaveInp
 
 const deleteSubagent = async (agentId: string, id: string) => {
     try {
-        await apiDelete(`/api/subagents/${agentId}/${id}`)
+        await apiDelete(`/api/extensions/subagents/agents/${agentId}/${id}`)
         state.list = state.list.filter(s => s.id !== id)
     } catch (err: any) {
         console.error(`Failed to delete subagent ${id} for agent ${agentId}:`, err)

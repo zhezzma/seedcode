@@ -35,15 +35,3 @@ export function validateCronForm(
     return errors
 }
 
-export function validateHeartbeatForm(input: { every: string }, deliveryValid: boolean): string[] {
-    const errors: string[] = []
-
-    if (!input.every?.trim()) {
-        errors.push('Heartbeat cadence is required')
-    }
-    if (!deliveryValid) {
-        errors.push('Delivery targets are invalid')
-    }
-
-    return errors
-}

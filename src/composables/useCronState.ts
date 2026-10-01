@@ -82,7 +82,7 @@ const loadCron = async () => {
     state.cronLoading = true
     state.cronError = null
     try {
-        const result = await apiGet<{ crons: TaskJob[] }>('/api/crons')
+        const result = await apiGet<{ crons: TaskJob[] }>('/api/extensions/scheduler')
         state.cronJobs = result?.crons || []
     } catch (err: any) {
         state.cronError = err?.message || String(err)
@@ -95,7 +95,7 @@ const addCronJob = async (form: CronFormState) => {
     state.cronSaving = true
     state.cronError = null
     try {
-        const newJob = await apiPost<TaskJob>('/api/crons', { ...form })
+        const newJob = await apiPost<TaskJob>('/api/extensions/scheduler', { ...form })
         state.cronJobs.push(newJob)
     } catch (err: any) {
         state.cronError = String(err)
@@ -110,7 +110,7 @@ const toggleCronJob = async (job: TaskJob, enabled: boolean) => {
     state.cronError = null
     try {
         const endpoint = enabled ? 'enable' : 'disable'
-        await apiPost(`/api/crons/${job.id}/${endpoint}`)
+        await apiPost(`/api/extensions/scheduler/${job.id}/${endpoint}`)
         const idx = state.cronJobs.findIndex(j => j.id === job.id)
         if (idx !== -1) {
             state.cronJobs[idx].enabled = enabled
@@ -126,7 +126,7 @@ const removeCronJob = async (job: TaskJob) => {
     state.cronBusy = true
     state.cronError = null
     try {
-        await apiDelete(`/api/crons/${job.id}`)
+        await apiDelete(`/api/extensions/scheduler/${job.id}`)
         state.cronJobs = state.cronJobs.filter(j => j.id !== job.id)
     } catch (err: any) {
         state.cronError = String(err)
@@ -140,7 +140,7 @@ const updateCronJob = async (id: string, form: CronFormState) => {
     state.cronSaving = true
     state.cronError = null
     try {
-        const updatedJob = await apiPatch<TaskJob>(`/api/crons/${id}`, { ...form })
+        const updatedJob = await apiPatch<TaskJob>(`/api/extensions/scheduler/${id}`, { ...form })
         const idx = state.cronJobs.findIndex(j => j.id === id)
         if (idx !== -1) {
             state.cronJobs[idx] = updatedJob
@@ -156,7 +156,7 @@ const updateCronJob = async (id: string, form: CronFormState) => {
 const runCronJob = async (job: TaskJob) => {
     state.cronBusy = true
     try {
-        await apiPost(`/api/crons/${job.id}/run`)
+        await apiPost(`/api/extensions/scheduler/${job.id}/run`)
     } catch (err: any) {
         state.cronError = String(err)
         throw err
@@ -167,7 +167,7 @@ const runCronJob = async (job: TaskJob) => {
 
 const loadCronRuns = async (jobId: string): Promise<CronRunLogEntry[]> => {
     try {
-        const result = await apiGet<{ logs: CronRunLogEntry[] }>(`/api/crons/${jobId}/logs`)
+        const result = await apiGet<{ logs: CronRunLogEntry[] }>(`/api/extensions/scheduler/${jobId}/logs`)
         return result?.logs || []
     } catch (err: any) {
         console.error('Failed to load cron logs', err)

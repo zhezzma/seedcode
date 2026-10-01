@@ -7,7 +7,7 @@ const inVitest = process.env.VITEST !== undefined;
 
 const okPayload = (over: any = {}) => ({
     resolved: { path: "/srv/proj", basename: "proj", isGit: true },
-    pi: { hasSettings: false, hasSkills: false, hasExtensions: false, hasPrompts: false, hasSystemMd: false, trustRequiring: false, trusted: null },
+    pi: { hasSettings: false, hasSkills: false, hasExtensions: false, hasPrompts: false, hasSystemMd: false },
     boundAgents: [],
     warnings: [],
     ...over,
@@ -105,34 +105,6 @@ if (inVitest) {
             const b = useWorkspaceBinding({ debounceMs: 0 });
             b.setPath("/srv/proj");
             await vi.waitFor(() => expect(b.error.value).toBe("network"));
-        });
-
-        it("needsTrust：trustRequiring 且 trusted=false 且有 agentId", async () => {
-            apiState.get.mockResolvedValue(okPayload({
-                pi: { hasSettings: true, hasSkills: false, hasExtensions: false, hasPrompts: false, hasSystemMd: false, trustRequiring: true, trusted: false },
-            }));
-            const b = useWorkspaceBinding({ debounceMs: 0, agentId: () => "coder" });
-            b.setPath("/srv/proj");
-            await vi.waitFor(() => expect(b.needsTrust.value).toBe(true));
-        });
-
-        it("trustProject 调 trust 端点并重新校验", async () => {
-            apiState.get.mockResolvedValue(okPayload({
-                resolved: { path: "/srv/proj", basename: "proj", isGit: false },
-                pi: { hasSettings: true, hasSkills: false, hasExtensions: false, hasPrompts: false, hasSystemMd: false, trustRequiring: true, trusted: false },
-            }));
-            const b = useWorkspaceBinding({ debounceMs: 0, agentId: () => "coder" });
-            b.setPath("/srv/proj");
-            await vi.waitFor(() => expect(b.needsTrust.value).toBe(true));
-            apiState.post.mockResolvedValue({ ok: true, payload: { cwd: "/srv/proj", trusted: true } });
-            apiState.get.mockResolvedValue(okPayload({
-                pi: { hasSettings: true, hasSkills: false, hasExtensions: false, hasPrompts: false, hasSystemMd: false, trustRequiring: true, trusted: true },
-            }));
-            await b.trustProject();
-            expect(apiState.post).toHaveBeenCalledWith("/api/agents/coder/workspace/trust", {
-                cwd: "/srv/proj", decision: "trust",
-            });
-            await vi.waitFor(() => expect(b.needsTrust.value).toBe(false));
         });
     });
 } else {

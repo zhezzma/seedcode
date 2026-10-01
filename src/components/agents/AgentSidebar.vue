@@ -45,7 +45,7 @@ const { t } = useI18n()
 
                     <!-- Avatar -->
                     <div class="self-center shrink-0 my-3 mr-3">
-                        <AgentAvatar :avatar="agent.avatar" :emoji="agent.identity?.emoji" :name="agent.name"
+                        <AgentAvatar :avatar="agent.avatar" :name="agent.name"
                             size="md" />
                     </div>
 

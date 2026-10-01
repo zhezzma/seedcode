@@ -391,7 +391,7 @@ const handleInstall = async (skill: any, agentId?: string) => {
                                         v-model="installTarget" />
                                     <div class="flex-1 min-w-0 flex items-center justify-between">
                                         <div class="flex items-center gap-2 min-w-0">
-                                            <AgentAvatar :avatar="agent.avatar" :emoji="agent.identity?.emoji"
+                                            <AgentAvatar :avatar="agent.avatar"
                                                 :name="agent.name" size="xs" />
                                             <span class="font-medium text-sm truncate">{{ agent.name }}</span>
                                         </div>
