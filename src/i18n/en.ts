@@ -915,8 +915,6 @@ export default {
         updateFailed: 'Failed to update skill: {error}',
         extensionGloballyDisabled: 'Extension globally disabled',
         extensionGloballyDisabledHint: 'The extension providing this skill is globally disabled. Enable it on the Extensions page first.',
-        systemSkills: 'System Skills',
-        noSystemSkills: 'No system skills available',
         extensionSkills: 'Extension Skills',
         noExtensionSkills: 'No extension skills',
         extensionSkillCount: '{n} skills',

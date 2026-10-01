@@ -914,8 +914,6 @@ export default {
         updateFailed: '更新技能失败: {error}',
         extensionGloballyDisabled: '扩展已全局禁用',
         extensionGloballyDisabledHint: '该技能所属扩展已被全局禁用，请先在扩展页面启用',
-        systemSkills: '系统技能 (System)',
-        noSystemSkills: '暂无系统技能',
         extensionSkills: '扩展技能 (Extensions)',
         noExtensionSkills: '暂无扩展技能',
         extensionSkillCount: '{n} 个技能',

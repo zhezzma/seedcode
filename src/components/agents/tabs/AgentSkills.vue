@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 
 import { useSkillsState } from '../../../composables/useSkillsState'
 import { useToast } from '../../../composables/useToast'
@@ -19,14 +19,10 @@ const loading = ref(false)
 const processing = ref<Record<string, boolean>>({})
 
 const globalSkills = ref<any[]>([])
-const systemSkills = ref<any[]>([])
 
 // 扩展技能分组视图：每个注册了技能的扩展一行，展开看全部技能
 const extensionSkills = ref<any[]>([])
 const expandedExtensions = ref<Record<string, boolean>>({})
-
-// 系统技能区只展示文件技能；extension-skill 归入「扩展技能」分区
-const systemSkillsView = computed(() => systemSkills.value.filter(s => s.kind !== 'extension-skill'))
 
 // Agent skills are now full objects, not just strings
 const agentSkills = ref<any[]>([])
@@ -35,15 +31,13 @@ const fetchSkills = async () => {
     if (!props.agent?.id) return
     loading.value = true
     try {
-        const [agent, global, system, extensions] = await Promise.all([
+        const [agent, global, extensions] = await Promise.all([
             skillsState.loadAgentSkills(props.agent.id),
             skillsState.fetchGlobalSkills(props.agent.id),
-            skillsState.fetchSystemSkills(props.agent.id),
             skillsState.fetchExtensionSkills(props.agent.id)
         ])
         agentSkills.value = agent
         globalSkills.value = global
-        systemSkills.value = system
         extensionSkills.value = extensions
     } finally {
         loading.value = false
@@ -179,7 +173,7 @@ const currentSkillDocTitle = ref('')
 const currentSkillDocContent = ref('')
 const loadingDoc = ref(false)
 
-const openSkillDoc = async (skill: any, type: 'agent' | 'system' | 'global') => {
+const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
     const skillNameOrId = type === 'agent' ? skill.name : skill.id
     currentSkillDocTitle.value = getSkillDisplayName(skillNameOrId)
     currentSkillDocContent.value = ''
@@ -192,8 +186,6 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'system' | 'global') => 
         let content = null
         if (type === 'agent') {
             content = await skillsState.getAgentSkillContent(props.agent.id, skill.id)
-        } else if (type === 'system') {
-            content = await skillsState.getSystemSkillContent(skill.id)
         } else if (type === 'global') {
             content = await skillsState.getGlobalSkillContent(skill.id)
         }
@@ -270,59 +262,6 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'system' | 'global') => 
                                 <span v-if="processing[skill.id]" class="loading loading-spinner loading-xs"></span>
                                 <TrashIcon v-else class="w-4 h-4" />
                             </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- System Skills -->
-        <div>
-            <h3
-                class="text-sm font-bold text-base-content/70 uppercase tracking-wider mb-4 px-1 flex items-center gap-2">
-                {{ $t('skills.systemSkills') }}
-                <span class="badge badge-ghost badge-sm font-normal normal-case">{{ systemSkillsView.length }}</span>
-            </h3>
-
-            <div v-if="!systemSkillsView.length"
-                class="text-center p-8 border-2 border-dashed border-base-300 rounded-lg">
-                <p class="text-base-content/50">{{ $t('skills.noSystemSkills') }}</p>
-            </div>
-
-            <div v-else class="grid grid-cols-1 gap-3">
-                <div v-for="skill in systemSkillsView" :key="skill.id"
-                    class="card bg-base-200 border border-base-300 shadow-sm opacity-90 hover:opacity-100 transition-opacity">
-                    <div class="card-body p-4 flex-row items-center justify-between gap-4">
-                        <div class="flex items-center gap-3 overflow-hidden">
-                            <div
-                                class="w-10 h-10 rounded-lg bg-info/10 flex items-center justify-center text-info shrink-0">
-                                <CubeTransparentIcon class="w-6 h-6" />
-                            </div>
-                            <div class="min-w-0">
-                                <h3 class="font-bold truncate" :title="skill.name">
-                                    {{ getSkillDisplayName(skill.id) }}
-                                </h3>
-                                <p class="text-xs text-base-content/60 font-mono truncate">{{ skill.path }}</p>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center gap-2 shrink-0">
-                            <!-- Document button -->
-                            <button class="btn btn-ghost btn-square btn-sm text-base-content/60 hover:text-primary"
-                                :title="$t('common.viewDoc') || 'View Document'" @click="openSkillDoc(skill, 'system')">
-                                <DocumentTextIcon class="w-4 h-4" />
-                            </button>
-
-                            <span v-if="isExtensionGloballyDisabled(skill)"
-                                class="badge badge-xs badge-warning">{{ $t('skills.extensionGloballyDisabled') }}</span>
-                            <span
-                                :title="isExtensionGloballyDisabled(skill) ? $t('skills.extensionGloballyDisabledHint') : ''">
-                                <input type="checkbox" class="toggle toggle-sm toggle-info" :checked="skill.enabled"
-                                    :disabled="processing[skill.id] || isExtensionGloballyDisabled(skill)"
-                                    @change="toggleGlobalOrSystemSkill(skill, $event)" />
-                            </span>
-                            <div class="badge badge-ghost badge-sm border-info/20 text-info">{{ $t('common.system') }}
-                            </div>
                         </div>
                     </div>
                 </div>
