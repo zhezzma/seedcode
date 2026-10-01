@@ -1081,6 +1081,12 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
 
     const sessionData = getSessionData(targetKey)
 
+    // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
+    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）
+    const messagesSnapshot = sessionData.chatMessages
+    const toolMessagesSnapshot = sessionData.chatToolMessages
+    let sawStreamEvent = false
+
     // Remove the assistant message being retried from local state
     // (the server navigates back and re-prompts, creating a new branch)
     const entryIndex = sessionData.chatMessages.findIndex(m => m.entryId === entryId)
@@ -1115,9 +1121,20 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
         targetKey,
         { entryId },
         (event) => {
+            sawStreamEvent = true
             handleSSEEvent(event.event, event.data, targetKey)
         },
-        () => resetStreamState(sessionData)
+        (error) => {
+            if (sawStreamEvent) {
+                // 流已建立：服务端已改写树，本地以 done 重拉/attach 收敛，不回滚
+                resetStreamState(sessionData)
+                return
+            }
+            sessionData.chatMessages = messagesSnapshot
+            sessionData.chatToolMessages = toolMessagesSnapshot
+            useToast().error(error.message, 5000)
+            resetStreamState(sessionData)
+        },
     )
 
     bindSSELifecycle(sse, targetKey)
@@ -1131,6 +1148,12 @@ const editMessage = async (entryId: string, newText: string, sessionKey?: string
     }
 
     const sessionData = getSessionData(targetKey)
+
+    // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
+    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）
+    const messagesSnapshot = sessionData.chatMessages
+    const toolMessagesSnapshot = sessionData.chatToolMessages
+    let sawStreamEvent = false
 
     // Keep the user message but update its text, remove everything after it
     const entryIndex = sessionData.chatMessages.findIndex(m => m.entryId === entryId)
@@ -1159,9 +1182,20 @@ const editMessage = async (entryId: string, newText: string, sessionKey?: string
         targetKey,
         { entryId, newText },
         (event) => {
+            sawStreamEvent = true
             handleSSEEvent(event.event, event.data, targetKey)
         },
-        () => resetStreamState(sessionData)
+        (error) => {
+            if (sawStreamEvent) {
+                // 流已建立：服务端已改写树，本地以 done 重拉/attach 收敛，不回滚
+                resetStreamState(sessionData)
+                return
+            }
+            sessionData.chatMessages = messagesSnapshot
+            sessionData.chatToolMessages = toolMessagesSnapshot
+            useToast().error(error.message, 5000)
+            resetStreamState(sessionData)
+        },
     )
 
     bindSSELifecycle(sse, targetKey)
