@@ -1,3 +1,9 @@
+/** 树根哨兵键：root 级消息（parentId 为 null/undefined，root 重试/编辑产生）在
+ * childrenMap/allChildrenMap 中归入空串组；查询侧 null/undefined/'' 归一到此键。
+ * 既有「合成 root entry」形状（消息 parentId 指向 type:'root' 条目）不受影响——
+ * 那种消息的 parentId 是真实 id，仍按原键分组。 */
+const ROOT_PARENT_KEY = ''
+
 export interface BranchInfo {
     siblings: string[]
     currentIndex: number
@@ -134,9 +140,7 @@ const findNearestMessageAncestor = (entryId: string | null | undefined, indexes:
 }
 
 const getLiveMessageSiblings = (parentId: string | null | undefined, role: 'user' | 'assistant', indexes: BranchIndexes): string[] => {
-    if (!parentId) return []
-
-    return (indexes.childrenMap.get(parentId) ?? []).filter(id => {
+    return (indexes.childrenMap.get(parentId || ROOT_PARENT_KEY) ?? []).filter(id => {
         const entry = indexes.entryMap.get(id)
         if (!entry || entry.type !== 'message' || isDeletedEntry(entry)) {
             return false
@@ -154,16 +158,16 @@ export const buildBranchIndexes = (tree: SessionTreeEntry[] | null | undefined):
 
     for (const entry of tree ?? []) {
         entryMap.set(entry.id, entry)
-        if (!entry.parentId) continue
+        const parentKey = entry.parentId || ROOT_PARENT_KEY
 
-        const allChildren = allChildrenMap.get(entry.parentId)
+        const allChildren = allChildrenMap.get(parentKey)
         if (allChildren) allChildren.push(entry.id)
-        else allChildrenMap.set(entry.parentId, [entry.id])
+        else allChildrenMap.set(parentKey, [entry.id])
 
         if (entry.type === 'message') {
-            const children = childrenMap.get(entry.parentId)
+            const children = childrenMap.get(parentKey)
             if (children) children.push(entry.id)
-            else childrenMap.set(entry.parentId, [entry.id])
+            else childrenMap.set(parentKey, [entry.id])
         }
     }
 
@@ -185,9 +189,10 @@ export const findLeafId = (startId: string, indexes: BranchIndexes): string => {
 }
 
 export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): BranchInfo | null => {
-    if (!msg.entryId || !msg.parentEntryId) return null
+    if (!msg.entryId) return null
 
-    const liveSiblings = getLiveMessageSiblings(msg.parentEntryId, msg.role, indexes)
+    const parentKey = msg.parentEntryId || ROOT_PARENT_KEY
+    const liveSiblings = getLiveMessageSiblings(parentKey, msg.role, indexes)
     // user 角色的兄弟列表即分支列表（user 尾锚的导航目标，见 MessageBubble user footer）。
     // 与下方 assistant 回退路径的 parentSiblings 保持同口径：只数「自己 + 有活跃消息
     // 后代的兄弟」——无活跃后代的分支（回复被删光）不占计数、不从活分支跳入，但
@@ -211,7 +216,7 @@ export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): B
         return null
     }
 
-    const parentSiblings = getLiveMessageSiblings(parentMessage.parentId, 'user', indexes)
+    const parentSiblings = getLiveMessageSiblings(parentMessage.parentId || ROOT_PARENT_KEY, 'user', indexes)
         .filter(id => id === parentMessage.id || findFirstDescendantMessageId(id, indexes) !== null)
 
     if (parentSiblings.length <= 1) {

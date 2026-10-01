@@ -236,3 +236,63 @@ test('user branch-tail navigation returns null when only self survives filtering
         null,
     )
 })
+
+test('root 级兄弟分支：root 重试产生的首层分支可导航', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+        { id: 'u2', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a2', parentId: 'u2', type: 'message', message: { role: 'assistant' } },
+    ]
+    // 新分支尾（u2）与旧分支（u1）互为 root 兄弟
+    assert.deepEqual(getInfo(tree, { role: 'user', entryId: 'u2', parentEntryId: null }), {
+        siblings: ['u1', 'u2'],
+        currentIndex: 1,
+    })
+    assert.deepEqual(getInfo(tree, { role: 'user', entryId: 'u1', parentEntryId: null }), {
+        siblings: ['u1', 'u2'],
+        currentIndex: 0,
+    })
+})
+
+test('root 级 assistant 兄弟：直系回复级分支计数不衰减', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+        { id: 'a2', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+    ]
+    assert.deepEqual(getInfo(tree, { role: 'assistant', entryId: 'a2', parentEntryId: 'u1' }), {
+        siblings: ['a1', 'a2'],
+        currentIndex: 1,
+    })
+})
+
+test('root 唯一首层消息（无 root 重试发生）：不出现分支导航', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+    ]
+    assert.equal(getInfo(tree, { role: 'user', entryId: 'u1', parentEntryId: null }), null)
+})
+
+test('既有合成 root entry 形状（parentId 指向 type:root 条目）回归不变', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'root', parentId: null, type: 'root' },
+        { id: 'u1', parentId: 'root', type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+        { id: 'u2', parentId: 'root', type: 'message', message: { role: 'user' } },
+        { id: 'a2', parentId: 'u2', type: 'message', message: { role: 'assistant' } },
+    ]
+    assert.deepEqual(getInfo(tree, { role: 'user', entryId: 'u1', parentEntryId: 'root' }), {
+        siblings: ['u1', 'u2'],
+        currentIndex: 0,
+    })
+})
+
+test('无后代的首层消息不可作分支导航（既有活后代过滤语义，root 与否一致）', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'u2', parentId: null, type: 'message', message: { role: 'user' } },
+    ]
+    assert.equal(getInfo(tree, { role: 'user', entryId: 'u2', parentEntryId: null }), null)
+})
