@@ -296,3 +296,24 @@ test('无后代的首层消息不可作分支导航（既有活后代过滤语�
     ]
     assert.equal(getInfo(tree, { role: 'user', entryId: 'u2', parentEntryId: null }), null)
 })
+
+test('root 分支的 assistant 回复经回退路径获得 user 锚点导航（root 重试后唯一可见锚点）', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+        { id: 'u2', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a2', parentId: 'u2', type: 'message', message: { role: 'assistant' } },
+    ]
+    assert.deepEqual(getInfo(tree, { role: 'assistant', entryId: 'a2', parentEntryId: 'u2' }), {
+        siblings: ['u1', 'u2'],
+        currentIndex: 1,
+    })
+})
+
+test('root 唯一分支的 assistant 无导航（语义钉：单分支不渲染 n/n）', () => {
+    const tree: SessionTreeEntry[] = [
+        { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
+        { id: 'a1', parentId: 'u1', type: 'message', message: { role: 'assistant' } },
+    ]
+    assert.equal(getInfo(tree, { role: 'assistant', entryId: 'a1', parentEntryId: 'u1' }), null)
+})

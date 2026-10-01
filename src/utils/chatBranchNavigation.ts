@@ -212,7 +212,7 @@ export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): B
     if (msg.role !== 'assistant') return null
 
     const parentMessage = findNearestMessageAncestor(msg.parentEntryId, indexes)
-    if (!parentMessage?.parentId || isDeletedEntry(parentMessage)) {
+    if (!parentMessage || isDeletedEntry(parentMessage)) {
         return null
     }
 
