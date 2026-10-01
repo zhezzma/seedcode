@@ -632,10 +632,14 @@ export function useChatMessages(state: ChatStateShape) {
         //    回显命中（message_start 消费）或服务端 queue_state 快照修正后无缝转正为正式气泡
         const pendingQueue = state.pendingQueue || []
         for (const entry of pendingQueue) {
+            // 与历史同规则过 convertToBlocks：/a2ui-event 面板提交渲染为动作 chip
+            //（a2ui-action），不再裸显整段 JSON 文本——提交后在排队/运行中与消费后
+            //（历史回显）同一观感，不因排队态裸奔
+            const pendingBlocks = convertToBlocks(entry.text)
             displayMessages.push({
                 id: entry.id,
                 role: 'user',
-                blocks: [{ type: 'text', text: entry.text }],
+                blocks: pendingBlocks.length > 0 ? pendingBlocks : [{ type: 'text', text: entry.text }],
                 timestamp: entry.timestamp,
                 pending: entry.mode,
             })

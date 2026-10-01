@@ -159,3 +159,42 @@ export async function run() {
     assert.deepEqual(result.roles, ['user', 'assistant'])
     assert.ok(result.lastHasA2ui, '兜底气泡应渲染面板')
 })
+
+test('排队中的 /a2ui-event 面板提交渲染为动作 chip，不裸显 JSON 文本', async () => {
+    const result = await runHarness(`
+import { reactive } from 'vue'
+import { useChatMessages } from '../../src/composables/useChatMessages'
+
+export async function run() {
+    const state = reactive({
+        sessionKey: 's1',
+        chatMessages: [
+            { role: 'user', content: [{ type: 'text', text: '给我一个提问' }], timestamp: 1, entryId: 'e-u' },
+            { role: 'assistant', content: [{ type: 'text', text: '好的' }], timestamp: 2, entryId: 'e-a' },
+        ],
+        chatStream: null,
+        pendingQueue: [{
+            id: 'q1',
+            text: '/a2ui-event {"version":"v1.0","action":{"name":"question.submit","surfaceId":"surf-1","context":{"value":"full_plan_b","label":"全修","customAnswer":""}}}',
+            mode: 'followUp',
+            timestamp: 3,
+        }],
+    })
+    const { processedMessages } = useChatMessages(state as any)
+    const msgs = processedMessages.value
+    const last = msgs[msgs.length - 1]
+    return {
+        count: msgs.length,
+        lastRole: last.role,
+        lastPending: last.pending,
+        blockTypes: last.blocks.map((b: any) => b.type),
+        eventName: last.blocks[0]?.a2uiEventName,
+    }
+}
+`)
+    assert.equal(result.count, 3, '排队条目仍是尾部半透明 user 气泡')
+    assert.equal(result.lastRole, 'user')
+    assert.equal(result.lastPending, 'followUp')
+    assert.deepEqual(result.blockTypes, ['a2ui-action'], '/a2ui-event 应转动作 chip，而非裸文本')
+    assert.equal(result.eventName, 'question.submit')
+})
