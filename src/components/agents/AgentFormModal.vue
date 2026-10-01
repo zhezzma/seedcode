@@ -260,7 +260,7 @@ const submitForm = async () => {
 <template>
     <div :class="{ 'modal': true, 'modal-open': show }">
         <div
-            class="modal-box w-full md:w-11/12 max-w-4xl p-0 bg-base-100 overflow-hidden shadow-2xl rounded-2xl md:h-auto h-full max-h-full md:max-h-[90vh] flex flex-col">
+            class="modal-box w-full md:w-11/12 max-w-3xl p-0 bg-base-100 overflow-hidden shadow-2xl rounded-2xl md:h-auto h-full max-h-full md:max-h-[90vh] flex flex-col">
             <!-- Header -->
             <div
                 class="px-6 py-4 border-b border-base-300 flex items-center justify-between bg-base-100/50 backdrop-blur-sm sticky top-0 z-20 shrink-0">
@@ -280,46 +280,38 @@ const submitForm = async () => {
             </div>
 
             <div class="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8">
+                <!-- 单列布局：档案头（头像 + ID/名称）→ workspace → 描述 → 模型设置 -->
+                <div class="flex flex-col gap-5">
 
-                <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
-
-                    <!-- Left Column: Avatar (4 cols) -->
-                    <!-- On mobile, this stacks on top and is centered -->
-                    <div class="md:col-span-4 flex flex-col items-center gap-6">
+                    <!-- Profile Header: Avatar + ID/Name（同行排布，窄屏上下堆叠） -->
+                    <div class="flex flex-col sm:flex-row gap-5 sm:gap-6">
 
                         <!-- Avatar uploader -->
-                        <div class="relative group cursor-pointer" @click="triggerFileInput">
+                        <div class="relative group cursor-pointer shrink-0 self-center sm:self-start" @click="triggerFileInput">
                             <div
                                 class="avatar placeholder ring-4 ring-base-200 ring-offset-2 ring-offset-base-100 rounded-full transition-all duration-300 group-hover:ring-primary/50 group-hover:shadow-lg">
                                 <div
-                                    class="bg-neutral text-neutral-content rounded-full w-32 h-32 md:w-35 md:h-35 shadow-inner overflow-hidden flex items-center justify-center">
+                                    class="bg-neutral text-neutral-content rounded-full w-24 h-24 md:w-28 md:h-28 shadow-inner overflow-hidden flex items-center justify-center">
                                     <img v-if="formData.avatarPreview" :src="formData.avatarPreview"
                                         class="object-cover w-full h-full transition-transform duration-500 group-hover:scale-105" />
-                                    <span v-else class="text-5xl md:text-7xl select-none animate-pulse-slow">🤖</span>
+                                    <span v-else class="text-5xl md:text-6xl select-none animate-pulse-slow">🤖</span>
                                 </div>
                             </div>
 
                             <!-- Overlay -->
                             <div
-                                class="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity duration-300 text-white gap-2">
-                                <PhotoIcon class="w-8 h-8" />
-                                <span class="text-xs font-bold uppercase tracking-wider">{{ t('agent.form.uploadAvatar')
+                                class="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity duration-300 text-white gap-1.5">
+                                <PhotoIcon class="w-7 h-7" />
+                                <span class="text-[10px] font-bold uppercase tracking-wider">{{ t('agent.form.uploadAvatar')
                                     }}</span>
                             </div>
 
                             <input ref="fileInput" type="file" accept="image/*" class="hidden"
                                 @change="handleFileChange" />
                         </div>
-                    </div>
 
-
-                    <!-- Right Column: Main Form (8 cols) -->
-                    <div class="md:col-span-8 flex flex-col gap-6">
-
-                        <!-- Main Info Section -->
-                        <div class="flex flex-col gap-4">
-
-
+                        <!-- ID + Name -->
+                        <div class="flex-1 min-w-0 flex flex-col gap-4 w-full">
                             <!-- ID Field -->
                             <div class="form-control w-full">
                                 <label class="label pt-0 pb-1.5">
@@ -333,7 +325,6 @@ const submitForm = async () => {
                                     class="input input-bordered w-full font-mono text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                                     :disabled="mode === 'edit'" @input="idTouched = true"
                                     :class="{ 'input-error': mode === 'add' && !isFormValid && formData.id.length > 0 }" />
-
                             </div>
 
                             <!-- Name Field -->
@@ -348,86 +339,83 @@ const submitForm = async () => {
                                     :placeholder="t('agent.form.namePlaceholder')" @input="nameTouched = true"
                                     class="input input-bordered w-full focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all" />
                             </div>
-
-                            <!-- Workspace Directory Field (spec §5.1) -->
-                            <div class="form-control">
-                                <WorkspacePathField ref="workspaceFieldRef" v-model="formData.workspaceDir"
-                                    :agent-id="mode === 'edit' ? agentData?.id : undefined"
-                                    @validated="onWorkspaceValidated" />
-                            </div>
-
                         </div>
+                    </div>
 
-                        <!-- Description -->
+                    <!-- Workspace Directory Field (spec §5.1) -->
+                    <div class="form-control">
+                        <WorkspacePathField ref="workspaceFieldRef" v-model="formData.workspaceDir"
+                            :agent-id="mode === 'edit' ? agentData?.id : undefined"
+                            @validated="onWorkspaceValidated" />
+                    </div>
+
+                    <!-- Description -->
+                    <div class="form-control w-full">
+                        <label class="label pt-0 pb-1.5">
+                            <span class="label-text font-bold text-sm flex items-center gap-1.5 opacity-80">
+                                <FaceSmileIcon class="w-4 h-4" />
+                                {{ t('agent.form.description') }}
+                            </span>
+                        </label>
+                        <textarea v-model="formData.description"
+                            class="textarea w-full textarea-bordered h-28 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none text-base leading-relaxed"
+                            :placeholder="t('agent.noDescriptionFallback')"></textarea>
+                    </div>
+
+                    <!-- Technical Settings -->
+                    <div class="bg-base-200/40 rounded-xl p-5 border border-base-300">
+                        <h4
+                            class="text-xs font-bold text-base-content/60 mb-4 uppercase tracking-wider flex items-center gap-2">
+                            <CpuChipIcon class="w-4 h-4" />
+                            {{ t('common.settings') }}
+                        </h4>
                         <div class="form-control w-full">
                             <label class="label pt-0 pb-1.5">
-                                <span class="label-text font-bold text-sm flex items-center gap-1.5 opacity-80">
-                                    <FaceSmileIcon class="w-4 h-4" />
-                                    {{ t('agent.form.description') }}
-                                </span>
+                                <span class="label-text font-medium">{{ t('agent.form.defaultModel') }}</span>
                             </label>
-                            <textarea v-model="formData.description"
-                                class="textarea w-full textarea-bordered h-32 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none text-base leading-relaxed"
-                                :placeholder="t('agent.noDescriptionFallback')"></textarea>
-                        </div>
-
-
-
-                        <!-- Technical Settings -->
-                        <div class="bg-base-200/40 rounded-xl p-5 border border-base-300">
-                            <h4
-                                class="text-xs font-bold text-base-content/60 mb-4 uppercase tracking-wider flex items-center gap-2">
-                                <CpuChipIcon class="w-4 h-4" />
-                                {{ t('common.settings') }}
-                            </h4>
-                            <div class="form-control w-full">
-                                <label class="label pt-0 pb-1.5">
-                                    <span class="label-text font-medium">{{ t('agent.form.defaultModel') }}</span>
-                                </label>
-                                <!-- 复用底部输入框共用的模型选择菜单（ModelSelectMenuContent），
-                                    触发按钮样式对齐表单其余输入框；点 X 清空经桥接置空 provider/model -->
-                                <div ref="modelMenuRef" class="dropdown dropdown-top w-full"
-                                    :class="{ 'dropdown-open': modelMenuOpen }">
-                                    <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen"
-                                        class="input input-bordered w-full flex items-center justify-between gap-2 text-left font-normal cursor-pointer">
-                                        <span class="truncate min-w-0"
-                                            :class="{ 'opacity-40': !selectedModelValue }">{{
-                                                selectedModelValue ? selectedModelLabel :
-                                                t('agent.form.modelPlaceholder') }}</span>
-                                        <span v-if="selectedModelValue" role="button" :title="t('common.clear')"
-                                            class="btn btn-ghost btn-xs btn-circle shrink-0"
-                                            @click.stop="selectedModelValue = ''">
-                                            <XMarkIcon class="w-3.5 h-3.5" />
-                                        </span>
-                                        <ChevronUpIcon class="w-4 h-4 shrink-0 opacity-50 transition-transform"
-                                            :class="{ 'rotate-180': modelMenuOpen }" />
-                                    </button>
-                                    <div v-if="modelMenuOpen"
-                                        class="dropdown-content shadow-xl bg-base-100 rounded-box border border-base-300 z-[100] w-full max-h-96 overflow-hidden flex flex-col mb-2">
-                                        <ModelSelectMenuContent :available-models="availableModels"
-                                            :current-model="selectedModelValue" @select="onModelSelect" />
-                                    </div>
+                            <!-- 复用底部输入框共用的模型选择菜单（ModelSelectMenuContent），
+                                触发按钮样式对齐表单其余输入框；点 X 清空经桥接置空 provider/model -->
+                            <div ref="modelMenuRef" class="dropdown dropdown-top w-full"
+                                :class="{ 'dropdown-open': modelMenuOpen }">
+                                <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen"
+                                    class="input input-bordered w-full flex items-center justify-between gap-2 text-left font-normal cursor-pointer">
+                                    <span class="truncate min-w-0"
+                                        :class="{ 'opacity-40': !selectedModelValue }">{{
+                                            selectedModelValue ? selectedModelLabel :
+                                            t('agent.form.modelPlaceholder') }}</span>
+                                    <span v-if="selectedModelValue" role="button" :title="t('common.clear')"
+                                        class="btn btn-ghost btn-xs btn-circle shrink-0"
+                                        @click.stop="selectedModelValue = ''">
+                                        <XMarkIcon class="w-3.5 h-3.5" />
+                                    </span>
+                                    <ChevronUpIcon class="w-4 h-4 shrink-0 opacity-50 transition-transform"
+                                        :class="{ 'rotate-180': modelMenuOpen }" />
+                                </button>
+                                <div v-if="modelMenuOpen"
+                                    class="dropdown-content shadow-xl bg-base-100 rounded-box border border-base-300 z-[100] w-full max-h-96 overflow-hidden flex flex-col mb-2">
+                                    <ModelSelectMenuContent :available-models="availableModels"
+                                        :current-model="selectedModelValue" @select="onModelSelect" />
                                 </div>
                             </div>
-
-                            <!-- 思考等级：与 AgentOverview 设置页同款枚举（off..max） -->
-                            <div class="form-control w-full mt-4">
-                                <label class="label pt-0 pb-1.5">
-                                    <span class="label-text font-medium">{{ t('chat.thinkingLevel') }}</span>
-                                </label>
-                                <select v-model="formData.defaultThinkingLevel" class="select select-bordered w-full">
-                                    <option value="off">{{ t('chat.thinkingLevels.off') }}</option>
-                                    <option value="minimal">{{ t('chat.thinkingLevels.minimal') }}</option>
-                                    <option value="low">{{ t('chat.thinkingLevels.low') }}</option>
-                                    <option value="medium">{{ t('chat.thinkingLevels.medium') }}</option>
-                                    <option value="high">{{ t('chat.thinkingLevels.high') }}</option>
-                                    <option value="xhigh">{{ t('chat.thinkingLevels.xhigh') }}</option>
-                                    <option value="max">{{ t('chat.thinkingLevels.max') }}</option>
-                                </select>
-                            </div>
                         </div>
 
+                        <!-- 思考等级：与 AgentOverview 设置页同款枚举（off..max） -->
+                        <div class="form-control w-full mt-4">
+                            <label class="label pt-0 pb-1.5">
+                                <span class="label-text font-medium">{{ t('chat.thinkingLevel') }}</span>
+                            </label>
+                            <select v-model="formData.defaultThinkingLevel" class="select select-bordered w-full">
+                                <option value="off">{{ t('chat.thinkingLevels.off') }}</option>
+                                <option value="minimal">{{ t('chat.thinkingLevels.minimal') }}</option>
+                                <option value="low">{{ t('chat.thinkingLevels.low') }}</option>
+                                <option value="medium">{{ t('chat.thinkingLevels.medium') }}</option>
+                                <option value="high">{{ t('chat.thinkingLevels.high') }}</option>
+                                <option value="xhigh">{{ t('chat.thinkingLevels.xhigh') }}</option>
+                                <option value="max">{{ t('chat.thinkingLevels.max') }}</option>
+                            </select>
+                        </div>
                     </div>
+
                 </div>
 
             </div>
