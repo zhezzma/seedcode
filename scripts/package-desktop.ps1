@@ -9,8 +9,9 @@ src-tauri\resources\seedagent\ 目录的过程。该目录会被 tauri 打进安
     node.exe                  Node 运行时（本机版本匹配则直接拷贝，否则从 nodejs.org 下载）
     dist\                     seedagent 编译产物（npm run build 生成）
     node_modules\             生产依赖（在装配目录内单独 npm ci --omit=dev，不动 seedagent 仓库）
-    seedserver.mjs            服务端单文件 bundle（步骤 ③.5 生成：dist JS 与 pi 包内联进单文件，
-                              dist 仅留 extensions/运行时资产；node_modules 仅留 jiti/chord。
+    seedserver.mjs            服务端单文件 bundle（步骤 ③.5 生成：扩展/工具说明符规范化 + 虚拟模块桥
+                              生成 + esbuild 从源码依赖直接打包 pi-agent-core/pi-ai 全部纯 JS 依赖；
+                              dist 仅留 extensions/tools/运行时资产；node_modules 仅留 jiti/chord。
                               vendor 资产（ocr 运行时 / sol-pi / superpowers）均不随包：
                               由扩展设置面板按需安装到用户数据目录 vendor/<name>）
     package.json / package-lock.json
