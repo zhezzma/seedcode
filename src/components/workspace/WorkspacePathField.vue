@@ -60,26 +60,28 @@ defineExpose({ revalidate: binding.revalidate });
             <span v-if="binding.checking.value" class="loading loading-spinner loading-xs"></span>
         </div>
 
-        <!-- 状态行 -->
+        <!-- 状态行：校验结果 + 已绑定提示合并为一行（· 分隔），窄屏自动换行 -->
         <div v-if="binding.error.value" class="flex items-center gap-1.5 text-error text-xs">
             <XCircleIcon class="w-4 h-4 shrink-0" />
             <span>{{ t(errorToI18nKey(binding.error.value)!) }}</span>
         </div>
-        <div v-else-if="binding.result.value" class="flex items-center gap-2 text-success text-xs">
-            <CheckCircleIcon class="w-4 h-4 shrink-0" />
-            <span>{{ binding.result.value.resolved.isGit ? t('workspaceBinding.okGit') : t('workspaceBinding.okPlain') }}</span>
-            <span v-if="binding.result.value.pi.hasSettings || binding.result.value.pi.hasSkills
-                || binding.result.value.pi.hasExtensions || binding.result.value.pi.hasPrompts"
-                class="badge badge-ghost badge-xs font-mono">.pi</span>
-        </div>
-
-        <!-- 已绑定提示 -->
-        <div v-if="binding.boundAgents.value.length === 1" class="text-xs text-info">
-            {{ t('workspaceBinding.boundSingle', { name: binding.boundAgents.value[0].name }) }}
-        </div>
-        <div v-else-if="binding.boundAgents.value.length > 1" class="text-xs text-info">
-            {{ t('workspaceBinding.boundMultiple') }}
-            <span class="font-medium">{{ binding.boundAgents.value.map(a => a.name).join('、') }}</span>
+        <div v-else-if="binding.result.value" class="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs min-w-0">
+            <span class="flex items-center gap-1.5 text-success">
+                <CheckCircleIcon class="w-4 h-4 shrink-0" />
+                <span>{{ binding.result.value.resolved.isGit ? t('workspaceBinding.okGit') : t('workspaceBinding.okPlain') }}</span>
+                <span v-if="binding.result.value.pi.hasSettings || binding.result.value.pi.hasSkills
+                    || binding.result.value.pi.hasExtensions || binding.result.value.pi.hasPrompts"
+                    class="badge badge-ghost badge-xs font-mono">.pi</span>
+            </span>
+            <template v-if="binding.boundAgents.value.length === 1">
+                <span class="opacity-40">·</span>
+                <span class="text-info min-w-0 truncate">{{ t('workspaceBinding.boundSingle', { name: binding.boundAgents.value[0].name }) }}</span>
+            </template>
+            <template v-else-if="binding.boundAgents.value.length > 1">
+                <span class="opacity-40">·</span>
+                <span class="text-info min-w-0 truncate">{{ t('workspaceBinding.boundMultiple') }}
+                    <span class="font-medium">{{ binding.boundAgents.value.map(a => a.name).join('、') }}</span></span>
+            </template>
         </div>
     </div>
 </template>
