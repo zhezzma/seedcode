@@ -614,8 +614,6 @@ export default {
         a2uiActionAnswerChoice: '选择',
         a2uiActionAnswerCustom: '已填写',
         a2uiActionRaw: '原始数据',
-        deleteMessageConfirm: '⚠️ 删除用户消息会同时删除其后的所有消息,确定要删除吗？',
-        deleteMessageConfirmTitle: '删除确认',
         downloadImage: '下载图片',
         downloadImageSuccess: '图片已保存: {path}',
         downloadImageFailed: '下载失败，请稍后重试',

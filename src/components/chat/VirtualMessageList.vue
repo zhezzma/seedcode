@@ -36,7 +36,6 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: 'copy', msg: DisplayMessage): void
     (e: 'read-aloud', msg: DisplayMessage): void
-    (e: 'delete', msg: DisplayMessage): void
     (e: 'retry', msg: DisplayMessage): void
     (e: 'fork', msg: DisplayMessage): void
     (e: 'edit', msg: DisplayMessage, newText: string): void
@@ -334,7 +333,7 @@ onBeforeUnmount(() => {
                     :is-branch-tail="item.isBranchTail"
                     :flash="!!item.msg.entryId && item.msg.entryId === flashEntryId"
                     :branch-info="getBranchInfo(item.msg)" @copy="emit('copy', item.msg)"
-                    @read-aloud="emit('read-aloud', item.msg)" @delete="emit('delete', item.msg)"
+                    @read-aloud="emit('read-aloud', item.msg)"
                     @retry="emit('retry', item.msg)" @fork="emit('fork', item.msg)"
                     @edit="(msg, text) => emit('edit', msg, text)"
                     @navigate-branch="(msg, dir) => emit('navigate-branch', msg, dir)" />

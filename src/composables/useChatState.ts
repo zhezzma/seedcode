@@ -1049,31 +1049,7 @@ const removePendingItem = async (id: string, sessionKey?: string) => {
 }
 
 
-// ==================== Delete / Retry / Branch ====================
-
-const deleteMessage = async (entryId: string, sessionKey?: string) => {
-    const targetKey = sessionKey || state.sessionKey
-    if (!targetKey) {
-        console.error('[useChatState] deleteMessage called without sessionKey')
-        return
-    }
-
-    try {
-        const result = await apiPost<{ messages: ChatMessage[], deleted: boolean }>(
-            `/api/chat/${targetKey}/delete`,
-            { entryId }
-        )
-        if (result?.messages) {
-            const sd = getSessionData(targetKey)
-            sd.chatMessages = result.messages
-            sd.chatToolMessages = []
-            // Message deleted -> Tree changed
-            fetchSessionTree(targetKey)
-        }
-    } catch (err: any) {
-        console.error('[useChatState] deleteMessage failed:', err)
-    }
-}
+// ==================== Retry / Branch ====================
 
 const retryMessage = async (entryId: string, sessionKey?: string) => {
     const targetKey = sessionKey || state.sessionKey
@@ -1550,7 +1526,7 @@ const _methods = {
     sendMessage, steerMessage, followMessage, abortChat, loadChatHistory, compactSession,
     setSessionModel, setSessionThinkingLevel, patchSessionRowEverywhere,
     setSessionKey, createNewSession, selectAgent, getSessionData,
-    deleteMessage, retryMessage, editMessage, fetchSessionTree, fetchSessionUsage, navigateBranch, forkFromEntry,
+    retryMessage, editMessage, fetchSessionTree, fetchSessionUsage, navigateBranch, forkFromEntry,
     isForkingEntry,
     isCompacting,
 }

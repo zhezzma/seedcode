@@ -16,21 +16,31 @@ const getSection = (startMarker: string, endMarker: string) => {
     return source.slice(start, end)
 }
 
-const assertRetryBeforeDelete = (section: string, name: string) => {
+// 2026-10：单条消息删除按钮已下线（v4 存储层 append-only，「删除」实为叶子回退，
+// 与会话树导航重复）——本文件从「retry 在 delete 前」顺序钉子改为：
+// retry 仍在 + 删除按钮不再回归（防止有人无意把按钮加回来而背后无真删除能力）。
+const assertToolbar = (section: string, name: string) => {
     const retryIndex = section.indexOf(":title=\"$t('chat.retry')\"")
-    const deleteIndex = section.indexOf(":title=\"$t('common.delete')\"")
 
     assert.notEqual(retryIndex, -1, `${name} section should contain retry button`)
-    assert.notEqual(deleteIndex, -1, `${name} section should contain delete button`)
-    assert.ok(retryIndex < deleteIndex, `${name} toolbar should place retry before delete`)
+    assert.equal(
+        section.indexOf('@click="handleDelete"'),
+        -1,
+        `${name} toolbar must not reintroduce the delete button`,
+    )
+    assert.equal(
+        section.indexOf(":title=\"$t('common.delete')\""),
+        -1,
+        `${name} toolbar must not reference common.delete`,
+    )
 }
 
-test('user toolbar places retry button before delete button', () => {
+test('user toolbar keeps retry and stays free of the removed delete button', () => {
     const section = getSection('<!-- User Actions (Hover) -->', '<!-- Assistant Message Bubble -->')
-    assertRetryBeforeDelete(section, 'user')
+    assertToolbar(section, 'user')
 })
 
-test('assistant toolbar places retry button before delete button', () => {
+test('assistant toolbar keeps retry and stays free of the removed delete button', () => {
     const section = getSection('<!-- Assistant Actions (Fixed) -->', '<!-- Branch Navigation -->')
-    assertRetryBeforeDelete(section, 'assistant')
+    assertToolbar(section, 'assistant')
 })

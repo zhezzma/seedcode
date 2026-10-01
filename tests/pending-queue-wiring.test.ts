@@ -118,8 +118,8 @@ test('useChatState: tool_execution_end 推送对象补齐 toolName/details（Tod
     assert.match(handler, /details: data\.result\?\.details/)
 })
 
-test('useChatState: retry/edit/navigate/delete 分支改写后清空 chatToolMessages（防被放弃分支快照 LWW 胜出）', () => {
-    for (const name of ['retryMessage', 'editMessage', 'navigateBranch', 'deleteMessage']) {
+test('useChatState: retry/edit/navigate 分支改写后清空 chatToolMessages（防被放弃分支快照 LWW 胜出）', () => {
+    for (const name of ['retryMessage', 'editMessage', 'navigateBranch']) {
         const fn = extractFn(chatStateSource, name)
         assert.match(fn, /chatToolMessages = \[\]/, `${name} must clear chatToolMessages after branch rewrite`)
     }

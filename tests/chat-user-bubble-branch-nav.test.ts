@@ -48,18 +48,18 @@ test('user toolbar renders branch navigation for multi-branch sessions', () => {
     )
 })
 
-test('user branch navigation sits in normal mode after delete button', () => {
+test('user branch navigation sits in normal mode after action buttons', () => {
     const section = getSection('<!-- User Actions (Hover) -->', '<!-- Assistant Message Bubble -->')
 
     // 编辑态（v-if="isEditing" 分支）不应包含导航：编辑文本时横向切分支语义不明
     const normalModeStart = section.indexOf('<template v-else>')
-    const deleteIndex = section.indexOf('@click="handleDelete"', normalModeStart)
+    const retryIndex = section.indexOf(":title=\"$t('chat.retry')\"", normalModeStart)
     const navIndex = section.indexOf('isBranchTail && branchInfo', normalModeStart)
 
     assert.notEqual(normalModeStart, -1, 'user toolbar should keep a normal-mode branch')
-    assert.notEqual(deleteIndex, -1, 'user toolbar normal mode should keep delete button')
+    assert.notEqual(retryIndex, -1, 'user toolbar normal mode should keep retry button')
     assert.notEqual(navIndex, -1, 'user toolbar normal mode should render branch navigation')
-    assert.ok(navIndex > deleteIndex, 'user branch navigation should come after action buttons')
+    assert.ok(navIndex > retryIndex, 'user branch navigation should come after action buttons')
 })
 
 // isBranchTail 公式钉子：紧随其后的显示项不是 assistant 回复即分支尾锚

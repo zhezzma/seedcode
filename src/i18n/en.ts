@@ -613,8 +613,6 @@ export default {
         a2uiActionAnswerChoice: 'Selected',
         a2uiActionAnswerCustom: 'Answered',
         a2uiActionRaw: 'Raw Data',
-        deleteMessageConfirm: '⚠️ Deleting a user message will also delete all subsequent messages. Are you sure?',
-        deleteMessageConfirmTitle: 'Confirm Delete',
         downloadImage: 'Download Image',
         downloadImageSuccess: 'Image saved: {path}',
         downloadImageFailed: 'Download failed, please try again',

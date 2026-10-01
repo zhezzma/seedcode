@@ -548,7 +548,7 @@ const readAloud = (msg: DisplayMessage) => {
     ttsReadAloud(msg.id, text)
 }
 
-// ==================== Delete / Retry / Branch ====================
+// ==================== Retry / Branch ====================
 
 // Session tree data for branch navigation
 const sessionTreeEntries = computed(() => chatState.sessionTree)
@@ -556,12 +556,6 @@ const branchIndexes = computed(() => buildBranchIndexes(sessionTreeEntries.value
 
 const getBranchInfo = (msg: DisplayMessage): BranchInfo | null => {
     return resolveBranchInfo(msg, branchIndexes.value)
-}
-
-const deleteMessage = async (msg: DisplayMessage) => {
-    if (!msg.entryId) return
-    await chatState.deleteMessage(msg.entryId)
-    // delete 后 chatState 内部会自动 fetchSessionTree，这里无需手动调用
 }
 
 const retryMessage = async (msg: DisplayMessage) => {
@@ -956,7 +950,7 @@ async function applyDefaultSessionBehavior() {
                         <VirtualMessageList ref="virtualMessageListRef" :messages="processedMessages" :is-busy="isBusy"
                             :scroll-container="messagesContainerRef" :flash-entry-id="flashEntryId"
                             :get-branch-info="getBranchInfo" @copy="copyMessage" @read-aloud="readAloud"
-                            @delete="deleteMessage" @retry="retryMessage" @edit="editMessage"
+                            @retry="retryMessage" @edit="editMessage"
                             @fork="forkMessage" @navigate-branch="navigateBranch" />
                     </div>
 

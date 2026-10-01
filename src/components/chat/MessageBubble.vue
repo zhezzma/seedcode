@@ -3,7 +3,6 @@ import {
     ClipboardIcon,
     SpeakerWaveIcon,
     StopIcon,
-    TrashIcon,
     ArrowPathIcon,
     ChevronLeftIcon,
     ChevronRightIcon,
@@ -20,7 +19,6 @@ import { handleA2UIAction } from '../../composables/useA2UIActions'
 import { getSurface } from '../../composables/useA2UISurfaces'
 import { useChatState } from '../../composables/useChatState'
 import { useTTS } from '../../composables/useTTS'
-import { useConfirm } from '../../composables/useConfirm'
 import { computeBlockKeys } from '../../utils/blockKeys'
 import type { DisplayMessage } from '../../composables/useChatMessages'
 
@@ -49,7 +47,6 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: 'copy', msg: DisplayMessage): void
     (e: 'read-aloud', msg: DisplayMessage): void
-    (e: 'delete', msg: DisplayMessage): void
     (e: 'retry', msg: DisplayMessage): void
     (e: 'fork', msg: DisplayMessage): void
     (e: 'edit', msg: DisplayMessage, newText: string): void
@@ -58,7 +55,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const chatState = useChatState()
 const { currentReadingMsgId } = useTTS()
-const { confirm } = useConfirm()
 
 // A2UI action handling
 function onA2UIAction(action: any, dataModel: Record<string, any>, surfaceId: string, sourceComponentId: string) {
@@ -121,16 +117,6 @@ const submitEdit = () => {
     if (!newText) return
     isEditing.value = false
     emit('edit', props.message, newText)
-}
-
-const handleDelete = async () => {
-    const result = await confirm(
-        t('chat.deleteMessageConfirm'),
-        t('chat.deleteMessageConfirmTitle')
-    )
-    if (result) {
-        emit('delete', props.message)
-    }
 }
 
 // Helper functions
@@ -441,11 +427,6 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     :title="$t('chat.retry')">
                     <ArrowPathIcon class="h-4 w-4" />
                 </button>
-                <button v-if="!isBusy && message.entryId" @click="handleDelete"
-                    class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-error hover:bg-error/10"
-                    :title="$t('common.delete')">
-                    <TrashIcon class="h-4 w-4" />
-                </button>
 
                 <!-- Branch Navigation（user 气泡锚点）：分支尾部没有已渲染 assistant 回复时
                      （停止产生的空 aborted 回复按设计零渲染、回复被删光），及分支被续写后
@@ -607,11 +588,6 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                 class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-warning hover:bg-warning/10"
                 :title="$t('chat.retry')">
                 <ArrowPathIcon class="h-4 w-4" />
-            </button>
-            <button v-if="!isBusy && message.entryId" @click="handleDelete"
-                class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-error hover:bg-error/10"
-                :title="$t('common.delete')">
-                <TrashIcon class="h-4 w-4" />
             </button>
 
             <!-- Branch Navigation -->
