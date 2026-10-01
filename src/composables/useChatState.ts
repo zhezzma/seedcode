@@ -28,7 +28,7 @@ import router from '../router'
 // ==================== Types ====================
 export interface ChatMessage {
     id?: string
-    role: 'user' | 'assistant' | 'toolResult'
+    role: 'user' | 'assistant' | 'toolResult' | 'custom'
     content: any
     timestamp?: number
     model?: string
@@ -43,6 +43,11 @@ export interface ChatMessage {
     toolName?: string // 历史 /messages 与流式 tool_execution_end 的 toolResult 均携带（todo 提取器两条路径都依赖）
     /** pi 消息通用字段：display=false 面向模型（扩展注入的隐性提醒等），不进用户聊天记录 */
     display?: boolean
+    /** 展示类 custom（面板/图片卡）：服务端通道归位后的 custom_message 条目
+     * （/messages 投影携带 type==='custom_message' + customType；旧引擎历史与
+     *  live 追加为 role==='custom' + customType）——展示层并入前一条 assistant 气泡 */
+    type?: string
+    customType?: string
 }
 
 export interface ChatAttachment {
@@ -688,6 +693,22 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             }
             // stream 为空且无错误（user 消息回显）：直接跳过，保持 chatStream 为 [] 不变
             // loading 动画得以保持连续，不产生闪烁
+            break
+        }
+        case 'custom_message': {
+            // 展示类 custom 条目（服务端通道归位：question-render / questionnaire-render /
+            // generated_image 等）：而板作为「当前 AI 回复的内嵌展示附件」落地——直接追加
+            // 一条 role:'custom' 原始消息，展示层（useChatMessages 1.15）会把它并入前一条
+            // assistant 气泡，不独立成「第二条 AI 回复」。与历史路径同形状，done 全量
+            // 刷新幂等。
+            const panelMsg: ChatMessage = {
+                role: 'custom',
+                customType: data?.customType,
+                content: data?.data ?? [],
+                entryId: data?.entryId,
+                timestamp: Date.now(),
+            }
+            sessionData.chatMessages = [...sessionData.chatMessages, panelMsg]
             break
         }
         case 'command_delta':

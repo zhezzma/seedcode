@@ -454,6 +454,34 @@ export function useChatMessages(state: ChatStateShape) {
                 continue // Tool Result 不作为独立气泡显示，而是更新对应 Tool Call
             }
 
+            // 1.15 展示类 custom 消息（面板/图片卡）：并入前一条 assistant 气泡。
+            // 它是这条 AI 回复的内嵌展示附件，不是新一轮发言——独立成气泡会渲染成
+            // 「两个连续 AI 回复」。两形状统一处理：
+            // - 服务端 custom_message 条目（通道归位后 /messages 投影：type==='custom_message'）
+            // - 旧引擎/迁移历史的 role==='custom' 消息（含 SSE live 追加的）
+            if (msg.type === 'custom_message' || msg.role === 'custom') {
+                const panelBlocks = convertToBlocks(msg.content)
+                if (panelBlocks.length === 0) continue
+                const lastMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null
+                if (lastMsg && lastMsg.role === 'assistant') {
+                    // 与工具卡同语义：无条件并入（不受 assistantMsgMerge 开关控制）
+                    lastMsg.blocks.push(...panelBlocks)
+                    // 操作锚点跟随组内最后一条 entry（同 1.2 合并路径语义）
+                    if (msg.entryId) lastMsg.lastEntryId = msg.entryId
+                } else {
+                    // 前面无 assistant 气泡（面板开头/异常序）：兑底独立成 assistant 气泡
+                    displayMessages.push({
+                        id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                        role: 'assistant',
+                        blocks: panelBlocks,
+                        timestamp: msg.timestamp,
+                        entryId: msg.entryId,
+                        parentEntryId: msg.parentEntryId,
+                    })
+                }
+                continue
+            }
+
             // 1.2 处理普通消息 (User / Assistant)
             const convertedBlocks = convertToBlocks(msg.content)
             // 中断签名（用户停止 / 扩展设计内中断如在线压缩前的 abort）：有意中断而非故障。
