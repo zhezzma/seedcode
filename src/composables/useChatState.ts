@@ -1082,7 +1082,8 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
     const sessionData = getSessionData(targetKey)
 
     // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
-    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）
+    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）。
+    // 引用即可：本函数无就地改写消息对象，仅整体重赋值数组
     const messagesSnapshot = sessionData.chatMessages
     const toolMessagesSnapshot = sessionData.chatToolMessages
     let sawStreamEvent = false
@@ -1150,8 +1151,9 @@ const editMessage = async (entryId: string, newText: string, sessionKey?: string
     const sessionData = getSessionData(targetKey)
 
     // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
-    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）
-    const messagesSnapshot = sessionData.chatMessages
+    // 否则回复气泡被乐观删除后不回滚。必须浅拷贝：下方就地改写 content，
+    // 引用快照会让回滚后的文本停留为新文本而服务端仍是旧文本
+    const messagesSnapshot = sessionData.chatMessages.map(m => ({ ...m }))
     const toolMessagesSnapshot = sessionData.chatToolMessages
     let sawStreamEvent = false
 
