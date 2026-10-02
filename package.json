@@ -10,7 +10,7 @@
     "build": "npm run tcs && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "stage": "powershell -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -StageOnly  &&  npm run tauri dev",
+    "stage": "powershell -ExecutionPolicy Bypass -File scripts/package-desktop.ps1 -StageOnly  &&  npm run tauri dev -- --config src-tauri/tauri.dev.conf.json",
     "keystore:encrypt": "node scripts/keystore-crypt.mjs encrypt",
     "keystore:decrypt": "node scripts/keystore-crypt.mjs decrypt"
   },

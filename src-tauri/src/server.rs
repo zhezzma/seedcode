@@ -63,20 +63,27 @@ fn resolve_data_dir(exe_dir: &Path, raw: &str) -> PathBuf {
     }
 }
 
-/// 数据目录决策：<exe 目录>/.env 的 DATA_DIR 覆盖优先，否则默认 ~/.seedcode。
-fn resolve_default_data_dir(exe_dir: Option<&Path>) -> PathBuf {
+/// 数据目录决策：<exe 目录>/.env 的 DATA_DIR 覆盖优先；否则默认 ~/.seedcode。
+/// dev（tauri dev）默认改用 ~/.seedcode-dev：与打包版隔离数据/凭据/日志，
+/// 使两者可并行运行互不干扰（用户仍可用 .env 的 DATA_DIR 显式指向任意目录）。
+fn resolve_default_data_dir(exe_dir: Option<&Path>, dev: bool) -> PathBuf {
     exe_dir
         .and_then(|d| read_env_data_dir(d).map(|raw| resolve_data_dir(d, &raw)))
-        .unwrap_or_else(|| home_dir().join(".seedcode"))
+        .unwrap_or_else(|| home_dir().join(if dev { ".seedcode-dev" } else { ".seedcode" }))
 }
 
 /// 端口候选：用户意向优先，随后 18789~18798（去重）。
-pub fn port_candidates(preferred: Option<u16>) -> Vec<u16> {
+/// dev（tauri dev）用独立区间 18889~18898：服务端 /api/health 免鉴权，
+/// probe_port 无法靠 token 区分“本版本实例”与“打包版实例”，
+/// 若共用区间，dev 会把打包版正在运行的服务端误判为 Ours 而复用（联调错代码）、
+/// 退出时还会把它杀掉——区间隔离从结构上杜绝跨版本互探。
+pub fn port_candidates(preferred: Option<u16>, dev: bool) -> Vec<u16> {
     let mut out = Vec::new();
     if let Some(p) = preferred {
         out.push(p);
     }
-    for p in 18789..=18798 {
+    let range = if dev { 18889..=18898 } else { 18789..=18798 };
+    for p in range {
         if !out.contains(&p) {
             out.push(p);
         }
@@ -278,12 +285,16 @@ pub fn init(app: &AppHandle) -> ServerManager {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf));
-    let data_dir = resolve_default_data_dir(exe_dir.as_deref());
+    // dev（tauri dev）与打包版并行运行：数据目录默认 ~/.seedcode-dev、端口用独立区间，
+    // 详见 resolve_default_data_dir / port_candidates 注释
+    let dev = tauri::is_dev();
+    let data_dir = resolve_default_data_dir(exe_dir.as_deref(), dev);
     // 诊断：确认 .env 加载链路（exe_dir → .env → DATA_DIR/PORT → 最终 data_dir）。
-    // 落到 tauri-plugin-log（%LOCALAPPDATA%\com.godgodgame.seedcode\logs）；
+    // 落到 tauri-plugin-log（%LOCALAPPDATA%\{identifier}\logs）；
     // 只记本约定键的解析值，不转储文件全文（防用户把敏感键写进 .env 后随日志落盘）
     log::info!(
-        "[server][diag] exe_dir={:?} env_exists={} DATA_DIR={:?} PORT={:?} data_dir={:?}",
+        "[server][diag] dev={} exe_dir={:?} env_exists={} DATA_DIR={:?} PORT={:?} data_dir={:?}",
+        dev,
         exe_dir,
         exe_dir.as_deref().map(|d| d.join(".env").exists()).unwrap_or(false),
         exe_dir.as_deref().and_then(|d| read_env_value(d, "DATA_DIR")),
@@ -506,11 +517,11 @@ fn run_loop(app: AppHandle) {
         }
     };
 
-    // 选端口：<exe 目录>/.env 的 PORT 意向 → 18789~18798，一次性探测
+    // 选端口：<exe 目录>/.env 的 PORT 意向 → 本版本区间（dev 18889~18898 / 打包版 18789~18798），一次性探测
     let mut chosen: Option<u16> = None;
     let mut reused = false;
     let preferred_port = mgr.exe_dir.as_deref().and_then(read_env_port);
-    for port in port_candidates(preferred_port) {
+    for port in port_candidates(preferred_port, tauri::is_dev()) {
         match probe_port(port, &token) {
             PortProbe::Ours => {
                 chosen = Some(port);
@@ -758,35 +769,54 @@ mod tests {
 
     #[test]
     fn resolve_default_data_dir_env_override_and_fallback() {
+        // 打包版默认 ~/.seedcode
         let default = home_dir().join(".seedcode");
         // exe 目录缺失/无 .env/.env 无 DATA_DIR/DATA_DIR 为空 → 默认 ~/.seedcode
-        assert_eq!(resolve_default_data_dir(None), default);
+        assert_eq!(resolve_default_data_dir(None, false), default);
         let dir = temp_home("default-datadir");
-        assert_eq!(resolve_default_data_dir(Some(&dir)), default);
+        assert_eq!(resolve_default_data_dir(Some(&dir), false), default);
         std::fs::write(dir.join(".env"), "DATA_DIR=\n").unwrap();
-        assert_eq!(resolve_default_data_dir(Some(&dir)), default);
+        assert_eq!(resolve_default_data_dir(Some(&dir), false), default);
         // 有 DATA_DIR → 覆盖（相对 exe 目录）
         std::fs::write(dir.join(".env"), "PORT=18790\nDATA_DIR=data\n").unwrap();
-        assert_eq!(resolve_default_data_dir(Some(&dir)), dir.join("data"));
+        assert_eq!(resolve_default_data_dir(Some(&dir), false), dir.join("data"));
+        // dev（tauri dev）默认 ~/.seedcode-dev（隔离）；.env 覆盖仍优先
+        let dev_default = home_dir().join(".seedcode-dev");
+        assert_eq!(resolve_default_data_dir(None, true), dev_default);
+        std::fs::write(dir.join(".env"), "DATA_DIR=\n").unwrap();
+        assert_eq!(resolve_default_data_dir(Some(&dir), true), dev_default);
+        std::fs::write(dir.join(".env"), "DATA_DIR=data\n").unwrap();
+        assert_eq!(resolve_default_data_dir(Some(&dir), true), dir.join("data"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn port_candidates_preferred_first_and_dedup() {
-        assert_eq!(port_candidates(Some(9000)), {
+        assert_eq!(port_candidates(Some(9000), false), {
             let mut v: Vec<u16> = vec![9000];
             v.extend(18789..=18798);
             v
         });
-        assert_eq!(port_candidates(Some(18789)).first(), Some(&18789));
-        assert_eq!(port_candidates(Some(18789)).len(), 10);
-        assert_eq!(port_candidates(None).len(), 10);
+        assert_eq!(port_candidates(Some(18789), false).first(), Some(&18789));
+        assert_eq!(port_candidates(Some(18789), false).len(), 10);
+        assert_eq!(port_candidates(None, false).len(), 10);
     }
 
     #[test]
     fn port_candidates_in_range_preferred_first() {
         // 区间内的意向端口也必须排在候选首位（PORT 意向优先）
-        assert_eq!(port_candidates(Some(18795)).first(), Some(&18795));
+        assert_eq!(port_candidates(Some(18795), false).first(), Some(&18795));
+    }
+
+    #[test]
+    fn port_candidates_dev_uses_isolated_range() {
+        // dev（tauri dev）与打包版区间隔离：18889~18898，互不探活
+        assert_eq!(
+            port_candidates(None, true),
+            (18889..=18898).collect::<Vec<_>>()
+        );
+        // dev 显式 PORT 意向仍优先（可指到任意端口）
+        assert_eq!(port_candidates(Some(9000), true).first(), Some(&9000));
     }
 
     #[test]
