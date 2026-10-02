@@ -117,18 +117,17 @@ export function attachSessionSSE(
     }
 }
 
-/**
- * Start retry SSE stream — POSTs to /retry with { entryId }, streams new response
- */
-export function startRetrySSE(
-    sessionId: string,
-    body: { entryId: string },
+/** POST SSE 公共骨架（/retry 与 /edit 逐字同构，仅 URL 与 body 不同）：
+ * 支持重写类操作的统一入口，两个导出名保留为薄别名（调用点不变）。 */
+function startPostSSE(
+    path: string,
+    body: Record<string, unknown>,
     onEvent: SSEEventHandler,
     onError?: (error: Error) => void
 ): SSEConnection {
     const controller = new AbortController()
 
-    const url = getApiUrl(`/api/chat/${sessionId}/retry`)
+    const url = getApiUrl(path)
     const token = getAuthToken()
 
     const headers: Record<string, string> = {
@@ -153,6 +152,18 @@ export function startRetrySSE(
 }
 
 /**
+ * Start retry SSE stream — POSTs to /retry with { entryId }, streams new response
+ */
+export function startRetrySSE(
+    sessionId: string,
+    body: { entryId: string },
+    onEvent: SSEEventHandler,
+    onError?: (error: Error) => void
+): SSEConnection {
+    return startPostSSE(`/api/chat/${sessionId}/retry`, body, onEvent, onError)
+}
+
+/**
  * Start edit SSE stream — POSTs to /edit with { entryId, newText }, streams new response
  */
 export function startEditSSE(
@@ -161,30 +172,7 @@ export function startEditSSE(
     onEvent: SSEEventHandler,
     onError?: (error: Error) => void
 ): SSEConnection {
-    const controller = new AbortController()
-
-    const url = getApiUrl(`/api/chat/${sessionId}/edit`)
-    const token = getAuthToken()
-
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-    }
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-    }
-
-    const done = fetchSSE(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-    }, onEvent, onError)
-
-    return {
-        abort: () => controller.abort(),
-        done,
-    }
+    return startPostSSE(`/api/chat/${sessionId}/edit`, body, onEvent, onError)
 }
 
 /**
