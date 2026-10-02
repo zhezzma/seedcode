@@ -53,7 +53,7 @@ test('MessageBubble 两处 fork 按钮的在途状态判断与 fork 目标一致
     )
 })
 
-test('MessageBubble 两处 fork 按钮不受 isBusy 控制隐藏（AI 回复期间也一直显示）', () => {
+test('MessageBubble 两处 fork 按钮受 isBusy 控制隐藏（流式中 fork 会把半截回复固化到新会话）', () => {
     const source = readFileSync(path.resolve(testDir, '../src/components/chat/MessageBubble.vue'), 'utf8')
 
     // 用户消息 hover 区与 AI 消息 fixed 区各一个 fork 按钮
@@ -62,8 +62,8 @@ test('MessageBubble 两处 fork 按钮不受 isBusy 控制隐藏（AI 回复期�
 
     for (const tag of forkButtons) {
         assert.ok(
-            !tag.includes('!isBusy'),
-            `fork 是对新会话的操作，不与会话内生成冲突，AI 回复期间也应显示: ${tag}`,
+            tag.includes('!isBusy'),
+            `流式生成中条目还在增长，此时 fork 会截在半截回复上（与 retry/edit/nav 同口径隐藏）: ${tag}`,
         )
         assert.ok(
             tag.includes('message.entryId'),

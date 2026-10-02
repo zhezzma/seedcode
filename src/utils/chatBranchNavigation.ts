@@ -178,14 +178,53 @@ export const buildBranchIndexes = (tree: SessionTreeEntry[] | null | undefined):
     }
 }
 
+/**
+ * startId 子树的「停靠叶子」：子树内 id 最大（最新写入）的条目。
+ *
+ * 曾按 pickNextChild 首-子路径下钻——子树存在多个子分支时落到「第一条路
+ * 径的底」（通常是旧主链尾巴），切回分支看到的不是该分支最新状态。id 在
+ * durable 全局单调递增，最大 id = 该分支最近活跃的位置；且其祖先链必经
+ * startId，导航到它后 startId 仍可见。
+ */
 export const findLeafId = (startId: string, indexes: BranchIndexes): string => {
-    let leafId = startId
+    // 数字 id（durable 投影）：子树内 id 最大（最新写入）的条目——子树存在多个
+    // 子分支时，首-子路径下钻会落到旧主链尾巴而非该分支最新状态。
+    if (Number.isFinite(Number(startId))) {
+        const queue = [startId]
+        let leafId = startId
+        let leafNum = Number(startId)
 
+        while (queue.length > 0) {
+            const current = queue.shift()!
+            for (const childId of indexes.allChildrenMap.get(current) ?? []) {
+                queue.push(childId)
+                const childNum = Number(childId)
+                if (Number.isFinite(childNum) && childNum > leafNum) {
+                    leafNum = childNum
+                    leafId = childId
+                }
+            }
+        }
+        return leafId
+    }
+
+    // 非数字 id（旧 v4 形状 / 测试 fixture）：按首-子路径下钻
+    let leafId = startId
     while (true) {
         const nextId = pickNextChild(leafId, indexes)
         if (!nextId) return leafId
         leafId = nextId
     }
+}
+
+/** 可切换兄弟分支：自己恒可停靠（死分支的逃逸锚点：从死分支仍可切回活分支）；
+ * 其它兄弟「有活跃消息后代」或「完全无后代」时可切换——无后代的裸 user 是合法
+ * 停靠点（严格停点 fork / 分支导航停在 user 消息的正常态，切过去即可重新发问）；
+ * 仅「有后代但全部被删/死（回复删光）」不占计数、不从活分支跳入。 */
+const isSwitchableSibling = (selfId: string, id: string, indexes: BranchIndexes): boolean => {
+    if (id === selfId) return true
+    if (findFirstDescendantMessageId(id, indexes) !== null) return true
+    return (indexes.allChildrenMap.get(id) ?? []).length === 0
 }
 
 export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): BranchInfo | null => {
@@ -194,13 +233,11 @@ export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): B
     const parentKey = msg.parentEntryId || ROOT_PARENT_KEY
     const liveSiblings = getLiveMessageSiblings(parentKey, msg.role, indexes)
     // user 角色的兄弟列表即分支列表（user 尾锚的导航目标，见 MessageBubble user footer）。
-    // 与下方 assistant 回退路径的 parentSiblings 保持同口径：只数「自己 + 有活跃消息
-    // 后代的兄弟」——无活跃后代的分支（回复被删光）不占计数、不从活分支跳入，但
-    // 自身恒保留（死分支的逃逸锚点：从死分支仍可切回活分支），经 /tree 亦可达。
+    // 与下方 assistant 回退路径的 parentSiblings 保持同口径（isSwitchableSibling）。
     // assistant 直系兄弟（role==='assistant' 的 ownSiblings）不走此过滤：那批 sibling
     // 本身就是回复级分支，契约见 chat-branch-navigation.test.ts 的既有钉子。
     const ownSiblings = msg.role === 'user'
-        ? liveSiblings.filter(id => id === msg.entryId || findFirstDescendantMessageId(id, indexes) !== null)
+        ? liveSiblings.filter(id => isSwitchableSibling(msg.entryId!, id, indexes))
         : liveSiblings
     if (ownSiblings.length > 1) {
         const currentIndex = ownSiblings.indexOf(msg.entryId)
@@ -217,7 +254,7 @@ export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): B
     }
 
     const parentSiblings = getLiveMessageSiblings(parentMessage.parentId || ROOT_PARENT_KEY, 'user', indexes)
-        .filter(id => id === parentMessage.id || findFirstDescendantMessageId(id, indexes) !== null)
+        .filter(id => isSwitchableSibling(parentMessage.id, id, indexes))
 
     if (parentSiblings.length <= 1) {
         return null

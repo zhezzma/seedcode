@@ -1532,6 +1532,9 @@ const navigateBranch = async (targetEntryId: string, sessionKey?: string): Promi
         // 否则旧分支 todo 快照在拼接序列尾部残留、误导 last-write-wins
         sd.chatToolMessages = []
         sd.sessionLeafId = targetEntryId
+        // 切换 rebind 了服务端会话（fork 语义），树的作用域可能变化；
+        // 不刷新会让后续分支切换用陈旧条目定位（服务端 404 → 「切换分支失败」）
+        fetchSessionTree(targetKey)
         return true
     } catch (err: any) {
         console.error('[useChatState] navigateBranch failed:', err)

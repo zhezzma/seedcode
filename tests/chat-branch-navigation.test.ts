@@ -12,10 +12,10 @@ import {
 const getInfo = (tree: SessionTreeEntry[], msg: BranchMessageLike) =>
     getBranchInfo(msg, buildBranchIndexes(tree))
 
-test('assistant branch navigation ignores dead user branches without assistant descendants', () => {
+test('assistant branch navigation keeps bare-user siblings switchable（严格停点 fork 后可从活分支切回裸 user 分支）', () => {
     const tree: SessionTreeEntry[] = [
         { id: 'root', parentId: null, type: 'root' },
-        { id: 'user-dead', parentId: 'root', type: 'message', message: { role: 'user' } },
+        { id: 'user-bare', parentId: 'root', type: 'message', message: { role: 'user' } },
         { id: 'user-live', parentId: 'root', type: 'message', message: { role: 'user' } },
         { id: 'assistant-live', parentId: 'user-live', type: 'message', message: { role: 'assistant' } },
     ]
@@ -26,7 +26,11 @@ test('assistant branch navigation ignores dead user branches without assistant d
         parentEntryId: 'user-live',
     })
 
-    assert.equal(info, null)
+    // 裸 user 分支（无任何后代）是合法停靠点，可切入切回（回归：579 切到 1/2 后切不回 2/2）
+    assert.deepEqual(info, {
+        siblings: ['user-bare', 'user-live'],
+        currentIndex: 1,
+    })
 })
 
 test('assistant branch navigation keeps sibling user branches that both resolve to assistant replies', () => {
@@ -179,10 +183,11 @@ test('user message on aborted-branch resolves sibling navigation and leaf throug
 })
 
 // 复审钉子（3eea829 发现 B）：user 尾锚的兄弟列表必须与 assistant 侧 parentSiblings
-// 同口径——只数「自己 + 有活跃消息后代的兄弟」。无活跃后代的分支（回复被删光）
-// 不占计数、不从活分支跳入；自身恒保留（死分支的逃逸锚点）。assistant 直系兄弟
-// 不走此过滤（回复级分支，契约见上方 direct assistant siblings 钉子）。
-test('user branch-tail navigation filters reply-less siblings but keeps self', () => {
+// 同口径（isSwitchableSibling）——只数「自己 + 有活跃后代的兄弟 + 无任何后代的裸 user 兄弟」。
+// 有后代但全被删（回复删光）不占计数、不从活分支跳入；自身恒保留（死分支的逃逸锚点）；
+// 完全无后代的裸 user 是合法停靠点（严格停点 fork / 分支导航停在 user 消息），可切入切出。
+// assistant 直系兄弟不走此过滤（回复级分支，契约见上方 direct assistant siblings 钉子）。
+test('user branch-tail navigation filters reply-less siblings but keeps self and bare-user siblings', () => {
     const tree: SessionTreeEntry[] = [
         { id: 'root', parentId: null, type: 'root' },
         // 分支1：尾部 user 消息，其下是零渲染的空 aborted assistant（真实 entry，非删除）
@@ -194,28 +199,35 @@ test('user branch-tail navigation filters reply-less siblings but keeps self', (
         // 分支3：有活跃回复的活分支
         { id: 'user-live', parentId: 'root', type: 'message', message: { role: 'user' } },
         { id: 'assistant-live', parentId: 'user-live', type: 'message', message: { role: 'assistant' } },
+        // 分支4：裸 user 停靠点（严格停点 fork 产物，无任何后代）
+        { id: 'user-bare', parentId: 'root', type: 'message', message: { role: 'user' } },
     ]
 
     const indexes = buildBranchIndexes(tree)
 
-    // 从死分支尾锚出发：user-dead 被过滤（无活跃后代），自身保留 → 可逃逸到活分支
+    // 从死分支尾锚出发：user-dead 被过滤（后代全删），自身 + 裸 user 保留 → 可逃逸
     assert.deepEqual(
         getBranchInfo({ role: 'user', entryId: 'user-dead', parentEntryId: 'root' }, indexes),
-        { siblings: ['user-tail', 'user-dead', 'user-live'], currentIndex: 1 },
+        { siblings: ['user-tail', 'user-dead', 'user-live', 'user-bare'], currentIndex: 1 },
     )
     // 从空 aborted 尾锚出发：自身保留（真实 entry 计为活跃后代），user-dead 过滤
     assert.deepEqual(
         getBranchInfo({ role: 'user', entryId: 'user-tail', parentEntryId: 'root' }, indexes),
-        { siblings: ['user-tail', 'user-live'], currentIndex: 0 },
+        { siblings: ['user-tail', 'user-live', 'user-bare'], currentIndex: 0 },
     )
     // 从活分支 user 消息出发：与 assistant 侧 parentSiblings 完全同口径（死分支不占计数）
     assert.deepEqual(
         getBranchInfo({ role: 'user', entryId: 'user-live', parentEntryId: 'root' }, indexes),
-        { siblings: ['user-tail', 'user-live'], currentIndex: 1 },
+        { siblings: ['user-tail', 'user-live', 'user-bare'], currentIndex: 1 },
     )
     assert.deepEqual(
         getBranchInfo({ role: 'assistant', entryId: 'assistant-live', parentEntryId: 'user-live' }, indexes),
-        { siblings: ['user-tail', 'user-live'], currentIndex: 1 },
+        { siblings: ['user-tail', 'user-live', 'user-bare'], currentIndex: 1 },
+    )
+    // 回归（579 实例）：从活分支切到裸 user 分支后，从裸 user 分支自身也能看到全部可切分支
+    assert.deepEqual(
+        getBranchInfo({ role: 'user', entryId: 'user-bare', parentEntryId: 'root' }, indexes),
+        { siblings: ['user-tail', 'user-live', 'user-bare'], currentIndex: 2 },
     )
 })
 
@@ -289,12 +301,15 @@ test('既有合成 root entry 形状（parentId 指向 type:root 条目）回归
     })
 })
 
-test('无后代的首层消息不可作分支导航（既有活后代过滤语义，root 与否一致）', () => {
+test('两个裸 user 首层分支互可导航（严格停点 fork 的正常态）', () => {
     const tree: SessionTreeEntry[] = [
         { id: 'u1', parentId: null, type: 'message', message: { role: 'user' } },
         { id: 'u2', parentId: null, type: 'message', message: { role: 'user' } },
     ]
-    assert.equal(getInfo(tree, { role: 'user', entryId: 'u2', parentEntryId: null }), null)
+    assert.deepEqual(getInfo(tree, { role: 'user', entryId: 'u2', parentEntryId: null }), {
+        siblings: ['u1', 'u2'],
+        currentIndex: 1,
+    })
 })
 
 test('root 分支的 assistant 回复经回退路径获得 user 锚点导航（root 重试后唯一可见锚点）', () => {

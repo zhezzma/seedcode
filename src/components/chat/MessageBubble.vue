@@ -407,7 +407,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     :title="$t('common.edit')">
                     <PencilSquareIcon class="h-4 w-4" />
                 </button>
-                <button v-if="message.entryId" @click="emit('fork', message)"
+                <button v-if="!isBusy && message.entryId" @click="emit('fork', message)"
                     :disabled="chatState.isForkingEntry(message.lastEntryId ?? message.entryId)"
                     class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-secondary hover:bg-secondary/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     :title="$t('chat.fork')">
@@ -569,7 +569,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     <SpeakerWaveIcon class="h-4 w-4" />
                 </template>
             </button>
-            <button v-if="message.entryId" @click="emit('fork', message)"
+            <button v-if="!isBusy && message.entryId" @click="emit('fork', message)"
                 :disabled="chatState.isForkingEntry(message.lastEntryId ?? message.entryId)"
                 class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-secondary hover:bg-secondary/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 :title="$t('chat.fork')">

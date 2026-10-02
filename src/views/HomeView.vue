@@ -550,6 +550,10 @@ const readAloud = (msg: DisplayMessage) => {
 
 // ==================== Retry / Branch ====================
 
+// 分支锚点记忆（会话隔离）：siblingId -> 离开该分支时停靠的 entryId，
+// 切回时优先恢复离开时的视图状态（见 navigateBranch）
+const branchAnchors = new Map<string, string>()
+
 // Session tree data for branch navigation
 const sessionTreeEntries = computed(() => chatState.sessionTree)
 const branchIndexes = computed(() => buildBranchIndexes(sessionTreeEntries.value))
@@ -585,8 +589,24 @@ const navigateBranch = async (msg: DisplayMessage, direction: 'prev' | 'next') =
     const newIndex = direction === 'prev' ? info.currentIndex - 1 : info.currentIndex + 1
     if (newIndex < 0 || newIndex >= info.siblings.length) return
 
-    // 找到目标分支的叶子节点 ID（后端需要 leaf ID 才能返回完整分支）
-    const leafId = findBranchLeafId(info.siblings[newIndex], branchIndexes.value)
+    // 分支锚点记忆：离开某分支时记录停靠条目，切回时优先回到离开时的样子
+    // （否则一律下钻到分支最新叶子——fork 停靠在裸 user 消息时会被替换成
+    //  原始回复，用户困惑）。会话隔离键；锚点已不在树里则回退默认下钻。
+    const anchorKey = (siblingId: string) => `${chatState.sessionKey ?? ''}:${siblingId}`
+    const currentSibling = info.siblings[info.currentIndex]
+    const leavingEntryId = [...chatState.chatMessages].reverse().find(m => m.entryId)?.entryId
+    if (currentSibling && leavingEntryId) {
+        branchAnchors.set(anchorKey(currentSibling), leavingEntryId)
+    }
+
+    const targetSibling = info.siblings[newIndex]
+    const anchor = branchAnchors.get(anchorKey(targetSibling))
+    const anchorValid = anchor !== undefined && (chatState.sessionTree ?? []).some(entry => entry.id === anchor)
+
+    // 目标分支停靠点：有锚点回到离开时位置，否则下钻到该分支最新叶子
+    const leafId = anchorValid
+        ? anchor
+        : findBranchLeafId(targetSibling, branchIndexes.value)
     const navigated = await chatState.navigateBranch(leafId)
     if (!navigated) {
         // 运行中导航按钮已隐藏，走到这里只剩渲染竞态/网络失败（服务端 streaming 409 等）
