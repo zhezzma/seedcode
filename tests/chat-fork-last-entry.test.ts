@@ -69,7 +69,7 @@ test('MessageBubble 两处 fork 按钮的在途状态判断与 fork 目标一致
     )
 })
 
-test('MessageBubble 两处 fork 按钮受 isBusy 控制隐藏（流式中 fork 会把半截回复固化到新会话）', () => {
+test('MessageBubble 两处 fork 按钮受 isLoading 控制隐藏（仅流式中的最后一条；服务端 fork 路由对 busy 有意豁免，历史消息可安全 fork）', () => {
     const source = readFileSync(path.resolve(testDir, '../src/components/chat/MessageBubble.vue'), 'utf8')
 
     // 用户消息 hover 区与 AI 消息 fixed 区各一个 fork 按钮
@@ -78,8 +78,8 @@ test('MessageBubble 两处 fork 按钮受 isBusy 控制隐藏（流式中 fork �
 
     for (const tag of forkButtons) {
         assert.ok(
-            tag.includes('!isBusy'),
-            `流式生成中条目还在增长，此时 fork 会截在半截回复上（与 retry/edit/nav 同口径隐藏）: ${tag}`,
+            tag.includes('!isLoading'),
+            `只挡流式中的最后一条（isLoading = isBusy && isLast）：流式中 fork at 在途 assistant/toolCall entry 会停在空 toolCall；但服务端 fork 路由 busy 豁免（非破坏、快照带不走半截 partial），历史消息 busy 期间应可 fork（回归：962cb42 会话级 isBusy 导致全部隐藏）: ${tag}`,
         )
         assert.ok(
             tag.includes('message.entryId'),
