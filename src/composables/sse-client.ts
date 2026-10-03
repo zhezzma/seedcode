@@ -118,12 +118,15 @@ export function attachSessionSSE(
 }
 
 /** POST SSE 公共骨架（/retry 与 /edit 逐字同构，仅 URL 与 body 不同）：
- * 支持重写类操作的统一入口，两个导出名保留为薄别名（调用点不变）。 */
+ * 支持重写类操作的统一入口，两个导出名保留为薄别名（调用点不变）。
+ * onOpen：response.ok 时（首字节前）回调——/retry /edit 的 handler 先 navigate 再
+ * return Response，headers 到达即蕴含导航已提交，重写流用它提前锁定「不回滚」。 */
 function startPostSSE(
     path: string,
     body: Record<string, unknown>,
     onEvent: SSEEventHandler,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    onOpen?: () => void,
 ): SSEConnection {
     const controller = new AbortController()
 
@@ -143,7 +146,7 @@ function startPostSSE(
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
-    }, onEvent, onError)
+    }, onEvent, onError, onOpen)
 
     return {
         abort: () => controller.abort(),
@@ -158,9 +161,10 @@ export function startRetrySSE(
     sessionId: string,
     body: { entryId: string },
     onEvent: SSEEventHandler,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    onOpen?: () => void,
 ): SSEConnection {
-    return startPostSSE(`/api/chat/${sessionId}/retry`, body, onEvent, onError)
+    return startPostSSE(`/api/chat/${sessionId}/retry`, body, onEvent, onError, onOpen)
 }
 
 /**
@@ -170,9 +174,10 @@ export function startEditSSE(
     sessionId: string,
     body: { entryId: string; newText: string },
     onEvent: SSEEventHandler,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    onOpen?: () => void,
 ): SSEConnection {
-    return startPostSSE(`/api/chat/${sessionId}/edit`, body, onEvent, onError)
+    return startPostSSE(`/api/chat/${sessionId}/edit`, body, onEvent, onError, onOpen)
 }
 
 /**
@@ -221,7 +226,8 @@ async function fetchSSE(
     url: string,
     init: RequestInit,
     onEvent: SSEEventHandler,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    onOpen?: () => void,
 ): Promise<void> {
     try {
         const response = await fetch(url, init)
@@ -231,12 +237,20 @@ async function fetchSSE(
             try {
                 const text = await response.text()
                 const parsed = JSON.parse(text)
-                if (parsed?.message) errorMessage = parsed.message
+                // 服务端 fail() 信封是 { ok:false, error }（response.ts），无 message 字段；
+                // 只读 message 会让 busy 409 / entry 404 的真实原因被吞，用户只见 "HTTP 409"
+                const detail = parsed?.message ?? parsed?.error
+                if (detail) errorMessage = String(detail)
             } catch {
                 // ignore
             }
             throw new Error(errorMessage)
         }
+
+        // 响应头已到且状态 2xx：对重写类端点，服务端 handler 已完成流前状态变更
+        //（/retry /edit 的 navigate 先于 return Response）——此刻起失败不再回滚乐观更新。
+        // 置于 body-null 检查之前：2xx 已蕴含导航提交，body 异常不该把客户端带回旧分支
+        onOpen?.()
 
         if (!response.body) {
             throw new Error('Response body is null')

@@ -345,13 +345,20 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
                     blocks.push(block)
                 } else if (item.type === 'image') {
                     // 结构化图片与 Markdown 图片共用同一套媒体 URL 解析规则。
-                    const resolvedUrl = resolveMediaUrl(item.url, settings.apiBaseUrl)
+                    // 两形状兼容：本地/SSE 消息用 url/mimeType/data 平铺字段；服务端
+                    // /messages 持久化的 pi-ai 块是 {source:{type,mediaType,data}}
+                    //（edcc92f 重构曾丢此形状，致历史重拉后带图气泡渲染为空）。
+                    const src = item.source ?? {}
+                    const itemUrl = item.url ?? (src.type === 'url' ? src.data : undefined)
+                    const mediaType = item.mimeType ?? src.mediaType
+                    const itemData = item.data ?? (src.type === 'base64' ? src.data : undefined)
+                    const resolvedUrl = resolveMediaUrl(itemUrl, settings.apiBaseUrl)
                     blocks.push({
                         type: 'image',
                         source: {
-                            type: item.url ? 'url' : 'base64',
-                            media_type: item.mimeType,
-                            data: item.data || resolvedUrl,
+                            type: itemUrl ? 'url' : 'base64',
+                            media_type: mediaType,
+                            data: itemData || resolvedUrl,
                             url: resolvedUrl
                         }
                     })
@@ -447,6 +454,14 @@ export function useChatMessages(state: ChatStateShape) {
                                 } else if (!targetBlock.toolState || targetBlock.toolState === 'calling') {
                                     targetBlock.toolState = 'success'
                                 }
+
+                                // 操作锚点跟随 toolResult（组内最后一条 entry）：toolResult
+                                // 恒后于其 toolCall 的 assistant entry，按序遍历下刷新即收敛到
+                                // 组内最后条目——fork 锚定在 toolCall 半截会把 fork 出的会话
+                                // 停在悬空调用上（引擎只能 missing_result 兑底，工具卡永久转圈）。
+                                // 以 registry 定位的 owner 气泡为目标（非列表尾）：toolCall 可能
+                                // 在更早气泡；后续 assistant 合并/面板并入会以自己的 entry 覆盖。
+                                if (msg.entryId) targetMsg.lastEntryId = msg.entryId
                             }
                         }
                     }

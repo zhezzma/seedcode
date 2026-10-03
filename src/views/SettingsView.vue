@@ -323,7 +323,15 @@ const getTtsEngineLabel = (engine?: string) => {
 const logout = async () => {
     if (await confirm(t('settings.clearDataConfirm'), t('settings.confirmLogout'))) {
         configStore.clear()
-        router.push('/setup')
+        // 聊天/会话模块状态（sessionsMap、sseConnections、historyLoadedAt 等）不随路由
+        // 清理，仅清配置不重载会让旧服务器数据驻留内存；重连另一台服务器时（durable 会话
+        // id 是各库独立的小整数序列，跨库撞号 + attach 增量命中）可拼出混合历史。
+        // 整页重载对齐 switchGateway 的兑底做法；file: 协议下退回路由跳转
+        if (window.location.protocol !== 'file:') {
+            window.location.assign('/')
+        } else {
+            router.push('/setup')
+        }
     }
 }
 </script>

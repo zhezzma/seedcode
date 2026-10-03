@@ -2,7 +2,7 @@ import { reactive, computed, type ComputedRef } from 'vue'
 
 import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
-import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, startCompactSSE, type ChatPromptBody, type SSEConnection } from './sse-client'
+import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, startCompactSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
 import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, shouldAttachSession } from '../utils/chat-attach'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
@@ -360,7 +360,20 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
         (event) => {
             handleSSEEvent(event.event, event.data, targetKey)
         },
-        () => resetStreamState(sessionData)
+        (error) => {
+            // HTTP 级失败（网络断开/服务重启/双窗口并发首发 409）：流未建立，乐观 user
+            // 消息从未被持久化——按 case 'error' 同规则回滚末条无 entryId 的 user 消息并
+            // toast，否则幻影气泡残留至下次 done 全量刷新（与流内 error 路径口径一致）
+            resetStreamState(sessionData)
+            const msgs = sessionData.chatMessages
+            if (msgs.length > 0) {
+                const lastMsg = msgs[msgs.length - 1]
+                if (lastMsg.role === 'user' && !lastMsg.entryId) {
+                    sessionData.chatMessages = msgs.slice(0, -1)
+                }
+            }
+            useToast().error(error.message, 5000)
+        }
     )
 
     bindSSELifecycle(sse, targetKey)
@@ -1072,38 +1085,34 @@ const removePendingItem = async (id: string, sessionKey?: string) => {
 
 // ==================== Retry / Branch ====================
 
-const retryMessage = async (entryId: string, sessionKey?: string) => {
-    const targetKey = sessionKey || state.sessionKey
-    if (!targetKey) {
-        console.error('[useChatState] retryMessage called without sessionKey')
-        return
-    }
-
+/**
+ * retry / edit 共用的「乐观改写分支 + 接线重写流」骨架（两路径唯一的状态机入口）。
+ * 除两处差异外逐行一致，差异由调用方注入：
+ *  - snapshot + beginOptimistic：retry 仅整体重赋值数组（引用快照即可），
+ *    edit 会就地改写用户消息 content（必须浅拷贝快照，否则回滚停留新文本）；
+ *  - startSSE：SSE 端点与请求体。
+ * 错误回滚语义由 sawStreamEvent 门闩决定：流未建立（HTTP 级失败 400/409/5xx）
+ * 恢复快照并 toast；流已建立说明服务端已改写树，不回滚，交由 done 重拉/attach 收敛。
+ */
+function beginBranchRewriteSSE(
+    targetKey: string,
+    opts: {
+        /** 乐观改写前的消息快照（调用方按自身语义备好：引用 or 浅拷贝） */
+        snapshot: { messages: ChatMessage[]; toolMessages: ChatMessage[] }
+        /** 乐观更新（只动 chatMessages；流式临时条目由骨架统一作废） */
+        beginOptimistic: (sd: ChatSessionData) => void
+        /** 差异化流入口：用传入的回调启动具体 SSE 端点；onOpen = response.ok（首字节前），
+         * 对 /retry /edit 即导航已提交的确认信号 */
+        startSSE: (onEvent: SSEEventHandler, onError: (error: Error) => void, onOpen?: () => void) => SSEConnection
+    },
+): void {
     const sessionData = getSessionData(targetKey)
-
-    // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
-    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）。
-    // 引用即可：本函数无就地改写消息对象，仅整体重赋值数组
-    const messagesSnapshot = sessionData.chatMessages
-    const toolMessagesSnapshot = sessionData.chatToolMessages
     let sawStreamEvent = false
 
-    // Remove the assistant message being retried from local state
-    // (the server navigates back and re-prompts, creating a new branch)
-    const entryIndex = sessionData.chatMessages.findIndex(m => m.entryId === entryId)
-    if (entryIndex >= 0) {
-        // Remove from the assistant entry onwards (it and any subsequent messages on this branch)
-        // If the entry being retried is a user message, retain it.
-        const isUserMsg = sessionData.chatMessages[entryIndex].role === 'user'
-        if (isUserMsg) {
-            sessionData.chatMessages = sessionData.chatMessages.slice(0, entryIndex + 1)
-        } else {
-            sessionData.chatMessages = sessionData.chatMessages.slice(0, entryIndex)
-        }
-    }
+    opts.beginOptimistic(sessionData)
     // 分支被改写：流式临时条目一并作废（同 abort 规则），
     // 否则被放弃分支的 todo 快照会以“数组位置更靠后”赢得 last-write-wins。
-    // 刻意放在 if 外：本地 chatMessages 陈旧（entryIndex === -1）时分支在服务端照样被改写，清理不可跳过
+    // 刻意不放进 beginOptimistic：本地 chatMessages 陈旧（找不到目标条目）时分支在服务端照样被改写，清理不可跳过
     sessionData.chatToolMessages = []
 
     const runId = generateUUID()
@@ -1118,9 +1127,7 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
         existingSSE.abort()
     }
 
-    const sse = startRetrySSE(
-        targetKey,
-        { entryId },
+    const sse = opts.startSSE(
         (event) => {
             sawStreamEvent = true
             handleSSEEvent(event.event, event.data, targetKey)
@@ -1131,14 +1138,52 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
                 resetStreamState(sessionData)
                 return
             }
-            sessionData.chatMessages = messagesSnapshot
-            sessionData.chatToolMessages = toolMessagesSnapshot
+            sessionData.chatMessages = opts.snapshot.messages
+            sessionData.chatToolMessages = opts.snapshot.toolMessages
             useToast().error(error.message, 5000)
             resetStreamState(sessionData)
         },
+        // response.ok 即置位门闩：/retry /edit 的 handler 先 await navigate 再 return
+        // Response，headers 到达 = 导航已提交；否则「导航已提交、首字节未达」窗口内断连
+        // 会误回滚——客户端回到旧分支空闲态，服务端却在新分支继续跑，状态分叉
+        () => { sawStreamEvent = true },
     )
 
     bindSSELifecycle(sse, targetKey)
+}
+
+const retryMessage = async (entryId: string, sessionKey?: string) => {
+    const targetKey = sessionKey || state.sessionKey
+    if (!targetKey) {
+        console.error('[useChatState] retryMessage called without sessionKey')
+        return
+    }
+
+    // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
+    // 否则回复气泡被乐观删除后不回滚（root 重试 400 时代的可见症状）。
+    // 引用即可：本函数无就地改写消息对象，仅整体重赋值数组
+    const sessionData = getSessionData(targetKey)
+    const snapshot = { messages: sessionData.chatMessages, toolMessages: sessionData.chatToolMessages }
+
+    beginBranchRewriteSSE(targetKey, {
+        snapshot,
+        beginOptimistic: (sd) => {
+            // Remove the assistant message being retried from local state
+            // (the server navigates back and re-prompts, creating a new branch)
+            const entryIndex = sd.chatMessages.findIndex(m => m.entryId === entryId)
+            if (entryIndex >= 0) {
+                // Remove from the assistant entry onwards (it and any subsequent messages on this branch)
+                // If the entry being retried is a user message, retain it.
+                const isUserMsg = sd.chatMessages[entryIndex].role === 'user'
+                if (isUserMsg) {
+                    sd.chatMessages = sd.chatMessages.slice(0, entryIndex + 1)
+                } else {
+                    sd.chatMessages = sd.chatMessages.slice(0, entryIndex)
+                }
+            }
+        },
+        startSSE: (onEvent, onError, onOpen) => startRetrySSE(targetKey, { entryId }, onEvent, onError, onOpen),
+    })
 }
 
 const editMessage = async (entryId: string, newText: string, sessionKey?: string) => {
@@ -1148,59 +1193,26 @@ const editMessage = async (entryId: string, newText: string, sessionKey?: string
         return
     }
 
-    const sessionData = getSessionData(targetKey)
-
     // 乐观删除前快照：流未建立的 HTTP 级失败（400/409/5xx）时恢复——
     // 否则回复气泡被乐观删除后不回滚。必须浅拷贝：下方就地改写 content，
     // 引用快照会让回滚后的文本停留为新文本而服务端仍是旧文本
-    const messagesSnapshot = sessionData.chatMessages.map(m => ({ ...m }))
-    const toolMessagesSnapshot = sessionData.chatToolMessages
-    let sawStreamEvent = false
+    const sessionData = getSessionData(targetKey)
+    const snapshot = { messages: sessionData.chatMessages.map(m => ({ ...m })), toolMessages: sessionData.chatToolMessages }
 
-    // Keep the user message but update its text, remove everything after it
-    const entryIndex = sessionData.chatMessages.findIndex(m => m.entryId === entryId)
-    if (entryIndex >= 0) {
-        // Update the user message content in-place
-        sessionData.chatMessages[entryIndex].content = newText
-        // Remove all messages after the user message (assistant responses on this branch)
-        sessionData.chatMessages = sessionData.chatMessages.slice(0, entryIndex + 1)
-    }
-    // 分支被改写：流式临时条目一并作废（同 retryMessage/abort 规则；同上刻意放在 if 外）
-    sessionData.chatToolMessages = []
-
-    const runId = generateUUID()
-    sessionData.chatSending = true
-    sessionData.chatRunId = runId
-    sessionData.chatStreamStartedAt = Date.now()
-    sessionData.chatStream = []
-
-    // Abort any existing SSE for this session
-    const existingSSE = sseConnections.get(targetKey)
-    if (existingSSE) {
-        existingSSE.abort()
-    }
-
-    const sse = startEditSSE(
-        targetKey,
-        { entryId, newText },
-        (event) => {
-            sawStreamEvent = true
-            handleSSEEvent(event.event, event.data, targetKey)
-        },
-        (error) => {
-            if (sawStreamEvent) {
-                // 流已建立：服务端已改写树，本地以 done 重拉/attach 收敛，不回滚
-                resetStreamState(sessionData)
-                return
+    beginBranchRewriteSSE(targetKey, {
+        snapshot,
+        beginOptimistic: (sd) => {
+            // Keep the user message but update its text, remove everything after it
+            const entryIndex = sd.chatMessages.findIndex(m => m.entryId === entryId)
+            if (entryIndex >= 0) {
+                // Update the user message content in-place
+                sd.chatMessages[entryIndex].content = newText
+                // Remove all messages after the user message (assistant responses on this branch)
+                sd.chatMessages = sd.chatMessages.slice(0, entryIndex + 1)
             }
-            sessionData.chatMessages = messagesSnapshot
-            sessionData.chatToolMessages = toolMessagesSnapshot
-            useToast().error(error.message, 5000)
-            resetStreamState(sessionData)
         },
-    )
-
-    bindSSELifecycle(sse, targetKey)
+        startSSE: (onEvent, onError, onOpen) => startEditSSE(targetKey, { entryId, newText }, onEvent, onError, onOpen),
+    })
 }
 
 // ==================== Fork ====================

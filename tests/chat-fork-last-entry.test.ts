@@ -14,6 +14,22 @@ const testDir = path.dirname(fileURLToPath(import.meta.url))
 // 定位）与虚拟列表 key 都依赖它指向组内第一条，因此合并时额外维护 lastEntryId，
 // fork 只读 lastEntryId。
 
+test('toolResult 并入 tool 卡时同样刷新锚点（组尾为 toolResult 的 fork 锚点回归）', () => {
+    const source = readFileSync(path.resolve(testDir, '../src/composables/useChatMessages.ts'), 'utf8')
+
+    // toolResult 分支：更新 tool 卡状态后以 msg.entryId 刷新所属气泡的 lastEntryId
+    //（组尾为 toolResult 时——交互工具挂起/abort 后的常态——fork 锚点必须落在
+    //  toolResult 而非其前的 assistant toolCall，否则 fork 出的会话停在悬空调用上）
+    const trStart = source.indexOf("if (msg.role === 'toolResult')")
+    assert.notEqual(trStart, -1, '应存在 toolResult 处理分支')
+    const trSection = source.slice(trStart, trStart + 2600)
+    assert.match(
+        trSection,
+        /if \(msg\.entryId\) targetMsg\.lastEntryId = msg\.entryId/,
+        'toolResult 并入时应刷新所属气泡的 lastEntryId（组内最后一条 entry）',
+    )
+})
+
 test('useChatMessages 合并分支维护 lastEntryId 为组内最后一条 entry', () => {
     const source = readFileSync(path.resolve(testDir, '../src/composables/useChatMessages.ts'), 'utf8')
 

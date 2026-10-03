@@ -139,15 +139,18 @@ const findNearestMessageAncestor = (entryId: string | null | undefined, indexes:
     return current?.type === 'message' ? current : null
 }
 
-const getLiveMessageSiblings = (parentId: string | null | undefined, role: 'user' | 'assistant', indexes: BranchIndexes): string[] => {
+/** 同一父键下的活跃消息兄弟。
+ *
+ * 跨 role 归一是设计行为（产品确认）：user 分叉点下「原回复 assistant」与
+ * 「重新发问 user」互为分支（切到裸 user 分支重新发问 = 严格停点 fork 的正常形态），
+ * user/assistant 两侧导航都能互切。历史代码此处曾按 entry.message?.role 过滤——
+ * 但 durable /entries 的条目 role 是顶层字段（无 message 包装），过滤从未生效，
+ * 恰好保住了 fork-at-user 形态的导航；显式移除过滤以免「修好」它反而全灭导航
+ *（复现验证见 chat-branch-navigation.test.ts 的 fork-at-user 用例）。 */
+const getLiveMessageSiblings = (parentId: string | null | undefined, indexes: BranchIndexes): string[] => {
     return (indexes.childrenMap.get(parentId || ROOT_PARENT_KEY) ?? []).filter(id => {
         const entry = indexes.entryMap.get(id)
-        if (!entry || entry.type !== 'message' || isDeletedEntry(entry)) {
-            return false
-        }
-
-        const entryRole = entry.message?.role
-        return !entryRole || entryRole === role
+        return !!entry && entry.type === 'message' && !isDeletedEntry(entry)
     })
 }
 
@@ -230,12 +233,19 @@ const isSwitchableSibling = (selfId: string, id: string, indexes: BranchIndexes)
 export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): BranchInfo | null => {
     if (!msg.entryId) return null
 
-    const parentKey = msg.parentEntryId || ROOT_PARENT_KEY
-    const liveSiblings = getLiveMessageSiblings(parentKey, msg.role, indexes)
-    // user 角色的兄弟列表即分支列表（user 尾锚的导航目标，见 MessageBubble user footer）。
-    // 与下方 assistant 回退路径的 parentSiblings 保持同口径（isSwitchableSibling）。
-    // assistant 直系兄弟（role==='assistant' 的 ownSiblings）不走此过滤：那批 sibling
-    // 本身就是回复级分支，契约见 chat-branch-navigation.test.ts 的既有钉子。
+    // user 直接路径的父键优先用树链父（/entries parentId）：消息链父（/messages
+    // parentEntryId）在 compaction/reset 等形态下与树链父分叉（compaction 占树链
+    // 不占消息链），用消息链父查 childrenMap（键 = 树链父）会查空组——分支导航静默
+    // 丢失；两链一致时两者相同。仅在消息不在树里（get 未命中 = undefined）时回退
+    // 消息链父——树内 parentId===null（root 段首条）是有效键，不能用 ?? 回退
+    const treeParent = indexes.entryMap.get(msg.entryId)?.parentId
+    const parentKey = (treeParent !== undefined ? treeParent : msg.parentEntryId) || ROOT_PARENT_KEY
+    const liveSiblings = getLiveMessageSiblings(parentKey, indexes)
+    // user 角色的兄弟列表即分支列表（user 尾锚的导航目标，见 MessageBubble user
+    // footer），跨 role 归一（见 getLiveMessageSiblings 注释）后含同分叉点的回复
+    // 分支。与下方 assistant 回退路径的 parentSiblings 保持同口径
+    //（isSwitchableSibling）。assistant 直系兄弟不走此过滤：那批 sibling 本身就是
+    // 回复级分支，契约见 chat-branch-navigation.test.ts 的既有钉子。
     const ownSiblings = msg.role === 'user'
         ? liveSiblings.filter(id => isSwitchableSibling(msg.entryId!, id, indexes))
         : liveSiblings
@@ -253,7 +263,7 @@ export const getBranchInfo = (msg: BranchMessageLike, indexes: BranchIndexes): B
         return null
     }
 
-    const parentSiblings = getLiveMessageSiblings(parentMessage.parentId || ROOT_PARENT_KEY, 'user', indexes)
+    const parentSiblings = getLiveMessageSiblings(parentMessage.parentId || ROOT_PARENT_KEY, indexes)
         .filter(id => isSwitchableSibling(parentMessage.id, id, indexes))
 
     if (parentSiblings.length <= 1) {
