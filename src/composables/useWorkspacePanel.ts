@@ -10,7 +10,7 @@
  *   生命周期的依赖陷阱（旧 computed 仍跟踪旧 store 实例）。
  */
 import { computed } from 'vue'
-import { useUiSettingsStore, WORKSPACE_HISTORY_DEFAULT_HEIGHT, WORKSPACE_HISTORY_MIN_HEIGHT } from '../stores/setting.ts'
+import { useUiSettingsStore, WORKSPACE_HISTORY_DEFAULT_HEIGHT, WORKSPACE_HISTORY_MIN_HEIGHT, WORKSPACE_AGENT_FILES_DEFAULT_HEIGHT, WORKSPACE_AGENT_FILES_MIN_HEIGHT } from '../stores/setting.ts'
 
 export const PANEL_MIN_WIDTH = 240
 export const PANEL_MAX_WIDTH = 1000
@@ -18,13 +18,15 @@ export const PANEL_DEFAULT_WIDTH = 360
 /** Git tab 提交历史区高度的可拖动下限；上限由 CollapsibleSection 按父容器高度动态 clamp。 */
 export const HISTORY_MIN_HEIGHT = WORKSPACE_HISTORY_MIN_HEIGHT
 export const HISTORY_DEFAULT_HEIGHT = WORKSPACE_HISTORY_DEFAULT_HEIGHT
+export const AGENT_FILES_MIN_HEIGHT = WORKSPACE_AGENT_FILES_MIN_HEIGHT
+export const AGENT_FILES_DEFAULT_HEIGHT = WORKSPACE_AGENT_FILES_DEFAULT_HEIGHT
 
 /** 持久化高度的恢复/写入 clamp：除下限外还按视口 clamp 上限——大屏持久化的高度
  *  到小窗恢复时不应撑爆面板（拖动时的动态上限在组件内按父容器算，恢复时无 DOM
- *  可量，视口是父容器的安全上界近似）。上方 UI（repo 选择 + commit bar）约 200px。 */
-function clampPersistedHeight(h: number): number {
+ *  可量，视口是父容器的安全上界近似）。上方 UI（repo 选择 + commit bar / workspace
+ *  header）约 200px。 */
+function clampPersistedHeight(h: number, min: number): number {
     const rounded = Math.round(h)
-    const min = HISTORY_MIN_HEIGHT
     if (typeof window === 'undefined') return Math.max(min, rounded)
     const max = Math.max(min, window.innerHeight - 200)
     return Math.max(min, Math.min(max, rounded))
@@ -35,6 +37,7 @@ function persistPanel(patch: Partial<{
     width: number
     tab: 'files' | 'git'
     historyHeight: number
+    agentFilesHeight: number
     bottomSections: Partial<{ history: boolean; agentFiles: boolean }>
     statusGroups: Partial<{ staged: boolean; unstaged: boolean }>
 }>) {
@@ -80,10 +83,19 @@ export function useWorkspacePanel() {
         // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认）。
         historyHeight: computed(() => {
             const h = store.workspacePanel.historyHeight
-            return clampPersistedHeight(typeof h === 'number' ? h : HISTORY_DEFAULT_HEIGHT)
+            return clampPersistedHeight(typeof h === 'number' ? h : HISTORY_DEFAULT_HEIGHT, HISTORY_MIN_HEIGHT)
         }),
         setHistoryHeight(h: number) {
-            persistPanel({ historyHeight: clampPersistedHeight(h) })
+            persistPanel({ historyHeight: clampPersistedHeight(h, HISTORY_MIN_HEIGHT) })
+        },
+
+        // Files tab Agent 配置区高度：与 history 区同规格，getter clamp 兼底旧持久化数据。
+        agentFilesHeight: computed(() => {
+            const h = store.workspacePanel.agentFilesHeight
+            return clampPersistedHeight(typeof h === 'number' ? h : AGENT_FILES_DEFAULT_HEIGHT, AGENT_FILES_MIN_HEIGHT)
+        }),
+        setAgentFilesHeight(h: number) {
+            persistPanel({ agentFilesHeight: clampPersistedHeight(h, AGENT_FILES_MIN_HEIGHT) })
         },
 
         setRepoForAgent(agentId: string, repo: string) {

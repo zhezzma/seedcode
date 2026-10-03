@@ -18,7 +18,7 @@ import { DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon } from '@heroicon
 import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useAgentFiles } from '../../composables/useAgentFiles'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
-import { useWorkspacePanel } from '../../composables/useWorkspacePanel'
+import { useWorkspacePanel, AGENT_FILES_MIN_HEIGHT } from '../../composables/useWorkspacePanel'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
 import { useWorkspaceGit } from '../../composables/useWorkspaceGit'
 import { useToast } from '../../composables/useToast'
@@ -198,10 +198,13 @@ function onBlankAreaClick(e: MouseEvent) {
             </div>
         </div>
 
-        <!-- 底部：Agent 配置目录折叠区，actions slot 把 + 文件 / + 目录 放进 header -->
+        <!-- 底部：Agent 配置目录折叠区，actions slot 把 + 文件 / + 目录 放进 header；
+             resizable = 顶部 handle 可拖动调整高度（持久化到 settings store），与 Git tab History 区同模式 -->
         <CollapsibleSection :title="$t('workspace.agentFiles')"
             :open="panel.bottomSections.value.agentFiles" :count="agentFilesCount"
-            @toggle="(o: boolean) => panel.setBottomSection('agentFiles', o)">
+            :height="panel.agentFilesHeight.value" :min-height="AGENT_FILES_MIN_HEIGHT" resizable
+            @toggle="(o: boolean) => panel.setBottomSection('agentFiles', o)"
+            @resize="(h: number) => panel.setAgentFilesHeight(h)">
             <template #actions>
                 <button type="button" class="btn btn-ghost btn-xs btn-square"
                     :aria-label="$t('workspace.menu.newFile')" :title="$t('workspace.menu.newFile')"
