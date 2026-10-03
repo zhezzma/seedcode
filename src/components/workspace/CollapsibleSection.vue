@@ -6,13 +6,13 @@
  *   点击不会触发 section 折叠/展开（不嵌在 toggle button 内，事件天然不冒泡）
  * - body 在 open 时固定高度（默认 240px）、内部独立滚动
  * - 可选 resizable：body 顶部渲染拖动 handle，向上拖增大高度；拖动期间本地
- *   dragHeight 实时刷新，mouseup 才 emit 一次 resize（父组件持久化），
+ *   dragHeight 实时刷新，pointerup 才 emit 一次 resize（父组件持久化），
  *   与 WorkspacePanel 宽度 splitter 同模式；上限按父容器高度动态 clamp
  * - 视觉风格匹配 daisyUI 主题；header 用 base-200 底色与 panel 区分
  *
  * 父组件持有 open 状态（受控），方便持久化到 settings store。
  */
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import { ChevronRightIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 
 const props = withDefaults(defineProps<{
@@ -24,12 +24,15 @@ const props = withDefaults(defineProps<{
     maxHeight?: number
     /** 可选受控高度（px）：传入时优先于 maxHeight，配合 resizable 使用。 */
     height?: number | null
+    /** 可拖动高度下限（px），默认 100；上限始终按父容器高度动态 clamp。 */
+    minHeight?: number
     /** 开启后 body 顶部渲染拖动 handle，拖动调整高度，mouseup 时 emit resize。 */
     resizable?: boolean
 }>(), {
     count: null,
     maxHeight: 240,
     height: null,
+    minHeight: 100,
     resizable: false,
 })
 
@@ -43,36 +46,42 @@ let dragStartY = 0
 let dragStartHeight = 0
 /** 上方（RepoSelector + commit bar / 状态区）至少保留的空间。 */
 const RESERVED_ABOVE = 160
-/** 拖动高度下限；上限按父容器高度动态 clamp。 */
-const MIN_RESIZE_HEIGHT = 100
 
 const effectiveHeight = computed(() => dragHeight.value ?? props.height ?? props.maxHeight)
 const bodyStyle = computed(() => ({ height: `${effectiveHeight.value}px` }))
 
-/** 动态上限：父容器（tab 内容区）高度减去上方保留空间，避免把上面状态区完全挤没。 */
+/** 动态上限：父容器（tab 内容区）高度减去上方保留空间，避免把上面状态区完全挤没。
+ *  父容器本身过矮（不足以容纳下限 + 保留空间）时以父容器为硬上限——
+ *  下限不再优先于上限，避免溢出把状态区挤没；置不到父容器时不设限。 */
 function clampHeight(h: number): number {
     const parentH = rootRef.value?.parentElement?.clientHeight ?? 0
-    const max = parentH > 0 ? parentH - RESERVED_ABOVE : Infinity
-    return Math.max(MIN_RESIZE_HEIGHT, Math.min(max, h))
+    if (parentH <= 0) return Math.max(props.minHeight, h)
+    return Math.min(parentH, Math.max(props.minHeight, Math.min(parentH - RESERVED_ABOVE, h)))
 }
 
-function onResizeMouseDown(e: MouseEvent) {
+// pointer 事件（鼠标 + 触屏统一）：拖动开始才挂全局监听，结束即卸——不拖动的
+// section（resizable=false / 未展开）零全局监听开销，也不会因错过 pointerup 悬挂
+function onResizePointerDown(e: PointerEvent) {
     dragStartY = e.clientY
     dragStartHeight = effectiveHeight.value
     dragHeight.value = dragStartHeight
     document.body.style.cursor = 'row-resize'
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
     e.preventDefault()
 }
-function onMouseMove(e: MouseEvent) {
+function onPointerMove(e: PointerEvent) {
     if (dragHeight.value === null) return
-    // handle 在区块顶部：鼠标向上 → 高度增加
+    // handle 在区块顶部：鼠标/手指向上 → 高度增加
     dragHeight.value = clampHeight(dragStartHeight + (dragStartY - e.clientY))
 }
-function onMouseUp() {
+function onPointerUp() {
     if (dragHeight.value === null) return
     const h = dragHeight.value
     dragHeight.value = null
     document.body.style.cursor = ''
+    document.removeEventListener('pointermove', onPointerMove)
+    document.removeEventListener('pointerup', onPointerUp)
     if (h !== dragStartHeight) emit('resize', h)
 }
 
@@ -80,14 +89,10 @@ function onHeaderClick() {
     emit('toggle', !props.open)
 }
 
-onMounted(() => {
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-})
 onUnmounted(() => {
-    document.removeEventListener('mousemove', onMouseMove)
-    document.removeEventListener('mouseup', onMouseUp)
-    // 防 mid-drag 时组件被卸载（切 tab / 关面板）造成全局光标残留
+    // mid-drag 时组件被卸载（切 tab / 关面板）：残留监听与全局光标一并清理
+    document.removeEventListener('pointermove', onPointerMove)
+    document.removeEventListener('pointerup', onPointerUp)
     document.body.style.cursor = ''
 })
 </script>
@@ -111,10 +116,11 @@ onUnmounted(() => {
                 <slot name="actions" />
             </div>
         </div>
-        <!-- 拖动 handle：仅 resizable 且展开时显示；向上拖增大 body 高度 -->
+        <!-- 拖动 handle：仅 resizable 且展开时显示；向上拖增大 body 高度；
+             pointer 事件鼠标/触屏统一，touch-none 阻止拖动时页面滚动 -->
         <div v-if="resizable && open"
-            class="h-1 cursor-row-resize hover:bg-primary/40 transition-colors shrink-0"
-            :class="{ 'bg-primary/40': dragHeight !== null }" @mousedown="onResizeMouseDown" />
+            class="h-1 cursor-row-resize hover:bg-primary/40 transition-colors shrink-0 touch-none"
+            :class="{ 'bg-primary/40': dragHeight !== null }" @pointerdown="onResizePointerDown" />
         <div v-if="open" class="overflow-y-auto" :style="bodyStyle">
             <slot />
         </div>

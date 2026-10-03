@@ -88,6 +88,11 @@ export interface UiSettings {
 const CONFIG_KEY = 'openclaw_config'
 const DEFAULT_VOICE_GATEWAY_URL = 'https://voice.godgodgame.com'
 const DEFAULT_LOCAL_GATEWAY_NAME = '本地服务'
+
+/** Git 提交历史区高度常量：单一来源（store 持久化形状的归属），
+ * useWorkspacePanel / WorkspaceTabGit / 本文件 defaults 共用，防多处硬编码漂移。 */
+export const WORKSPACE_HISTORY_MIN_HEIGHT = 100
+export const WORKSPACE_HISTORY_DEFAULT_HEIGHT = 240
 const DEFAULT_REMOTE_GATEWAY_NAME = '默认服务器'
 
 /** 条目名称兜底：留空时 local 用默认名、remote 用地址 host（再退默认名）。 */
@@ -411,7 +416,7 @@ const getDefaultSettings = (): UiSettings => ({
             history: true,
             agentFiles: false,
         },
-        historyHeight: 240,
+        historyHeight: WORKSPACE_HISTORY_DEFAULT_HEIGHT,
         statusGroups: {
             staged: true,
             unstaged: true,

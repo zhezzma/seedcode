@@ -10,13 +10,25 @@
  *   生命周期的依赖陷阱（旧 computed 仍跟踪旧 store 实例）。
  */
 import { computed } from 'vue'
-import { useUiSettingsStore } from '../stores/setting.ts'
+import { useUiSettingsStore, WORKSPACE_HISTORY_DEFAULT_HEIGHT, WORKSPACE_HISTORY_MIN_HEIGHT } from '../stores/setting.ts'
 
 export const PANEL_MIN_WIDTH = 240
 export const PANEL_MAX_WIDTH = 1000
 export const PANEL_DEFAULT_WIDTH = 360
 /** Git tab 提交历史区高度的可拖动下限；上限由 CollapsibleSection 按父容器高度动态 clamp。 */
-export const HISTORY_MIN_HEIGHT = 100
+export const HISTORY_MIN_HEIGHT = WORKSPACE_HISTORY_MIN_HEIGHT
+export const HISTORY_DEFAULT_HEIGHT = WORKSPACE_HISTORY_DEFAULT_HEIGHT
+
+/** 持久化高度的恢复/写入 clamp：除下限外还按视口 clamp 上限——大屏持久化的高度
+ *  到小窗恢复时不应撑爆面板（拖动时的动态上限在组件内按父容器算，恢复时无 DOM
+ *  可量，视口是父容器的安全上界近似）。上方 UI（repo 选择 + commit bar）约 200px。 */
+function clampPersistedHeight(h: number): number {
+    const rounded = Math.round(h)
+    const min = HISTORY_MIN_HEIGHT
+    if (typeof window === 'undefined') return Math.max(min, rounded)
+    const max = Math.max(min, window.innerHeight - 200)
+    return Math.max(min, Math.min(max, rounded))
+}
 
 function persistPanel(patch: Partial<{
     open: boolean
@@ -65,13 +77,13 @@ export function useWorkspacePanel() {
 
         setTab(tab: 'files' | 'git') { persistPanel({ tab }) },
 
-        // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认 240）。
+        // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认）。
         historyHeight: computed(() => {
             const h = store.workspacePanel.historyHeight
-            return Math.max(HISTORY_MIN_HEIGHT, Math.round(typeof h === 'number' ? h : 240))
+            return clampPersistedHeight(typeof h === 'number' ? h : HISTORY_DEFAULT_HEIGHT)
         }),
         setHistoryHeight(h: number) {
-            persistPanel({ historyHeight: Math.max(HISTORY_MIN_HEIGHT, Math.round(h)) })
+            persistPanel({ historyHeight: clampPersistedHeight(h) })
         },
 
         setRepoForAgent(agentId: string, repo: string) {

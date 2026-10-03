@@ -17,7 +17,7 @@ import StatusGroup from './git/StatusGroup.vue'
 import HistoryList from './git/HistoryList.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 import { useWorkspaceGit, repoJoin, classifyDiscardEffects } from '../../composables/useWorkspaceGit'
-import { useWorkspacePanel } from '../../composables/useWorkspacePanel'
+import { useWorkspacePanel, HISTORY_MIN_HEIGHT } from '../../composables/useWorkspacePanel'
 import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useToast } from '../../composables/useToast'
@@ -514,7 +514,7 @@ async function onPrimary() {
         <!-- 底部：History 折叠区；resizable = 顶部 handle 可拖动调整高度（持久化到 settings store） -->
         <CollapsibleSection v-if="selectedRepo" :title="$t('workspace.history')"
             :open="panel.bottomSections.value.history" :count="commitsCount"
-            :height="panel.historyHeight.value" resizable
+            :height="panel.historyHeight.value" :min-height="HISTORY_MIN_HEIGHT" resizable
             @toggle="(o: boolean) => panel.setBottomSection('history', o)"
             @resize="(h: number) => panel.setHistoryHeight(h)">
             <HistoryList :agent-id="agentId" :repo="selectedRepo" :on-open-diff="openCommitDiff"
