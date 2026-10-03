@@ -56,10 +56,9 @@ export function replayPartialBlocks(content: unknown): any[] {
     const replayed: any[] = []
     content.forEach((block: any, index: number) => {
         if (block?.type === 'toolCall') return
-        // 空文本/思考块不播种：块建了但首批 token 未到（anthropic/responses 空块先落），
-        // 后续增量会按 _ci 建块；播种空块只会抬高流非空噪声、极端时固化出空气泡
-        if (block?.type === 'text' && !block.text) return
-        if (block?.type === 'thinking' && !block.thinking) return
+        // 空 text/thinking 块照播种（位置占位）：保证后续 delta 按 _ci 路由命中正确位置
+        //（跳过会让新块被 push 到流尾，思考跑到正文后面）；空块不会进历史——
+        // 固化时 solidifyAssistantContent 丢弃无内容占位块
         const copy = JSON.parse(JSON.stringify(block))
         if (typeof copy === 'object' && copy !== null) {
             markContentIndex(copy, index)

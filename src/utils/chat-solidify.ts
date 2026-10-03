@@ -44,13 +44,13 @@ export function hasAssistantTextContent(message: { role?: string; content?: unkn
     })
 }
 
-/** 块序列的文本签名（text/thinking 拼接）：重复 message_end 防重放比对用 */
+/** 块序列的文本签名（类型前缀 + 分隔符拼接，防拼接歧义）：重复 message_end 防重放比对用 */
 export function blocksTextSignature(blocks: unknown): string {
     if (!Array.isArray(blocks)) return ''
     return blocks
         .filter((block: any) => block?.type === 'text' || block?.type === 'thinking')
-        .map((block: any) => (block.type === 'text' ? block.text : block.thinking) ?? '')
-        .join('')
+        .map((block: any) => `${block.type}:\u0000${(block.type === 'text' ? block.text : block.thinking) ?? ''}`)
+        .join('\u0001')
 }
 
 /**
@@ -80,10 +80,11 @@ export function solidifyAssistantContent(
     const localTextCount = dedupedStream.filter(isTextLike).length
     const routedTextCount = dedupedStream.filter((block: any) => isTextLike(block) && typeof block?._ci === 'number').length
     const hasUnroutedText = dedupedStream.some((block: any) => isTextLike(block) && typeof block?._ci !== 'number')
-    // 兼容门禁：有本地文本块但全无 _ci = 旧服务端（delta 无 contentIndex），无法对位
-    // → 原样固化（防权威全文与本地流重复叠加）。纯工具卡流（无本地文本）可在任何
-    // 服务端安全修补——不存在可重复的本地文本；空流（超短回复）同理走权威直采。
-    if (authByCi.size === 0 || (localTextCount > 0 && routedTextCount === 0)) {
+    // 兼容门禁：有本地文本块但混有无 _ci 的（旧服务端 delta 无 contentIndex；含播种块
+    // 与旧 delta 块混流的边角）→ 无法对位，整体退回旧行为原样固化（替换/插入都会
+    // 与本地流重复叠加）。纯工具卡流（无本地文本）可在任何服务端安全修补——不存在
+    // 可重复的本地文本；空流（超短回复）同理走权威直采。
+    if (authByCi.size === 0 || (localTextCount > 0 && (routedTextCount === 0 || hasUnroutedText))) {
         return JSON.parse(JSON.stringify(dedupedStream))
     }
 
@@ -97,6 +98,10 @@ export function solidifyAssistantContent(
         const ci = rawBlock?._ci
         if (isTextLike(rawBlock) && typeof ci === 'number') {
             if (patchedCi.has(ci)) continue
+            // 空块占位（建块后首批 token 未到即被播种）不进历史：真实内容会被权威块
+            // 替换，无内容的占位块直接丢弃（防空气泡）
+            const text = rawBlock.type === 'text' ? rawBlock.text : rawBlock.thinking
+            if (typeof text !== 'string' || !text) continue
             if (authByCi.has(ci)) {
                 patchedCi.add(ci)
                 placed.push({ key: ci, block: authByCi.get(ci) })
@@ -107,13 +112,10 @@ export function solidifyAssistantContent(
         placed.push({ key: typeof ci === 'number' ? ci : anchor, block: rawBlock })
         if (typeof ci === 'number') anchor = ci
     }
-    // 第二步：本地缺失的权威块（跨块首批整体未达 / 末批）落到作者位置。
-    // 仅在全路由（无旧协议无 _ci 的本地文本块）时插入：混有旧协议块时无法确认
-    // 其对应权威块是否缺失，插入会造成同段文本双份
-    if (!hasUnroutedText) {
-        for (const [ci, block] of authByCi) {
-            if (!patchedCi.has(ci)) placed.push({ key: ci, block })
-        }
+    // 第二步：本地缺失的权威块（跨块首批整体未达 / 末批）落到作者位置
+    //（到达此处的流必全路由：门禁已拦下混有无 _ci 文本块的旧协议流）
+    for (const [ci, block] of authByCi) {
+        if (!patchedCi.has(ci)) placed.push({ key: ci, block })
     }
     // 稳定排序：同 key 保持流内相对顺序（工具卡与其锚定块不互换）；末尾统一深拷贝
     return placed

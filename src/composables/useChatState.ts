@@ -714,11 +714,13 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     // 必不同，不会误杀。仅在服务端携带 timestamp 时生效（旧服务端
                     // 不具备新门禁，维持旧行为；误漏的重复由 done 全量刷新兑底）
                     if (!hasError && typeof endMsg?.timestamp === 'number') {
-                        const last = sessionData.chatMessages[sessionData.chatMessages.length - 1]
                         const signature = blocksTextSignature(solidifyContent)
-                        if (signature && last?.role === 'assistant'
+                        // 有界窗口扫描而非只看末条：原消息与重放之间可能插入了
+                        // custom 面板消息、回显气泡等非 assistant 条目
+                        if (signature && sessionData.chatMessages.slice(-4).some((last: any) =>
+                            last?.role === 'assistant'
                             && last.timestamp === endMsg.timestamp
-                            && blocksTextSignature(last.content) === signature) {
+                            && blocksTextSignature(last.content) === signature)) {
                             sessionData.chatStream = null
                             break
                         }

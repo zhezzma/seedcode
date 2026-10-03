@@ -232,8 +232,10 @@ test('流首工具卡锚 -1：排在全部文本块之前（多轮工具卡随�
     assert.equal((solidified[1] as any).text, '正文全文。')
 })
 
-test('blocksTextSignature：text/thinking 拼接签名（防重放比对用）', () => {
-    assert.equal(blocksTextSignature([{ type: 'text', text: 'ab' }, { type: 'thinking', thinking: 'cd' }, { type: 'toolCall', id: 'x' }]), 'abcd')
+test('blocksTextSignature：类型前缀 + 分隔符（防拼接歧义碰撞）', () => {
+    assert.equal(blocksTextSignature([{ type: 'text', text: 'ab' }, { type: 'thinking', thinking: 'cd' }, { type: 'toolCall', id: 'x' }]), 'text:\u0000ab\u0001thinking:\u0000cd')
+    // ["ab","c"] 与 ["a","bc"] 不同签名
+    assert.notEqual(blocksTextSignature([{ type: 'text', text: 'ab' }, { type: 'text', text: 'c' }]), blocksTextSignature([{ type: 'text', text: 'a' }, { type: 'text', text: 'bc' }]))
     assert.equal(blocksTextSignature(undefined), '')
     assert.equal(blocksTextSignature([]), '')
 })
@@ -250,7 +252,7 @@ test('纯工具卡流（无本地文本块）：任何服务端均可安全修�
     assert.equal((solidified[1] as any).text, '全文。')
 })
 
-test('旧服务端混流（播种块带 _ci + 旧 delta 块无 _ci）：只替换不插入，不双份', () => {
+test('旧服务端混流（播种块带 _ci + 旧 delta 块无 _ci）：整体退回旧行为，不替换不插入', () => {
     const stream = [
         { type: 'text', text: '播种首批' },   // 旧服务端 message_start 意外携带内容的播种块
         { type: 'text', text: '旧 delta 拼接段' }, // 无 contentIndex 的旧 delta 块
@@ -261,10 +263,11 @@ test('旧服务端混流（播种块带 _ci + 旧 delta 块无 _ci）：只替�
         [{ type: 'text', text: '全文' }],
         { isToolCallInHistory: neverInHistory },
     )
-    // 播种块被权威替换，旧 delta 块原样保留；不插入缺失块（无法确认对应关系）
-    assert.equal((solidified[0] as any).text, '全文')
-    assert.equal((solidified[1] as any).text, '旧 delta 拼接段')
-    assert.equal(solidified.length, 2)
+    // 无法对位 → 原样固化（替换/插入都会与本地流重复叠加）
+    assert.deepEqual(solidified, [
+        { type: 'text', text: '播种首批' },
+        { type: 'text', text: '旧 delta 拼接段' },
+    ])
 })
 
 test('同 _ci 重复本地块（防御）：只保留首个（被权威块替换），不双份', () => {
@@ -282,13 +285,31 @@ test('同 _ci 重复本地块（防御）：只保留首个（被权威块替换
     assert.deepEqual(solidified, [{ type: 'text', text: '全文' }])
 })
 
-test('replayPartialBlocks：空 text/thinking 块不播种（防空气泡与流非空噪声）', () => {
+test('replayPartialBlocks：空 text/thinking 块照播种（位置占位），固化时才丢弃', () => {
     const replayed = replayPartialBlocks([
-        { type: 'text', text: '' },
         { type: 'thinking', thinking: '' },
         { type: 'text', text: '非空' },
     ])
-    assert.deepEqual(replayed.map((b: any) => b.text), ['非空'])
+    // 空块占位保证后续 delta 按 _ci 路由命中正确位置
+    assert.equal(replayed.length, 2)
+    assert.equal((replayed[0] as any)._ci, 0)
+    assert.equal((replayed[1] as any)._ci, 1)
+    // 固化时无内容占位块丢弃（防空气泡）
+    const placeholderStream = [
+        { type: 'thinking', thinking: '' },
+        { type: 'text', text: '非空' },
+    ]
+    ci(placeholderStream[0], 0)
+    ci(placeholderStream[1], 1)
+    const solidified = solidifyAssistantContent(
+        placeholderStream,
+        [
+            { type: 'thinking', thinking: '' }, // 权威里也是空（首批 token 从未到达）
+            { type: 'text', text: '非空' },
+        ],
+        { isToolCallInHistory: neverInHistory },
+    )
+    assert.deepEqual(solidified, [{ type: 'text', text: '非空' }])
 })
 
 test('replayPartialBlocks：非对象项不进入流（null/原始值）', () => {
