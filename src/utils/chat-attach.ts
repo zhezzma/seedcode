@@ -32,6 +32,39 @@ export function markContentIndex(block: object, contentIndex: number): void {
     Object.defineProperty(block, '_ci', { value: contentIndex, enumerable: false })
 }
 
+/**
+ * pi partial 消息 content → 流内块数组。两个消费方共用：
+ * - attach 快照重放（streamMessage，本文件）；
+ * - live assistant message_start 首批播种（useChatState）——pi-durable 语义下首批
+ *   文本只随 message_start 的 partial 落位（后续 delta 由 viewOps 追加派生，与首批
+ *   互斥），不播种则每条 live 观看的消息缺头。
+ *
+ * 剥掉 toolCall block：客户端收不到 toolcall 参数增量（服务端只转发
+ * text/thinking delta），partial 里的 toolCall 是 partial-json 的流式中间态
+ * （参数可能缺到只剩 task:""）。原样恢复会在 message_end 时被固化进历史，
+ * 渲染成永远转圈的 calling 卡；随后 tool_execution_start 再 push 一份
+ * 完整参数的同 id block，同一调用出现两张卡。toolCall 卡统一由
+ * tool_execution_start 用完整参数重建（与 live 流程一致）。
+ * 保留块时按下标打 _ci 标记：content 即 pi partial 消息的 content 数组，
+ * 原始数组下标 = 后续 live delta 的 contentIndex，重放/播种后增量按 _ci 就地合并
+ * （见 useChatState text/thinking_delta）；toolCall 占位下标不能挤占文本/思考
+ * 块的下标，故必须在过滤前计算下标。_ci 为不可枚举：JSON 拷贝/固化天然剥离。
+ * 返回值已是逐块深拷贝（切断对快照/事件对象的引用）。
+ */
+export function replayPartialBlocks(content: unknown): any[] {
+    if (!Array.isArray(content)) return []
+    const replayed: any[] = []
+    content.forEach((block: any, index: number) => {
+        if (block?.type === 'toolCall') return
+        const copy = JSON.parse(JSON.stringify(block))
+        if (typeof copy === 'object' && copy !== null) {
+            markContentIndex(copy, index)
+        }
+        replayed.push(copy)
+    })
+    return replayed
+}
+
 export function shouldAttachSession(hasActiveSSE: boolean): boolean {
     return !hasActiveSSE
 }
@@ -74,27 +107,8 @@ export function applyAttachMessageState(sessionData: ChatSessionData, state: Att
 
     // 3. 恢复或清空半截 assistant 流。
     if (state.streamMessage?.content && Array.isArray(state.streamMessage.content)) {
-        // 剥掉 toolCall block：客户端收不到 toolcall 参数增量（服务端只转发
-        // text/thinking delta），快照里的 toolCall 是 partial-json 的流式中间态
-        //（参数可能缺到只剩 task:""）。原样恢复会在 message_end 时被固化进历史，
-        // 渲染成永远转圈的 calling 卡；随后 tool_execution_start 再 push 一份
-        // 完整参数的同 id block，同一调用出现两张卡。toolCall 卡统一由
-        // tool_execution_start 用完整参数重建（与 live 流程一致）。
-        // 保留块时按下标打 _ci 标记：快照 content 即 pi partial 消息的 content 数组，
-        // 原始数组下标 = 后续 live delta 的 contentIndex，重放后增量按 _ci 就地合并
-        //（见 useChatState text/thinking_delta）；toolCall 占位下标不能挤占文本/思考
-        // 块的下标，故必须在过滤前计算下标。_ci 为不可枚举：JSON 拷贝/固化天然剥离。
-        const replayed: any[] = []
-        state.streamMessage.content.forEach((block: any, index: number) => {
-            if (block?.type === 'toolCall') return
-            const copy = JSON.parse(JSON.stringify(block))
-            if (typeof copy === 'object' && copy !== null) {
-                markContentIndex(copy, index)
-            }
-            replayed.push(copy)
-        })
         // replayed 已是逐块深拷贝（与旧的整包 JSON 拷贝同语义，切断对快照对象的引用）
-        sessionData.chatStream = replayed
+        sessionData.chatStream = replayPartialBlocks(state.streamMessage.content)
         return
     }
 

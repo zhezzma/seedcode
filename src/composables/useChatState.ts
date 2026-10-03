@@ -4,7 +4,8 @@ import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
-import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, shouldAttachSession } from '../utils/chat-attach'
+import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, replayPartialBlocks, shouldAttachSession } from '../utils/chat-attach'
+import { blocksTextSignature, hasAssistantTextContent, solidifyAssistantContent } from '../utils/chat-solidify'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
 import { isAbortErrorMessage } from '../utils/chatMessageRender'
 import { type KnownApi } from './useModelsState'
@@ -502,6 +503,21 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     stream.push({ type: 'text', text: data.message.content })
                 }
             }
+            // assistant 首批播种：pi-durable 语义下首批文本只随 message_start 的 partial
+            // 消息落位（后续 text_delta 由 viewOps 追加派生，与首批互斥），不播种则每条
+            // live 观看的消息缺头（缺多少 = 首个 ~100ms flush 窗口的 token 量；
+            // openai-completions/gemini 协议建块即带文本几乎必缺，anthropic/responses
+            // 空块先落、首批跨 flush 边界才缺）。重放消息（message_start 携带全文）经此
+            // 即时上屏，与 attach 快照重放同构（replayPartialBlocks）。
+            if (echoMsg?.role === 'assistant') {
+                // 防重：attach 快照重放 / 重发 message_start 已按 _ci 播种过的块不重复入流
+                //（否则重复消息头部翻倍）；text_delta 路径本身有 _ci 查重，这里补齐播种侧
+                for (const block of replayPartialBlocks(echoMsg.content)) {
+                    const seededCi = (block as any)?._ci
+                    if (typeof seededCi === 'number' && stream.some((b: any) => b._ci === seededCi)) continue
+                    stream.push(block)
+                }
+            }
             break
         }
         case 'text_delta':
@@ -664,7 +680,8 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
 
             break
         case 'message_end': {
-            // 【关键逻辑】仅当 stream 有实际内容时，才将其固化为正式消息并重置 chatStream
+            // 【关键逻辑】仅当 stream 有实际内容（或服务端权威全文/错误信息在位）时，
+            // 才将其固化为正式消息并重置 chatStream
             //
             // 背景：服务器在每次对话开始时会先发一对 message_start/message_end 来回显用户消息
             // （此时 stream 为空），随后才会开始推送 assistant 的内容；空 stream 不固化，
@@ -680,20 +697,28 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             const aborted = isAbortErrorMessage(rawError)
             const hasError = !!rawError && !aborted
 
-            if (stream.length > 0 || hasError) {
-                // 防御层：与历史同 id 的 toolCall block 不随流固化。正常 live 流中
-                // 历史（本地固化副本）不含同 id 卡，此过滤断言为 no-op；但任何路径
-                // 遗留的流内工具卡（如旧连接残留、快照对账前的窗口）若已被落盘
-                // 数据覆盖，此处阻断它固化成第二条永久消息——否则要等到 done 全量
-                // 刷新才收敛，期间同 id 双卡。文本块无 id 不参与去重（快照对账已
-                // 从根上作废旧流，这里只兜工具卡）。
-                const solidifyContent = (stream.length > 0 ? JSON.parse(JSON.stringify(stream)) : [])
-                    .filter((block: any) => {
-                        if (block?.type !== 'toolCall' || !block.id) return true
-                        return !findToolBlockInMessages(sessionData.chatMessages, block.id)
-                    })
+            if (stream.length > 0 || hasError || hasAssistantTextContent(endMsg)) {
+                // 用服务端权威全文修补本地拼接流后再固化（补首/末批与跨块首批；
+                // 超短回复整条只在 message_end 落位的也经此上屏），详见 chat-solidify.ts。
+                // 仅 assistant 消息提供权威全文；user 回显 / 旧服务端路径原样固化。
+                const solidifyContent = solidifyAssistantContent(
+                    stream,
+                    endMsg?.role === 'assistant' ? endMsg?.content : undefined,
+                    { isToolCallInHistory: (id) => !!findToolBlockInMessages(sessionData.chatMessages, id) },
+                )
                 // 有内容或有错误信息：固化为一条正式的 assistant 消息
                 if (solidifyContent.length > 0 || hasError) {
+                    // 防重放：流已空时重复到达的 assistant message_end（快照重放/重试流）
+                    // 不再固化第二条同文消息——新门禁（权威全文/超短回复）把原本必跳过的
+                    // 空 stream 路径变成了可固化，这里是 done 全量刷新前的双气泡防线
+                    if (stream.length === 0 && !hasError) {
+                        const last = sessionData.chatMessages[sessionData.chatMessages.length - 1]
+                        const signature = blocksTextSignature(solidifyContent)
+                        if (signature && last?.role === 'assistant' && blocksTextSignature(last.content) === signature) {
+                            sessionData.chatStream = null
+                            break
+                        }
+                    }
                     const msg: ChatMessage = {
                         role: 'assistant',
                         content: solidifyContent, // 深拷贝，防止引用被后续操作修改
