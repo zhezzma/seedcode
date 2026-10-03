@@ -63,6 +63,8 @@ export interface ProviderConfig {
     headers?: Record<string, string>
     models: AvailableModel[]
     custom: boolean
+    /** true = key-rotator 轮换组别名 provider，仅列表展示需隐藏；state.providers 保留原始数据避免保存 round-trip 丢失。 */
+    rotatorAlias?: boolean
     compat?: OpenAICompletionsCompat | AnthropicMessagesCompat | OpenAIResponsesCompat
 }
 
@@ -161,6 +163,7 @@ const availableModels = computed<ProviderInfo[]>(() => {
     const result: ProviderInfo[] = []
     for (const [id, config] of Object.entries(state.providers)) {
         if (!config.apiKey) continue
+        if (config.rotatorAlias) continue
         result.push({ id, name: id, provider: id, ...config })
     }
     return result.sort((a, b) => {
@@ -174,6 +177,7 @@ const availableModels = computed<ProviderInfo[]>(() => {
 const providers = computed<ProviderInfo[]>(() => {
     const result: ProviderInfo[] = []
     for (const [id, config] of Object.entries(state.providers)) {
+        if (config.rotatorAlias) continue
         result.push({ id, name: id, provider: id, ...config })
     }
     return result.sort((a, b) => {
