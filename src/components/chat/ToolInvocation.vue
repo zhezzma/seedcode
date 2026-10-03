@@ -354,7 +354,10 @@ const canViewTrace = computed(() => {
 
 /** 打开轨迹抽屉（全局状态，抽屉在 HomeView 挂载；点在哪个子代理行上就定位哪个 tab） */
 function openTrace(subId?: string) {
-    const parentSessionId = chatState.currentSession?.id
+    // 优先用服务端随 details 下发的 sessionId（轨迹真实落盘归属）：会话树内切分支后
+    // 当前会话 id（树根）与工具运行的分支 conversation id 会分叉，旧卡片无此字段时
+    // 回落当前会话 id（根分支场景两者一致，兼容历史）
+    const parentSessionId = props.details?.sessionId || chatState.currentSession?.id
     if (!parentSessionId) return
     traceViewer.open(parentSessionId, subagentResults.value, subId)
 }
