@@ -12,6 +12,7 @@ import ExtensionUsageModal from '../components/extensions/ExtensionUsageModal.vu
 import ExtensionPanelModal from '../components/extensions/ExtensionPanelModal.vue'
 import { getExtensionPanelIcon, getExtensionPanelTitleKey } from '../components/extensions/panel-registry'
 import { apiGet, apiPost } from '../composables/api-client'
+import { useCommandState } from '../composables/useCommandState'
 
 interface ExtensionItem {
     id: string
@@ -58,6 +59,9 @@ async function toggleExtension(item: ExtensionItem) {
     item.enabled = next
     try {
         await apiPost(`/api/extensions/${encodeURIComponent(item.id)}/${next ? 'enable' : 'disable'}`)
+        // 扩展可注册命令：启停后强制刷新当前作用域的斜杠命令缓存，
+        // 否则 / 命令面板保持陈旧直到整页刷新
+        void useCommandState().forceReload(useCommandState().currentAgentId.value)
     } catch {
         item.enabled = !next
     }
