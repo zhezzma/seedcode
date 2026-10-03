@@ -24,7 +24,7 @@
  * 4. 半截内容 abort（流式+历史）：内容保留，无 errorMessage/错误块/中断标记；
  * 5. 真错误（非 abort 签名）保持红色错误块；
  * 6. 断连（无 compaction_end）/done 后 compacting 兜底清零；attach 路径同规则；
- * 7. 手动 /compact（专用 SSE 端点）、阈值自动压缩（reason:threshold，run 内
+ * 7. 手动 /compact（chat 命令路径：compaction_start/end + command_delta 回执）、阈值自动压缩（reason:threshold，run 内
  *    自然边界、无 abort 帧）与 SoL-Pi 在线压缩共用同一事件对与同一渲染路径——
  *    三种触发源客户端显示完全一致（统一性验收）。
  */
@@ -59,7 +59,6 @@ export function startChatSSE(sessionId, body, onEvent, onError) { return makeCon
 export function attachSessionSSE(sessionId, onEvent, onError, options) { return makeConn('attach', sessionId, onEvent, onError); }
 export function startRetrySSE(sessionId, body, onEvent, onError) { return makeConn('chat', sessionId, onEvent, onError); }
 export function startEditSSE(sessionId, body, onEvent, onError) { return makeConn('chat', sessionId, onEvent, onError); }
-export function startCompactSSE(sessionId, body, onEvent, onError) { return makeConn('compact', sessionId, onEvent, onError); }
 `,
 }
 
@@ -270,29 +269,40 @@ console.log('ATTACH_START isCompacting=' + chat.isCompacting() + ' pseudoVisible
 attachEmit('compaction_end', { type: 'compaction_end', reason: 'manual' })
 console.log('ATTACH_END isCompacting=' + chat.isCompacting() + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting'))
 
-// ===== 场景 3.5：手动 /compact（专用 SSE 端点：流式生命周期 + 完成反馈）=====
-await chat.compactSession()
+// ===== 场景 3.5：手动 /compact（统一走 chat 命令路径：streamCommandDeferred）=====
+// 服务端流形：compaction_start → compaction_end → message_start → command_delta
+//（回执"会话已压缩"）→ message_end → turn_end → done
 {
-    console.log('MANUAL_START busy=' + chat.chatSending + ' isCompacting=' + chat.isCompacting() + ' target=' + (sse.handlers.compact ? sse.handlers.compact.sessionId : 'missing'))
+    await chat.sendMessage('/compact')
+    console.log('MANUAL_START busy=' + chat.chatSending + ' isCompacting=' + chat.isCompacting())
+    const compactEmit = (event: string, data: any) => sse.handlers.chat.onEvent({ event, data })
+    compactEmit('compaction_start', { type: 'compaction_start', reason: 'manual' })
+    console.log('MANUAL_WINDOW isCompacting=' + chat.isCompacting() + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting'))
+    compactEmit('compaction_end', { type: 'compaction_end', reason: 'manual' })
+    compactEmit('message_start', { type: 'message_start', message: { id: 'cm1', role: 'assistant', content: '', timestamp: 30 } })
+    compactEmit('command_delta', { type: 'command_delta', id: 'cm1', delta: '会话已压缩', command: 'compact', data: {} })
+    compactEmit('message_end', { type: 'message_end', message: { id: 'cm1', role: 'assistant', content: '会话已压缩', timestamp: 30 } })
+    // 回执气泡在 message_end 即固化（done 后的 mock 全量刷新不含服务端持久化回执，不在此断言）
+    const receipt = msgs.processedMessages.value.some((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text === '会话已压缩'))
+    compactEmit('turn_end', { type: 'turn_end' })
+    compactEmit('done', { message: 'Complete' })
+    sse.dones.chat()
+    await new Promise((r) => setTimeout(r, 50))
+    console.log('MANUAL_DONE isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' receiptBubble=' + receipt)
 }
-const compactEmit = (event: string, data: any) => sse.handlers.compact.onEvent({ event, data })
-compactEmit('compaction_start', { type: 'compaction_start', reason: 'manual' })
-console.log('MANUAL_WINDOW isCompacting=' + chat.isCompacting() + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting'))
-compactEmit('compaction_end', { type: 'compaction_end', reason: 'manual', result: { summary: 's', tokensBefore: 46366, estimatedTokensAfter: 457 } })
-compactEmit('done', { message: 'Complete', result: { summary: 's', tokensBefore: 46366, estimatedTokensAfter: 457 } })
-sse.dones.compact()
-await new Promise((r) => setTimeout(r, 50))
-console.log('MANUAL_DONE isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' successToast=' + ((globalThis as any).__toasts || []).filter((x: any) => x.type === 'success').map((x: any) => x.message).join('|'))
 
-// 手动 /compact 失败路径（小会话）：compaction_end 带 errorMessage + error 事件后干净收敛
-await chat.compactSession()
-compactEmit('compaction_start', { type: 'compaction_start', reason: 'manual' })
-compactEmit('compaction_end', { type: 'compaction_end', reason: 'manual', aborted: false, willRetry: false, errorMessage: 'Compaction failed: Nothing to compact (session too small)' })
-compactEmit('error', { error: 'Nothing to compact (session too small)' })
-compactEmit('done', { message: 'Error' })
-sse.dones.compact()
-await new Promise((r) => setTimeout(r, 50))
-console.log('MANUAL_FAIL isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting') + ' errorToast=' + JSON.stringify(((globalThis as any).__toasts || []).filter((x: any) => x.type === 'error').map((x: any) => x.message)))
+// 手动 /compact 失败路径：compaction_end 后 error 事件，干净收敛（无残留压缩行）
+{
+    await chat.sendMessage('/compact')
+    const compactEmit = (event: string, data: any) => sse.handlers.chat.onEvent({ event, data })
+    compactEmit('compaction_start', { type: 'compaction_start', reason: 'manual' })
+    compactEmit('compaction_end', { type: 'compaction_end', reason: 'manual' })
+    compactEmit('error', { error: 'Nothing to compact (session too small)' })
+    compactEmit('done', { message: 'Error' })
+    sse.dones.chat()
+    await new Promise((r) => setTimeout(r, 50))
+    console.log('MANUAL_FAIL isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting') + ' errorToast=' + JSON.stringify(((globalThis as any).__toasts || []).filter((x: any) => x.type === 'error').map((x: any) => x.message)))
+}
 
 // ===== 场景 3.7：阈值自动压缩（reason:"threshold"，run 内自然边界，无 abort 帧）=====
 // 与手动 /compact、SoL-Pi 在线压缩共用同一事件对与同一渲染路径：三种触发源客户端显示一致
@@ -415,12 +425,11 @@ test('compaction UX: 瞬态压缩行 + abort/display:false 中性渲染全生命
     assert.equal(need('ATTACH_LEGACY'), 'ATTACH_LEGACY isCompacting=true')
     assert.match(need('ATTACH_START'), /isCompacting=true pseudoVisible=true/)
     assert.match(need('ATTACH_END'), /isCompacting=false pseudoVisible=false/)
-    // 手动 /compact：专用端点流式生命周期 + done 收尾
+    // 手动 /compact：chat 命令路径（streamCommandDeferred），与其它命令回执同形
     const ms = need('MANUAL_START')
     assert.match(ms, /busy=true/, `manual compact enters busy state: ${ms}`)
-    assert.match(ms, /target=S1/, `compact SSE targets current session: ${ms}`)
     assert.equal(need('MANUAL_WINDOW'), 'MANUAL_WINDOW isCompacting=true pseudoVisible=true')
-    assert.equal(need('MANUAL_DONE'), 'MANUAL_DONE isCompacting=false chatSending=false successToast=chat.compactDone')
+    assert.equal(need('MANUAL_DONE'), 'MANUAL_DONE isCompacting=false chatSending=false receiptBubble=true')
     const mf = need('MANUAL_FAIL')
     assert.match(mf, /isCompacting=false chatSending=false pseudoVisible=false/, `failed compact converges: ${mf}`)
     assert.match(mf, /errorToast=\["chat.compactNothingToDo"\]/, `localized too-small toast: ${mf}`)

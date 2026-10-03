@@ -2,7 +2,7 @@ import { reactive, computed, type ComputedRef } from 'vue'
 
 import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
-import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, startCompactSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
+import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
 import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, shouldAttachSession } from '../utils/chat-attach'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
@@ -441,6 +441,14 @@ const handleCommandDelta = (data: any, targetKey: string) => {
 }
 
 const allowCustomType = ["generated_image"]
+
+/** 压缩失败文案本地化：服务端固定英文原文（Nothing to compact / Already compacted）。
+ * 未命中映射返回原文，保留真实错误信息 */
+const localizeCompactError = (raw: string): string => {
+    if (/nothing to compact/i.test(raw)) return (i18n.global as any).t('chat.compactNothingToDo')
+    if (/already compacted/i.test(raw)) return (i18n.global as any).t('chat.compactAlreadyDone')
+    return raw
+}
 // 处理 SSE 事件，更新会话状态
 // 【重要】服务器协议说明：
 // - 每次对话开始时，服务器会先通过 message_start/message_end 回显用户发送的消息（role: user）
@@ -764,8 +772,8 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     sessionData.chatMessages = msgs.slice(0, -1)
                 }
             }
-            // 显示错误提示
-            const errorMsg = data?.error || 'Unknown error'
+            // 显示错误提示（压缩类固定英文文案本地化，避免中文 UI 裸英 toast）
+            const errorMsg = localizeCompactError(data?.error || 'Unknown error')
             useToast().error(errorMsg, 5000)
             break
         }
@@ -951,70 +959,6 @@ const createNewSession = async () => {
  */
 const selectAgent = (agentId: string) => {
     state.agentsSelectedId = agentId
-}
-
-/** 压缩失败文案本地化：服务端固定英文原文（Nothing to compact / Already compacted），
- *  中文 UI 里直接 toast 生英文很粗糙；未命中映射的原文返回，保留真实错误信息 */
-const localizeCompactError = (raw: string): string => {
-    if (/nothing to compact/i.test(raw)) return (i18n.global as any).t('chat.compactNothingToDo')
-    if (/already compacted/i.test(raw)) return (i18n.global as any).t('chat.compactAlreadyDone')
-    return raw
-}
-
-/**
- * 手动压缩会话上下文：走专用 SSE 端点（streamCompact 先订阅会话事件再压缩，
- * compaction_start/end 流式下发驱动瞬态压缩行）。
- * 不能走普通 /chat 命令路径：服务端在压缩完成后才开流，压缩全程（实测 26~90s）
- * 零反馈。busy 时服务端 compaction guard 拒绝，调用方（HomeView）负责拦截。
- * 完成后 done 携带 CompactionResult，token 前后对比作为唯一完成反馈（压缩本身零痕迹）；
- * 失败（会话太短/已压缩过）经 error 事件 toast 本地化提示，不再静默。
- */
-const compactSession = async (customInstructions?: string, sessionKey?: string) => {
-    const targetKey = sessionKey || state.sessionKey
-    if (!targetKey) {
-        console.error('[useChatState] compactSession called without sessionKey')
-        return
-    }
-    const sessionData = getSessionData(targetKey)
-
-    sessionData.chatSending = true
-    sessionData.chatRunId = sessionData.chatRunId || generateUUID()
-    sessionData.chatStream = []
-
-    // Abort any existing SSE for this session
-    const existingSSE = sseConnections.get(targetKey)
-    if (existingSSE) {
-        existingSSE.abort()
-    }
-
-    const sse = startCompactSSE(
-        targetKey,
-        customInstructions ? { customInstructions } : {},
-        (event) => {
-            if (event.event === 'done' && event.data?.result) {
-                const r = event.data.result
-                const fmt = (n: unknown) => (typeof n === 'number' && n > 999 ? `${(n / 1000).toFixed(1)}K` : String(n ?? '?'))
-                if (typeof r.tokensBefore === 'number' && typeof r.estimatedTokensAfter === 'number') {
-                    useToast().success(
-                        (i18n.global as any).t('chat.compactDone', { before: fmt(r.tokensBefore), after: fmt(r.estimatedTokensAfter) }),
-                        5000,
-                    )
-                }
-            }
-            // 压缩失败：error 事件文案本地化后交给通用错误分支（状态回滚 + toast 都在那里）
-            if (event.event === 'error' && typeof event.data?.error === 'string') {
-                event = { ...event, data: { ...event.data, error: localizeCompactError(event.data.error) } }
-            }
-            handleSSEEvent(event.event, event.data, targetKey)
-        },
-        (error) => {
-            // HTTP 层失败（JSON 错误响应）：本地化后显式反馈，静默会让用户以为已压缩
-            resetStreamState(sessionData)
-            useToast().error(localizeCompactError(error.message), 5000)
-        },
-    )
-
-    bindSSELifecycle(sse, targetKey)
 }
 
 const steerMessage = async (message: string, sessionKey?: string): Promise<boolean> => {
@@ -1595,7 +1539,7 @@ const _methods = {
     chatSending, chatRunId, chatStreamStartedAt, chatLoading, sessionUsage, currentAgent,
     compacting,
     pendingQueue, removePendingItem,
-    sendMessage, steerMessage, followMessage, abortChat, loadChatHistory, compactSession,
+    sendMessage, steerMessage, followMessage, abortChat, loadChatHistory,
     setSessionModel, setSessionThinkingLevel, patchSessionRowEverywhere,
     setSessionKey, createNewSession, selectAgent, getSessionData,
     retryMessage, editMessage, fetchSessionTree, fetchSessionUsage, navigateBranch, forkFromEntry,

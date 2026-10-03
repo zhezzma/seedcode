@@ -180,46 +180,6 @@ export function startEditSSE(
     return startPostSSE(`/api/chat/${sessionId}/edit`, body, onEvent, onError, onOpen)
 }
 
-/**
- * Start compact SSE stream — POSTs to /compact with { customInstructions? }, streams
- * the manual compaction lifecycle (compaction_start/end + summarization retry events).
- *
- * 与 /retry、/edit 不同：/compact 是空闲态操作，服务端在 Accept 含
- * text/event-stream 时返回流式生命周期（streamCompact：先订阅会话事件再压缩），
- * 压缩期间客户端能收到 compaction_start/end 驱动瞬态压缩行。
- */
-export function startCompactSSE(
-    sessionId: string,
-    body: { customInstructions?: string },
-    onEvent: SSEEventHandler,
-    onError?: (error: Error) => void
-): SSEConnection {
-    const controller = new AbortController()
-
-    const url = getApiUrl(`/api/chat/${sessionId}/compact`)
-    const token = getAuthToken()
-
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-    }
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-    }
-
-    const done = fetchSSE(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-    }, onEvent, onError)
-
-    return {
-        abort: () => controller.abort(),
-        done,
-    }
-}
-
 // ==================== Internal SSE Parser ====================
 
 async function fetchSSE(
