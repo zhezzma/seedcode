@@ -62,12 +62,18 @@ const nameTouched = ref(false)
 
 const slugOf = (b: string) => b.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
 
+// 智能体 ID 规则（与后端 AgentManager.create 同源）：英文字母开头 + 字母/数字/下划线/连字符。
+// id 会进对外 sessionId（`${agentId}-<convId>`）与 per-session 目录名，非法字符后端直接拒绝
+const AGENT_ID_RE = /^[A-Za-z][A-Za-z0-9_-]*$/
+
 const onWorkspaceValidated = ({ basename }: { basename: string }) => {
     if (!basename) return
     // 字段联动（spec §5.1）：仅当字段为空且未被手动改过时预填
     if (props.mode === 'add' && !idTouched.value && !formData.value.id) {
         const slug = slugOf(basename)
-        if (slug) formData.value.id = slug
+        // 预填仅限合规 id（首字母须为英文字母，AGENT_ID_RE）：数字开头等不合规
+        // slug 不预填，避免提交按钮静默禁用且无错误提示
+        if (slug && AGENT_ID_RE.test(slug)) formData.value.id = slug
     }
     if (!nameTouched.value && !formData.value.name) formData.value.name = basename
 }
@@ -117,9 +123,7 @@ watch(() => props.show, (newVal) => {
     }
 })
 
-// 智能体 ID 规则（与后端 AgentManager.create 同源）：英文字母开头 + 字母/数字/下划线/连字符。
-// id 会进对外 sessionId（`${agentId}-<convId>`）与 per-session 目录名，非法字符后端直接拒绝
-const AGENT_ID_RE = /^[A-Za-z][A-Za-z0-9_-]*$/
+// 智能体 ID 规则已上移至 slugOf 附近（预填联动同源使用）
 
 const isFormValid = computed(() => {
     if (props.mode === 'add' && !AGENT_ID_RE.test(formData.value.id.trim())) return false
@@ -222,7 +226,7 @@ const submitForm = async () => {
     isBusy.value = true
     try {
         const data = new FormData()
-        data.append('id', formData.value.id)
+        data.append('id', formData.value.id.trim())
 
         // Append fields if they have value
         if (formData.value.name) data.append('name', formData.value.name)
