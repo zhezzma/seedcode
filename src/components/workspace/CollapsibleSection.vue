@@ -5,7 +5,7 @@
  * - 可选 #actions slot：放右侧操作按钮（如 + 文件 / + 目录），与 toggle 按钮平级，
  *   点击不会触发 section 折叠/展开（不嵌在 toggle button 内，事件天然不冒泡）
  * - body 在 open 时固定高度（默认 240px）、内部独立滚动
- * - 可选 resizable：body 顶部渲染拖动 handle，向上拖增大高度；拖动期间本地
+ * - 可选 resizable：title 上方（区块顶边界）渲染拖动 handle，向上拖增大高度；拖动期间本地
  *   dragHeight 实时刷新，pointerup 才 emit 一次 resize（父组件持久化），
  *   与 WorkspacePanel 宽度 splitter 同模式；上限按父容器高度动态 clamp
  * - 视觉风格匹配 daisyUI 主题；header 用 base-200 底色与 panel 区分
@@ -101,6 +101,11 @@ onUnmounted(() => {
 
 <template>
     <div ref="rootRef" class="border-t border-base-300 shrink-0">
+        <!-- 拖动 handle：仅 resizable 且展开时显示；位于 title 上方（区块顶边界），
+             向上拖增大 body 高度；pointer 事件鼠标/触屏统一，touch-none 阻止拖动时页面滚动 -->
+        <div v-if="resizable && open"
+            class="h-1 cursor-row-resize hover:bg-primary/40 transition-colors shrink-0 touch-none"
+            :class="{ 'bg-primary/40': dragHeight !== null }" @pointerdown="onResizePointerDown" />
         <!-- header：toggle button + 可选 actions slot 平级；统一 bg-base-200/50 看上去是一行 -->
         <div class="flex items-stretch bg-base-300/50">
             <button type="button"
@@ -118,11 +123,6 @@ onUnmounted(() => {
                 <slot name="actions" />
             </div>
         </div>
-        <!-- 拖动 handle：仅 resizable 且展开时显示；向上拖增大 body 高度；
-             pointer 事件鼠标/触屏统一，touch-none 阻止拖动时页面滚动 -->
-        <div v-if="resizable && open"
-            class="h-1 cursor-row-resize hover:bg-primary/40 transition-colors shrink-0 touch-none"
-            :class="{ 'bg-primary/40': dragHeight !== null }" @pointerdown="onResizePointerDown" />
         <div v-if="open" class="overflow-y-auto" :style="bodyStyle">
             <slot />
         </div>

@@ -53,8 +53,14 @@ test('home view opens tree from button or /tree and scrolls selected nodes', () 
     assert.match(source, /SessionTreeModal/)
     assert.match(source, /const virtualMessageListRef = ref<InstanceType<typeof VirtualMessageList> \| null>\(null\)/)
     assert.match(source, /const handleJumpToTreeEntry = async \(entryId: string\)/)
-    assert.match(source, /while \(cursor\) \{[\s\S]*?currentPathIds\.add\(cursor\)/)
-    assert.match(source, /if \(!currentPathIds\.has\(entryId\)\)/)
+    // 分支判定以消息列表为准（chatMessages 恒为当前分支权威视图）：树只在
+    // load/done/abort/navigate 刷新，运行中 attach 增量补进的 entryId 会领先于树，
+    // 用 leaf→root 路径判定会把当前分支新条目误判为「别的分支」，busy 时误弹
+    // 「请等待当前消息发送完成」（rail 点击最后几条的离谱 toast）
+    assert.match(source, /const currentBranchIds = new Set\(/)
+    assert.match(source, /chatState\.chatMessages[\s\S]*?\.map\(message => message\.entryId\)/)
+    assert.doesNotMatch(source, /currentPathIds/)
+    assert.match(source, /if \(!currentBranchIds\.has\(entryId\)\)/)
     assert.match(source, /findBranchLeafId\(entryId, branchIndexes\.value\)/)
     assert.match(source, /const navigated = await chatState\.navigateBranch\(leafId\)/)
     assert.match(source, /if \(!navigated\)/)

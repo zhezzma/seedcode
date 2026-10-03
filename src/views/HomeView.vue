@@ -213,18 +213,23 @@ const handleJumpToTreeEntry = async (entryId: string) => {
         const entries = chatState.sessionTree ?? []
         const entryById = new Map(entries.map(entry => [entry.id, entry]))
 
-        // 1. 是否在当前分支：用 leaf→root 的真实路径判断。
-        //    不能用 processedMessages，因为被合并 / 空内容 / 工具结果的 entry 不会出现在可见气泡里，
-        //    否则这些节点会被误判为「别的分支」而错误触发 navigate。
-        const currentPathIds = new Set<string>()
-        let cursor: string | null = chatState.sessionLeafId
-        while (cursor) {
-            currentPathIds.add(cursor)
-            cursor = entryById.get(cursor)?.parentId ?? null
-        }
+        // 1. 是否在当前分支：以本地消息列表为准——chatMessages 在所有路径（load /
+        //    attach 快照 / navigate）都是服务端当前分支的权威全量替换，不存在失步。
+        //    不能用 sessionLeafId→root 的树路径判定：树只在 load/done/abort/navigate
+        //    时刷新，运行中的 attach 增量（deltaMessages）与 load→attach 间隙会把新
+        //    持久化的 entryId 先补进消息列表，rail 随之渲染出这些短横；点击时树里
+        //    还没有它们，会被误判成「别的分支」→ isBusy 拦截，弹出与点击意图无关的
+        //    「请等待当前消息发送完成」。
+        //    也不用 processedMessages：被合并 / 空内容 / 工具结果的 entry 不会出现在
+        //    可见气泡里，会漏判成「别的分支」而错误触发 navigate；raw 列表含全部条目。
+        const currentBranchIds = new Set(
+            chatState.chatMessages
+                .map(message => message.entryId)
+                .filter((id): id is string => Boolean(id)),
+        )
 
         // 2. 不在当前分支 → 先切到目标所在分支的叶子，让虚拟列表真正渲染出这条消息。
-        if (!currentPathIds.has(entryId)) {
+        if (!currentBranchIds.has(entryId)) {
             if (isBusy.value) {
                 useToast().warning(t('chat.waitMessage'))
                 return
