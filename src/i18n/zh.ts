@@ -359,6 +359,8 @@ export default {
             payloadSystemLabel: '系统事件内容',
             payloadAgentLabel: '消息内容',
             enableJob: '启用此计划',
+            newBranchEachRun: '每次执行从新分支开始（清空上下文）',
+            newBranchEachRunHint: '开启后每次执行前清空会话上下文但保持同一会话；仅复用会话时生效',
             cronHint: '分 时 日 月 周',
             payloadLabel: '执行内容 (文本/参数)',
         },

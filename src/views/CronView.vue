@@ -54,6 +54,7 @@ const defaultForm = (): CronFormState => ({
     payloadText: '',
     timeoutSeconds: '',
     deliveryTargets: defaultCronDeliveryTargets(),
+    newBranchEachRun: true,
 })
 
 const form = ref<CronFormState>(defaultForm())
@@ -167,6 +168,7 @@ const handleOpenEdit = (job: TaskJob) => {
         payloadText: job.payloadText || '',
         timeoutSeconds: job.timeoutSeconds || '',
         deliveryTargets: job.deliveryTargets?.length ? job.deliveryTargets : defaultCronDeliveryTargets(),
+        newBranchEachRun: job.newBranchEachRun !== false,
     }
     resetDeliveryEditor()
     openModal()
@@ -414,6 +416,16 @@ onMounted(() => {
                         <label class="label"><span class="label-text">{{ $t('cron.form.payloadLabel') }}</span></label>
                         <textarea v-model="form.payloadText" class="textarea textarea-bordered h-24 w-full"
                             :placeholder="$t('cron.form.payloadAgentLabel')"></textarea>
+                    </div>
+
+                    <div v-if="form.executionTarget.type === 'existingSession'" class="form-control">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <span class="label-text">{{ $t('cron.form.newBranchEachRun') }}</span>
+                            <input v-model="form.newBranchEachRun" type="checkbox" class="toggle toggle-primary" />
+                        </label>
+                        <label class="label">
+                            <span class="label-text-alt opacity-50">{{ $t('cron.form.newBranchEachRunHint') }}</span>
+                        </label>
                     </div>
 
                     <DeliveryTargetsEditor :key="deliveryEditorKey" v-model="form.deliveryTargets"

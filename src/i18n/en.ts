@@ -359,6 +359,8 @@ export default {
             payloadSystemLabel: 'System Event Content',
             payloadAgentLabel: 'Message Content',
             enableJob: 'Enable this plan',
+            newBranchEachRun: 'Start from a fresh branch each run (clear context)',
+            newBranchEachRunHint: 'Clears context before each run while keeping the same session; only applies when reusing a session',
             cronHint: 'min hour day month dow',
             payloadLabel: 'Payload (Text/Args)',
         },

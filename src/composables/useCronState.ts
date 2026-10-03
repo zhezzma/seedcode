@@ -22,6 +22,8 @@ export interface TaskJob {
     payloadText: string
     timeoutSeconds: string
     deliveryTargets: DeliveryTarget[]
+    /** 复用会话时每次执行前是否清空上下文（同会话 id）；仅 executionTarget 为 existingSession 时生效 */
+    newBranchEachRun?: boolean
     lastRun?: string
     createdAt: string
 }
@@ -55,6 +57,8 @@ export interface CronFormState {
     payloadText: string
     timeoutSeconds: string
     deliveryTargets: DeliveryTarget[]
+    /** 复用会话时每次执行前是否清空上下文（同会话 id）；仅 executionTarget 为 existingSession 时生效 */
+    newBranchEachRun?: boolean
 }
 
 export interface CronState {
