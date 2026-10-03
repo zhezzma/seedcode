@@ -14,6 +14,7 @@ import ExtensionsView from '../views/ExtensionsView.vue'
 import AgentsView from '../views/AgentsView.vue'
 import ModelsView from '../views/ModelsView.vue'
 import SkillsView from '../views/SkillsView.vue'
+import McpView from '../views/McpView.vue'
 import CronView from '../views/CronView.vue'
 import LogView from '../views/LogView.vue'
 import PromptsView from '../views/PromptsView.vue'
@@ -72,6 +73,11 @@ const router = createRouter({
                     path: 'skills',
                     name: 'skills',
                     component: SkillsView
+                },
+                {
+                    path: 'mcp',
+                    name: 'mcp',
+                    component: McpView
                 },
                 {
                     path: 'cron',

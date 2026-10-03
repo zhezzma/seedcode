@@ -7,7 +7,8 @@ import {
     ChatBubbleLeftRightIcon,
     DocumentTextIcon,
     ClockIcon,
-    PuzzlePieceIcon
+    PuzzlePieceIcon,
+    ServerStackIcon
 } from '@heroicons/vue/24/outline'
 
 import {
@@ -19,7 +20,8 @@ import {
     ChatBubbleLeftRightIcon as ChatBubbleLeftRightIconSolid,
     DocumentTextIcon as DocumentTextIconSolid,
     ClockIcon as ClockIconSolid,
-    PuzzlePieceIcon as PuzzlePieceIconSolid
+    PuzzlePieceIcon as PuzzlePieceIconSolid,
+    ServerStackIcon as ServerStackIconSolid
 } from '@heroicons/vue/24/solid'
 
 export interface NavItem {
@@ -65,6 +67,13 @@ export const ALL_NAV_ITEMS: NavItem[] = [
         icon: DocumentTextIcon,
         activeIcon: DocumentTextIconSolid,
         route: 'prompts',
+        showInSidebar: true
+    },
+    {
+        label: 'mcp.title',
+        icon: ServerStackIcon,
+        activeIcon: ServerStackIconSolid,
+        route: 'mcp',
         showInSidebar: true
     },
     {
