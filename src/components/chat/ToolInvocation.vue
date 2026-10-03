@@ -54,6 +54,11 @@ const toggleOpen = () => {
     isOpen.value = !isOpen.value
 }
 
+// ─── 终态判定（耗时展示用：终态且有 endedAt 显示静态耗时，否则计时）───
+function isTerminalStatus(status?: string) {
+    return status === 'completed' || status === 'error' || status === 'aborted'
+}
+
 // ─── Subagent 相关 ─────────────────────────
 const isSubagentTool = computed(() => {
     return props.toolName === 'subagent'
@@ -114,10 +119,10 @@ function getStatusLabel(status?: string) {
     }
 }
 
-/** 格式化耗时 */
-function formatElapsed(startedAt?: number) {
+/** 格式化耗时；endedAt 存在时显示静态时长（完成后不再随当前时间增长） */
+function formatElapsed(startedAt?: number, endedAt?: number) {
     if (!startedAt) return ''
-    const elapsed = Math.round((Date.now() - startedAt) / 1000)
+    const elapsed = Math.round(((endedAt ?? Date.now()) - startedAt) / 1000)
     if (elapsed < 60) return `${elapsed}s`
     const min = Math.floor(elapsed / 60)
     const sec = elapsed % 60
@@ -132,14 +137,14 @@ function formatTokens(count: number) {
 }
 
 const statusText = computed(() => {
-    // 对 subagent 工具显示更丰富的状态
-    if (isSubagentTool.value && props.state === 'calling') {
+    // 对 subagent 工具始终显示富状态（运行中与完成后保持一致的结构与文案）
+    if (isSubagentTool.value && subagentResults.value.length > 0) {
         const results = subagentResults.value
-        if (results.length === 0) return t('tool.calling', { toolName: props.toolName })
 
         if (subagentMode.value === 'parallel') {
             const done = results.filter((r: any) => r.exitCode !== -1 && r.status === 'completed').length
-            return `${props.toolName} — 并行执行中 ${done}/${results.length}`
+            const summary = props.state === 'calling' ? '并行执行中' : props.state === 'error' ? '并行失败' : '并行完成'
+            return `${props.toolName} — ${summary} ${done}/${results.length}`
         }
 
         const r = results[results.length - 1]
@@ -147,6 +152,7 @@ const statusText = computed(() => {
         const label = getStatusLabel(r?.status)
         return `${icon} ${props.toolName}: ${r?.agent || ''} ${label}`
     }
+    if (isSubagentTool.value && props.state === 'calling') return t('tool.calling', { toolName: props.toolName })
     switch (props.state) {
         case 'calling':
             return t('tool.calling', { toolName: props.toolName })
@@ -361,12 +367,27 @@ function openTrace(subId?: string) {
     if (!parentSessionId) return
     traceViewer.open(parentSessionId, subagentResults.value, subId)
 }
+
+/** subagent 卡无可打开轨迹且失败时的兜底：允许展开查看错误信息（否则错误无处可看） */
+const subagentErrorExpandable = computed(() => {
+    return isSubagentTool.value && props.state === 'error' && !canViewTrace.value
+})
+
+/** 头部点击：subagent 卡直接打开轨迹（失败且无轨迹时回退展开错误详情）；其他工具卡展开/收起 */
+function onHeaderClick() {
+    if (isSubagentTool.value) {
+        if (canViewTrace.value) openTrace()
+        else if (subagentErrorExpandable.value) toggleOpen()
+        return
+    }
+    toggleOpen()
+}
 </script>
 
 <template>
     <div class="card   bg-base-200  overflow-hidden  ">
-        <!-- Header -->
-        <div @click="toggleOpen"
+        <!-- Header（subagent 卡点击直接打开轨迹，无展开内容） -->
+        <div @click="onHeaderClick"
             class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none  bg-base-200  text-sm">
             <!-- Status Icon -->
             <div class="flex-none">
@@ -381,22 +402,15 @@ function openTrace(subId?: string) {
                 {{ statusText }}
             </div>
 
-            <!-- 查看子代理轨迹（全局抽屉；运行中与完成后均可用） -->
-            <button v-if="canViewTrace" class="btn btn-ghost btn-xs gap-1 flex-none text-primary/80 hover:text-primary"
-                :title="$t('subagentTrace.viewTrace')" @click.stop="openTrace()">
-                <CommandLineIcon class="w-3.5 h-3.5" />
-                <span class="text-xs">{{ $t('subagentTrace.trace') }}</span>
-            </button>
-
-            <!-- Toggle Icon -->
-            <div class="flex-none text-base-content/50">
+            <!-- Toggle Icon（subagent 卡无展开内容，不显示；失败且无轨迹时可展开错误详情） -->
+            <div v-if="!isSubagentTool || subagentErrorExpandable" class="flex-none text-base-content/50">
                 <ChevronDownIcon v-if="isOpen" class="w-4 h-4" />
                 <ChevronRightIcon v-else class="w-4 h-4" />
             </div>
         </div>
 
-        <!-- Subagent Progress (visible even when collapsed) -->
-        <div v-if="isSubagentTool && state === 'calling' && subagentResults.length > 0" class="px-3 py-2 pt-0">
+        <!-- Subagent Progress (运行中与完成后均可见，保持一致结构) -->
+        <div v-if="isSubagentTool && subagentResults.length > 0" class="px-3 py-2 pt-0">
             <div v-for="(r, idx) in subagentResults" :key="idx"
                 class="flex items-center gap-2 py-1" :class="{ 'border-t border-base-300 mt-1 pt-1': Number(idx) > 0 }">
                 <!-- Status icon -->
@@ -409,8 +423,8 @@ function openTrace(subId?: string) {
                 <span v-if="r.status === 'tool_running' && r.currentTool" class="text-xs text-warning/80 font-mono">→ {{ r.currentTool }}</span>
                 <!-- Turn info -->
                 <span v-if="Number(r.usage?.turns) > 0" class="text-xs text-base-content/40">Turn {{ r.usage.turns }}</span>
-                <!-- Elapsed -->
-                <span v-if="r.startedAt" class="text-xs text-base-content/40 ml-auto">{{ formatElapsed(r.startedAt) }}</span>
+                <!-- Elapsed（终态且有 endedAt 显示静态时长；历史数据无 endedAt 则隐藏，避免计时器无限增长） -->
+                <span v-if="r.startedAt && (!isTerminalStatus(r.status) || r.endedAt)" class="text-xs text-base-content/40 ml-auto">{{ formatElapsed(r.startedAt, r.endedAt) }}</span>
                 <!-- 轨迹入口：点击直接定位到该子代理的 tab -->
                 <button v-if="r.subagentSessionId"
                     class="btn btn-ghost btn-xs btn-circle flex-none text-base-content/40 hover:text-primary"
@@ -425,8 +439,8 @@ function openTrace(subId?: string) {
             </div>
         </div>
 
-        <!-- Details Body -->
-        <div v-if="isOpen" class="px-3 py-2 pt-0 space-y-2" >
+        <!-- Details Body（subagent 卡只看轨迹；仅在失败且无轨迹时兜底展开错误） -->
+        <div v-if="isOpen && (!isSubagentTool || subagentErrorExpandable)" class="px-3 py-2 pt-0 space-y-2" >
                 <!-- Arguments -->
                 <div>
                     <div class="flex items-center gap-2 mb-1 flex-wrap">

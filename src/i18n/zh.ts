@@ -649,8 +649,6 @@ export default {
     },
     subagentTrace: {
         title: '子代理轨迹',
-        trace: '轨迹',
-        viewTrace: '查看子代理轨迹',
         viewAgentTrace: '查看 {agent} 轨迹',
         empty: '暂无轨迹（子代理尚未产出）',
         cleaned: '（轨迹已清理或尚未创建）',
