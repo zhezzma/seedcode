@@ -88,10 +88,21 @@ test('abortSessionSSE 只断开目标会话的本地 SSE，不请求服务端中
 
 test('回归：同会话 sendMessage/retry/edit 发起新流前仍 abort 该会话旧流', () => {
     // 这些是同 key 替换（旧流让位新流），与切换会话的 abort 语义互补，缺一不可
-    for (const name of ['sendMessage', 'retryMessage', 'editMessage']) {
-        const fn = extractConst(chatStateSource, name)
-        assert.match(fn, /const existingSSE = sseConnections\.get\(targetKey\)/, `${name} 应查同会话旧流`)
-        assert.match(fn, /existingSSE\.abort\(\)/, `${name} 应 abort 同会话旧流`)
+    const send = extractConst(chatStateSource, 'sendMessage')
+    assert.match(send, /const existingSSE = sseConnections\.get\(targetKey\)/, 'sendMessage 应查同会话旧流')
+    assert.match(send, /existingSSE\.abort\(\)/, 'sendMessage 应 abort 同会话旧流')
+    // retry/edit 已合并进共享骨架 beginBranchRewriteSSE：abort 旧流收口在骨架内，
+    // 两条路径必须经由骨架（绕过骨架 = 绕过 abort 旧流 + 流状态重置）。
+    // 骨架切片止于 \nconst retryMessage，保证断言落在骨架本体而非其后的函数
+    const skeletonStart = chatStateSource.indexOf('function beginBranchRewriteSSE')
+    assert.ok(skeletonStart >= 0, 'beginBranchRewriteSSE 骨架应存在')
+    const skeletonEnd = chatStateSource.indexOf('\nconst retryMessage', skeletonStart)
+    assert.ok(skeletonEnd > skeletonStart, '骨架切片终点应有效（indexOf 不得返回 -1）')
+    const skeleton = chatStateSource.slice(skeletonStart, skeletonEnd)
+    assert.match(skeleton, /const existingSSE = sseConnections\.get\(targetKey\)/, '骨架应查同会话旧流')
+    assert.match(skeleton, /existingSSE\.abort\(\)/, '骨架应 abort 同会话旧流')
+    for (const name of ['retryMessage', 'editMessage']) {
+        assert.match(extractConst(chatStateSource, name), /beginBranchRewriteSSE\(targetKey/, `${name} 应经由共享骨架（含 abort 旧流）`)
     }
 })
 

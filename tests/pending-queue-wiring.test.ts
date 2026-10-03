@@ -16,7 +16,7 @@ const sessionsStateSource = read('src/composables/useSessionsState.ts')
 const chatAttachSource = read('src/utils/chat-attach.ts')
 const pendingQueueSource = read('src/utils/pending-queue.ts')
 
-/** 从源码中截取 `const <name> = ...` 到下一个顶层 `const/function/}` 的函数体文本 */
+/** 截取 `const <name> = ...` 到下一个顶层 `\nconst ` 的文本（function 声明不截断切片） */
 function extractFn(source: string, name: string): string {
     const start = source.indexOf(`const ${name} = `)
     assert.ok(start >= 0, `function ${name} not found`)
@@ -119,10 +119,19 @@ test('useChatState: tool_execution_end 推送对象补齐 toolName/details（Tod
 })
 
 test('useChatState: retry/edit/navigate 分支改写后清空 chatToolMessages（防被放弃分支快照 LWW 胜出）', () => {
-    for (const name of ['retryMessage', 'editMessage', 'navigateBranch']) {
-        const fn = extractFn(chatStateSource, name)
-        assert.match(fn, /chatToolMessages = \[\]/, `${name} must clear chatToolMessages after branch rewrite`)
+    // retry/edit 的清空收口在共享骨架 beginBranchRewriteSSE；两条路径必须经由骨架。
+    // 骨架切片止于 \nconst retryMessage，保证断言落在骨架本体而非其后的函数
+    const skeletonStart = chatStateSource.indexOf('function beginBranchRewriteSSE')
+    assert.ok(skeletonStart >= 0, 'beginBranchRewriteSSE 骨架应存在')
+    const skeletonEnd = chatStateSource.indexOf('\nconst retryMessage', skeletonStart)
+    assert.ok(skeletonEnd > skeletonStart, '骨架切片终点应有效（indexOf 不得返回 -1）')
+    const skeleton = chatStateSource.slice(skeletonStart, skeletonEnd)
+    assert.match(skeleton, /chatToolMessages = \[\]/, '骨架 must clear chatToolMessages after branch rewrite')
+    for (const name of ['retryMessage', 'editMessage']) {
+        assert.match(extractFn(chatStateSource, name), /beginBranchRewriteSSE\(targetKey/, `${name} 应经由共享骨架清空 chatToolMessages`)
     }
+    const nav = extractFn(chatStateSource, 'navigateBranch')
+    assert.match(nav, /chatToolMessages = \[\]/, 'navigateBranch must clear chatToolMessages after branch rewrite')
 })
 
 test('chat-attach: 全量 message_state 快照替换时清空 chatToolMessages（跨分支重连残留防护）', () => {

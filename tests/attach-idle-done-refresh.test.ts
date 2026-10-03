@@ -128,11 +128,22 @@ test('回归：loadChatHistory 的 finally 仍拉 /entries + /usage（流式 att
     assert.match(load, /fetchSessionUsage\(targetKey\)/)
 })
 
-test('回归：非 attach 的 SSE 流（sendMessage 等）不得传 skipSettledRefresh——真实流 done 必须全量刷新', () => {
+test('回归：非 attach 的 SSE 流（sendMessage/retry/edit 共享骨架）不得传 skipSettledRefresh——真实流 done 必须全量刷新', () => {
     for (const name of ['sendMessage', 'retryMessage', 'editMessage']) {
         const fn = extractConst(chatStateSource, name)
         assert.ok(!fn.includes('skipSettledRefresh'), `${name} 的 done 必须触发全量刷新，不得跳过`)
     }
+    // retry/edit 的 handleSSEEvent 调用点已收口进共享骨架 beginBranchRewriteSSE，
+    // 阴性守卫必须跟着收口：未来给骨架加第四参（options）会静默绕过本不变量。
+    // 骨架切片止于 \nconst retryMessage，保证断言落在骨架本体而非其后的函数
+    const skeletonStart = chatStateSource.indexOf('function beginBranchRewriteSSE')
+    assert.ok(skeletonStart >= 0, 'beginBranchRewriteSSE 骨架应存在')
+    const skeletonEnd = chatStateSource.indexOf('\nconst retryMessage', skeletonStart)
+    assert.ok(skeletonEnd > skeletonStart, '骨架切片终点应有效（indexOf 不得返回 -1）')
+    const skeleton = chatStateSource.slice(skeletonStart, skeletonEnd)
+    assert.ok(!skeleton.includes('skipSettledRefresh'), '骨架（retry/edit 共用）的 done 必须触发全量刷新，不得跳过')
+    // 精确匹配无第四参的调用形态：多传任何实参都会导致本正则失配而报警
+    assert.match(skeleton, /\n\s*handleSSEEvent\(event\.event, event\.data, targetKey\)\s*\n/, '骨架的 handleSSEEvent 调用不得携带 options（第四参）')
 })
 
 test('回归：fetchSessionUsage 本体保持直接请求（重复抑制只属于 attach 空闲 done 跳过机制）', () => {
