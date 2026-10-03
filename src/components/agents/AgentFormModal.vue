@@ -117,8 +117,12 @@ watch(() => props.show, (newVal) => {
     }
 })
 
+// 智能体 ID 规则（与后端 AgentManager.create 同源）：英文字母开头 + 字母/数字/下划线/连字符。
+// id 会进对外 sessionId（`${agentId}-<convId>`）与 per-session 目录名，非法字符后端直接拒绝
+const AGENT_ID_RE = /^[A-Za-z][A-Za-z0-9_-]*$/
+
 const isFormValid = computed(() => {
-    if (props.mode === 'add' && !formData.value.id.trim()) return false
+    if (props.mode === 'add' && !AGENT_ID_RE.test(formData.value.id.trim())) return false
     return true
 })
 
@@ -326,6 +330,9 @@ const submitForm = async () => {
                                     class="input input-bordered w-full font-mono text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                                     :disabled="mode === 'edit'" @input="idTouched = true"
                                     :class="{ 'input-error': mode === 'add' && !isFormValid && formData.id.length > 0 }" />
+                                <label class="label" v-if="mode === 'add' && idTouched && formData.id && !isFormValid">
+                                    <span class="label-text-alt text-error">{{ t('agent.form.idError') }}</span>
+                                </label>
                             </div>
 
                             <!-- Name Field -->
