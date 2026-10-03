@@ -27,10 +27,12 @@
  *   本地流无法对位 → 原样固化（保持旧行为，防权威全文与本地流重复叠加）。
  */
 
-/** 与历史同 id 的 toolCall 卡不随流固化（防双卡，见上）。 */
+/** 固化依赖：与历史同 id 的 toolCall 卡不随流固化（防双卡，规则见文件头）。 */
 export interface SolidifyDeps {
     isToolCallInHistory: (id: string) => boolean
 }
+
+const isTextLike = (block: any): boolean => block?.type === 'text' || block?.type === 'thinking'
 
 /** assistant 消息是否携带非空 text/thinking 块（超短回复「整条只在 message_end 落位」的固化门禁）。 */
 export function hasAssistantTextContent(message: { role?: string; content?: unknown } | undefined | null): boolean {
@@ -69,38 +71,49 @@ export function solidifyAssistantContent(
     const authByCi = new Map<number, any>()
     if (Array.isArray(messageContent)) {
         messageContent.forEach((block: any, index: number) => {
-            if (block?.type !== 'text' && block?.type !== 'thinking') return
+            if (!isTextLike(block)) return
             const text = block.type === 'text' ? block.text : block.thinking
             if (typeof text !== 'string' || !text) return
             authByCi.set(index, block) // 末尾统一深拷贝，此处存引用即可
         })
     }
-    // 空流视为已路由：超短回复无任何 partial/delta（内容只在 message_end），
-    // 需走权威全文直采分支；不能改成 some() 覆盖空流（否则空流退化为原样固化 = 丢全文）
-    const ciRouted = dedupedStream.length === 0 || dedupedStream.some((block: any) => typeof block?._ci === 'number')
-    if (authByCi.size === 0 || !ciRouted) {
+    const localTextCount = dedupedStream.filter(isTextLike).length
+    const routedTextCount = dedupedStream.filter((block: any) => isTextLike(block) && typeof block?._ci === 'number').length
+    const hasUnroutedText = dedupedStream.some((block: any) => isTextLike(block) && typeof block?._ci !== 'number')
+    // 兼容门禁：有本地文本块但全无 _ci = 旧服务端（delta 无 contentIndex），无法对位
+    // → 原样固化（防权威全文与本地流重复叠加）。纯工具卡流（无本地文本）可在任何
+    // 服务端安全修补——不存在可重复的本地文本；空流（超短回复）同理走权威直采。
+    if (authByCi.size === 0 || (localTextCount > 0 && routedTextCount === 0)) {
         return JSON.parse(JSON.stringify(dedupedStream))
     }
 
-    // 第一步：本地块就位——text/thinking 命中权威即整块替换；工具卡无 _ci，
-    // 锚定到它前面最近已位块的 key（流首的卡锚 -1，保持在文本之前）
+    // 第一步：本地块就位——text/thinking 命中权威即整块替换；同 _ci 的重复本地块
+    // （防御）只保留首个（已被权威块替换）；工具卡无 _ci，锚定到它前面最近已位块的
+    // key（流首的卡锚 -1，保持在文本之前）
     const placed: { key: number; block: any }[] = []
     const patchedCi = new Set<number>()
     let anchor = -1
     for (const rawBlock of dedupedStream) {
-        const ci = (rawBlock as any)?._ci
-        if ((rawBlock?.type === 'text' || rawBlock?.type === 'thinking') && typeof ci === 'number' && authByCi.has(ci)) {
-            patchedCi.add(ci)
-            placed.push({ key: ci, block: authByCi.get(ci)! })
-            anchor = ci
-            continue
+        const ci = rawBlock?._ci
+        if (isTextLike(rawBlock) && typeof ci === 'number') {
+            if (patchedCi.has(ci)) continue
+            if (authByCi.has(ci)) {
+                patchedCi.add(ci)
+                placed.push({ key: ci, block: authByCi.get(ci) })
+                anchor = ci
+                continue
+            }
         }
         placed.push({ key: typeof ci === 'number' ? ci : anchor, block: rawBlock })
         if (typeof ci === 'number') anchor = ci
     }
-    // 第二步：本地缺失的权威块（跨块首批整体未达 / 末批）落到作者位置
-    for (const [ci, block] of authByCi) {
-        if (!patchedCi.has(ci)) placed.push({ key: ci, block })
+    // 第二步：本地缺失的权威块（跨块首批整体未达 / 末批）落到作者位置。
+    // 仅在全路由（无旧协议无 _ci 的本地文本块）时插入：混有旧协议块时无法确认
+    // 其对应权威块是否缺失，插入会造成同段文本双份
+    if (!hasUnroutedText) {
+        for (const [ci, block] of authByCi) {
+            if (!patchedCi.has(ci)) placed.push({ key: ci, block })
+        }
     }
     // 稳定排序：同 key 保持流内相对顺序（工具卡与其锚定块不互换）；末尾统一深拷贝
     return placed

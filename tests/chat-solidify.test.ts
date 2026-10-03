@@ -238,6 +238,64 @@ test('blocksTextSignature：text/thinking 拼接签名（防重放比对用）',
     assert.equal(blocksTextSignature([]), '')
 })
 
+test('纯工具卡流（无本地文本块）：任何服务端均可安全修补，权威文本不丢', () => {
+    // 新服务端首批全未达（未播种/无 delta）时流内只剩上一轮工具卡
+    const stream = [{ type: 'toolCall', id: 'c1', name: 'bash', toolState: 'success' }]
+    const solidified = solidifyAssistantContent(
+        stream,
+        [{ type: 'text', text: '全文。' }],
+        { isToolCallInHistory: neverInHistory },
+    )
+    assert.deepEqual(solidified.map((b: any) => b.type), ['toolCall', 'text'])
+    assert.equal((solidified[1] as any).text, '全文。')
+})
+
+test('旧服务端混流（播种块带 _ci + 旧 delta 块无 _ci）：只替换不插入，不双份', () => {
+    const stream = [
+        { type: 'text', text: '播种首批' },   // 旧服务端 message_start 意外携带内容的播种块
+        { type: 'text', text: '旧 delta 拼接段' }, // 无 contentIndex 的旧 delta 块
+    ]
+    ci(stream[0], 0)
+    const solidified = solidifyAssistantContent(
+        stream,
+        [{ type: 'text', text: '全文' }],
+        { isToolCallInHistory: neverInHistory },
+    )
+    // 播种块被权威替换，旧 delta 块原样保留；不插入缺失块（无法确认对应关系）
+    assert.equal((solidified[0] as any).text, '全文')
+    assert.equal((solidified[1] as any).text, '旧 delta 拼接段')
+    assert.equal(solidified.length, 2)
+})
+
+test('同 _ci 重复本地块（防御）：只保留首个（被权威块替换），不双份', () => {
+    const stream = [
+        { type: 'text', text: '第一份' },
+        { type: 'text', text: '第二份重复' },
+    ]
+    ci(stream[0], 0)
+    ci(stream[1], 0)
+    const solidified = solidifyAssistantContent(
+        stream,
+        [{ type: 'text', text: '全文' }],
+        { isToolCallInHistory: neverInHistory },
+    )
+    assert.deepEqual(solidified, [{ type: 'text', text: '全文' }])
+})
+
+test('replayPartialBlocks：空 text/thinking 块不播种（防空气泡与流非空噪声）', () => {
+    const replayed = replayPartialBlocks([
+        { type: 'text', text: '' },
+        { type: 'thinking', thinking: '' },
+        { type: 'text', text: '非空' },
+    ])
+    assert.deepEqual(replayed.map((b: any) => b.text), ['非空'])
+})
+
+test('replayPartialBlocks：非对象项不进入流（null/原始值）', () => {
+    const replayed = replayPartialBlocks([null, 42, { type: 'text', text: 'ok' }])
+    assert.deepEqual(replayed.map((b: any) => b.text), ['ok'])
+})
+
 test('replayPartialBlocks：非数组/空 content 返回空数组', () => {
     assert.deepEqual(replayPartialBlocks(undefined), [])
     assert.deepEqual(replayPartialBlocks('字符串 content'), [])

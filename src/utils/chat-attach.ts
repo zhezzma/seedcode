@@ -56,11 +56,15 @@ export function replayPartialBlocks(content: unknown): any[] {
     const replayed: any[] = []
     content.forEach((block: any, index: number) => {
         if (block?.type === 'toolCall') return
+        // 空文本/思考块不播种：块建了但首批 token 未到（anthropic/responses 空块先落），
+        // 后续增量会按 _ci 建块；播种空块只会抬高流非空噪声、极端时固化出空气泡
+        if (block?.type === 'text' && !block.text) return
+        if (block?.type === 'thinking' && !block.thinking) return
         const copy = JSON.parse(JSON.stringify(block))
         if (typeof copy === 'object' && copy !== null) {
             markContentIndex(copy, index)
+            replayed.push(copy)
         }
-        replayed.push(copy)
     })
     return replayed
 }
@@ -107,7 +111,7 @@ export function applyAttachMessageState(sessionData: ChatSessionData, state: Att
 
     // 3. 恢复或清空半截 assistant 流。
     if (state.streamMessage?.content && Array.isArray(state.streamMessage.content)) {
-        // replayed 已是逐块深拷贝（与旧的整包 JSON 拷贝同语义，切断对快照对象的引用）
+        // replayPartialBlocks 返回逐块深拷贝（与旧的整包 JSON 拷贝同语义，切断对快照对象的引用）
         sessionData.chatStream = replayPartialBlocks(state.streamMessage.content)
         return
     }

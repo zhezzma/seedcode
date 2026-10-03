@@ -708,13 +708,17 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                 )
                 // 有内容或有错误信息：固化为一条正式的 assistant 消息
                 if (solidifyContent.length > 0 || hasError) {
-                    // 防重放：流已空时重复到达的 assistant message_end（快照重放/重试流）
-                    // 不再固化第二条同文消息——新门禁（权威全文/超短回复）把原本必跳过的
-                    // 空 stream 路径变成了可固化，这里是 done 全量刷新前的双气泡防线
-                    if (stream.length === 0 && !hasError) {
+                    // 防重放：同一 assistant message_end 重复到达（快照重放/重试流，含
+                    // 播种后流非空的路径）不固化第二条——签名 = 文本签名 + 服务端
+                    // 时间戳：同一消息重放两因子必相同；两条合法的连续同文回复时间戳
+                    // 必不同，不会误杀。仅在服务端携带 timestamp 时生效（旧服务端
+                    // 不具备新门禁，维持旧行为；误漏的重复由 done 全量刷新兑底）
+                    if (!hasError && typeof endMsg?.timestamp === 'number') {
                         const last = sessionData.chatMessages[sessionData.chatMessages.length - 1]
                         const signature = blocksTextSignature(solidifyContent)
-                        if (signature && last?.role === 'assistant' && blocksTextSignature(last.content) === signature) {
+                        if (signature && last?.role === 'assistant'
+                            && last.timestamp === endMsg.timestamp
+                            && blocksTextSignature(last.content) === signature) {
                             sessionData.chatStream = null
                             break
                         }
