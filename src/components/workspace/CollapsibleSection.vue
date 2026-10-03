@@ -68,6 +68,8 @@ function onResizePointerDown(e: PointerEvent) {
     document.body.style.cursor = 'row-resize'
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
+    // 捕获到 handle：拖动中移出窗口/快速甩动时 pointerup 也必达（否则悬挂拖动态）
+    try { (e.currentTarget as HTMLElement)?.setPointerCapture?.(e.pointerId) } catch { /* 已释放时忽略 */ }
     e.preventDefault()
 }
 function onPointerMove(e: PointerEvent) {

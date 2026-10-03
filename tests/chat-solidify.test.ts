@@ -232,6 +232,14 @@ test('流首工具卡锚 -1：排在全部文本块之前（多轮工具卡随�
     assert.equal((solidified[1] as any).text, '正文全文。')
 })
 
+test('纯空占位流（播种后无任何内容到达）：不固化空气泡', () => {
+    const stream = [{ type: 'thinking', thinking: '' }]
+    ci(stream[0], 0)
+    // 权威侧同为空 → legacy 路径原样固化，但空占位已在去重中丢弃 → 空数组
+    assert.deepEqual(solidifyAssistantContent(stream, [{ type: 'thinking', thinking: '' }], { isToolCallInHistory: neverInHistory }), [])
+    assert.deepEqual(solidifyAssistantContent(stream, undefined, { isToolCallInHistory: neverInHistory }), [])
+})
+
 test('blocksTextSignature：类型前缀 + 分隔符（防拼接歧义碰撞）', () => {
     assert.equal(blocksTextSignature([{ type: 'text', text: 'ab' }, { type: 'thinking', thinking: 'cd' }, { type: 'toolCall', id: 'x' }]), 'text:\u0000ab\u0001thinking:\u0000cd')
     // ["ab","c"] 与 ["a","bc"] 不同签名

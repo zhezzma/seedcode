@@ -62,8 +62,14 @@ export function solidifyAssistantContent(
     messageContent: unknown,
     deps: SolidifyDeps,
 ): any[] {
-    // 去重过滤只做一次（toolCall 卡防双卡），两个分支共用同一实现
+    // 去重过滤只做一次：① toolCall 卡防双卡；② 空 text/thinking 占位块不进历史
+    //（播种的位置占位块若始终未收到内容，原样固化会变成空气泡——播种引入前
+    // 流为空不会固化，此处两分支共用过滤保持原语义）
     const dedupedStream = rawStream.filter((block: any) => {
+        if (isTextLike(block)) {
+            const text = block.type === 'text' ? block.text : block.thinking
+            return typeof text === 'string' && text.length > 0
+        }
         if (block?.type !== 'toolCall' || !block.id) return true
         return !deps.isToolCallInHistory(block.id)
     })
@@ -89,8 +95,8 @@ export function solidifyAssistantContent(
     }
 
     // 第一步：本地块就位——text/thinking 命中权威即整块替换；同 _ci 的重复本地块
-    // （防御）只保留首个（已被权威块替换）；工具卡无 _ci，锚定到它前面最近已位块的
-    // key（流首的卡锚 -1，保持在文本之前）
+    //（防御）只保留首个；空占位块已在去重过滤中丢弃；工具卡无 _ci，锚定到它前面
+    // 最近已位块的 key（流首的卡锚 -1，保持在文本之前）
     const placed: { key: number; block: any }[] = []
     const patchedCi = new Set<number>()
     let anchor = -1
@@ -98,10 +104,6 @@ export function solidifyAssistantContent(
         const ci = rawBlock?._ci
         if (isTextLike(rawBlock) && typeof ci === 'number') {
             if (patchedCi.has(ci)) continue
-            // 空块占位（建块后首批 token 未到即被播种）不进历史：真实内容会被权威块
-            // 替换，无内容的占位块直接丢弃（防空气泡）
-            const text = rawBlock.type === 'text' ? rawBlock.text : rawBlock.thinking
-            if (typeof text !== 'string' || !text) continue
             if (authByCi.has(ci)) {
                 patchedCi.add(ci)
                 placed.push({ key: ci, block: authByCi.get(ci) })
