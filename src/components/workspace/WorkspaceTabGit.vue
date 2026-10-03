@@ -511,10 +511,12 @@ async function onPrimary() {
             </template>
         </div>
 
-        <!-- 底部：History 折叠区 -->
+        <!-- 底部：History 折叠区；resizable = 顶部 handle 可拖动调整高度（持久化到 settings store） -->
         <CollapsibleSection v-if="selectedRepo" :title="$t('workspace.history')"
             :open="panel.bottomSections.value.history" :count="commitsCount"
-            @toggle="(o: boolean) => panel.setBottomSection('history', o)">
+            :height="panel.historyHeight.value" resizable
+            @toggle="(o: boolean) => panel.setBottomSection('history', o)"
+            @resize="(h: number) => panel.setHistoryHeight(h)">
             <HistoryList :agent-id="agentId" :repo="selectedRepo" :on-open-diff="openCommitDiff"
                 :on-open-file="openCommitFile" />
         </CollapsibleSection>

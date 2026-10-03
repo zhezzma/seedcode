@@ -76,6 +76,8 @@ export interface UiSettings {
             history: boolean
             agentFiles: boolean
         }
+        /** Git tab 提交历史区高度（px），拖动顶部 handle 调整，跨 session 持久化。 */
+        historyHeight: number
         statusGroups: {
             staged: boolean
             unstaged: boolean
@@ -409,6 +411,7 @@ const getDefaultSettings = (): UiSettings => ({
             history: true,
             agentFiles: false,
         },
+        historyHeight: 240,
         statusGroups: {
             staged: true,
             unstaged: true,

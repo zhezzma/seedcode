@@ -15,11 +15,14 @@ import { useUiSettingsStore } from '../stores/setting.ts'
 export const PANEL_MIN_WIDTH = 240
 export const PANEL_MAX_WIDTH = 1000
 export const PANEL_DEFAULT_WIDTH = 360
+/** Git tab 提交历史区高度的可拖动下限；上限由 CollapsibleSection 按父容器高度动态 clamp。 */
+export const HISTORY_MIN_HEIGHT = 100
 
 function persistPanel(patch: Partial<{
     open: boolean
     width: number
     tab: 'files' | 'git'
+    historyHeight: number
     bottomSections: Partial<{ history: boolean; agentFiles: boolean }>
     statusGroups: Partial<{ staged: boolean; unstaged: boolean }>
 }>) {
@@ -61,6 +64,15 @@ export function useWorkspacePanel() {
         resetWidth() { persistPanel({ width: PANEL_DEFAULT_WIDTH }) },
 
         setTab(tab: 'files' | 'git') { persistPanel({ tab }) },
+
+        // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认 240）。
+        historyHeight: computed(() => {
+            const h = store.workspacePanel.historyHeight
+            return Math.max(HISTORY_MIN_HEIGHT, Math.round(typeof h === 'number' ? h : 240))
+        }),
+        setHistoryHeight(h: number) {
+            persistPanel({ historyHeight: Math.max(HISTORY_MIN_HEIGHT, Math.round(h)) })
+        },
 
         setRepoForAgent(agentId: string, repo: string) {
             const repoByAgent = { ...store.workspacePanel.repoByAgent, [agentId]: repo }
