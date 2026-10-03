@@ -278,21 +278,6 @@ test('旧服务端混流（播种块带 _ci + 旧 delta 块无 _ci）：整体�
     ])
 })
 
-test('同 _ci 重复本地块（防御）：只保留首个（被权威块替换），不双份', () => {
-    const stream = [
-        { type: 'text', text: '第一份' },
-        { type: 'text', text: '第二份重复' },
-    ]
-    ci(stream[0], 0)
-    ci(stream[1], 0)
-    const solidified = solidifyAssistantContent(
-        stream,
-        [{ type: 'text', text: '全文' }],
-        { isToolCallInHistory: neverInHistory },
-    )
-    assert.deepEqual(solidified, [{ type: 'text', text: '全文' }])
-})
-
 test('replayPartialBlocks：空 text/thinking 块照播种（位置占位），固化时才丢弃', () => {
     const replayed = replayPartialBlocks([
         { type: 'thinking', thinking: '' },
@@ -318,11 +303,6 @@ test('replayPartialBlocks：空 text/thinking 块照播种（位置占位），�
         { isToolCallInHistory: neverInHistory },
     )
     assert.deepEqual(solidified, [{ type: 'text', text: '非空' }])
-})
-
-test('replayPartialBlocks：非对象项不进入流（null/原始值）', () => {
-    const replayed = replayPartialBlocks([null, 42, { type: 'text', text: 'ok' }])
-    assert.deepEqual(replayed.map((b: any) => b.text), ['ok'])
 })
 
 test('replayPartialBlocks：非数组/空 content 返回空数组', () => {

@@ -3,10 +3,10 @@
  *
  * 背景（pi-durable 流式语义，与 seedagent channel-wechat monitor 的 observe 修法同构）：
  * - 首批文本只随 message_start 的 partial 消息落位；
- * - thinking→text 等跨块切换的首批只随 message_update 的 text_start/block change
- *   落位（SSE 投影不下发该 change）；
+ * - thinking→text 等跨块切换的首批随 message_update 的 text_start/thinking_start
+ *   落位（服务端已投影为同 contentIndex 的首批 delta，seedagent 8c6f1b06）；
  * - 末批（最后一次 ~100ms flush 之后的尾巴）只随 message_end 的 entry 落位。
- * 三者均不走 text_delta/thinking_delta → 本地拼接流可能缺头/缺段/缺尾，以
+ * 本地拼接流仍可能缺段/缺尾（block/message 整块替换 change 不下发），以
  * message_end 携带的落盘全文（endMsg.content）为准整块修补。
  *
  * 修补规则：
@@ -23,8 +23,9 @@
  *   遗留的流内工具卡（如旧连接残留、快照对账前的窗口）若已被落盘数据覆盖，此处阻断
  *   它固化成第二条永久消息——否则要等到 done 全量刷新才收敛，期间同 id 双卡。
  *   文本块无 id 不参与去重（快照对账已从根上作废旧流，这里只兜工具卡）；
- * - 兼容门禁：流内无任何 _ci 标记 = 旧服务端（delta 无 contentIndex），权威全文与
- *   本地流无法对位 → 原样固化（保持旧行为，防权威全文与本地流重复叠加）。
+ * - 兼容门禁：流内混有无 _ci 的本地文本块（旧服务端 delta 无 contentIndex；亦含
+ *   command_delta 等无 _ci 文本源）无法对位 → 原样固化（保持旧行为，防权威全文
+ *   与本地流重复叠加）。
  */
 
 /** 固化依赖：与历史同 id 的 toolCall 卡不随流固化（防双卡，规则见文件头）。 */
@@ -83,33 +84,28 @@ export function solidifyAssistantContent(
             authByCi.set(index, block) // 末尾统一深拷贝，此处存引用即可
         })
     }
-    const localTextCount = dedupedStream.filter(isTextLike).length
-    const routedTextCount = dedupedStream.filter((block: any) => isTextLike(block) && typeof block?._ci === 'number').length
+    // 兼容门禁：混有无 _ci 本地文本块的流（旧服务端 delta 无 contentIndex；亦含
+    // command_delta 等无 _ci 文本源）无法对位 → 整体退回旧行为原样固化（替换/插入
+    // 都会与本地流重复叠加）。纯工具卡流（无本地文本）可在任何服务端安全修补——
+    // 不存在可重复的本地文本；空流（超短回复）同理走权威直采。
     const hasUnroutedText = dedupedStream.some((block: any) => isTextLike(block) && typeof block?._ci !== 'number')
-    // 兼容门禁：有本地文本块但混有无 _ci 的（旧服务端 delta 无 contentIndex；含播种块
-    // 与旧 delta 块混流的边角）→ 无法对位，整体退回旧行为原样固化（替换/插入都会
-    // 与本地流重复叠加）。纯工具卡流（无本地文本）可在任何服务端安全修补——不存在
-    // 可重复的本地文本；空流（超短回复）同理走权威直采。
-    if (authByCi.size === 0 || (localTextCount > 0 && (routedTextCount === 0 || hasUnroutedText))) {
+    if (authByCi.size === 0 || hasUnroutedText) {
         return JSON.parse(JSON.stringify(dedupedStream))
     }
 
-    // 第一步：本地块就位——text/thinking 命中权威即整块替换；同 _ci 的重复本地块
-    //（防御）只保留首个；空占位块已在去重过滤中丢弃；工具卡无 _ci，锚定到它前面
-    // 最近已位块的 key（流首的卡锚 -1，保持在文本之前）
+    // 第一步：本地块就位——text/thinking 命中权威即整块替换；工具卡无 _ci，锚定到它前面
+    // 最近已位块的 key（流首的卡锚 -1，保持在文本之前）。空占位块已在去重过滤中丢弃；
+    // 同 _ci 重复块不可达（播种侧查重 + delta 侧按 _ci find-or-create），不做防御
     const placed: { key: number; block: any }[] = []
     const patchedCi = new Set<number>()
     let anchor = -1
     for (const rawBlock of dedupedStream) {
         const ci = rawBlock?._ci
-        if (isTextLike(rawBlock) && typeof ci === 'number') {
-            if (patchedCi.has(ci)) continue
-            if (authByCi.has(ci)) {
-                patchedCi.add(ci)
-                placed.push({ key: ci, block: authByCi.get(ci) })
-                anchor = ci
-                continue
-            }
+        if (isTextLike(rawBlock) && typeof ci === 'number' && authByCi.has(ci)) {
+            patchedCi.add(ci)
+            placed.push({ key: ci, block: authByCi.get(ci) })
+            anchor = ci
+            continue
         }
         placed.push({ key: typeof ci === 'number' ? ci : anchor, block: rawBlock })
         if (typeof ci === 'number') anchor = ci

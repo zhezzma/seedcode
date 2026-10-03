@@ -60,10 +60,8 @@ export function replayPartialBlocks(content: unknown): any[] {
         //（跳过会让新块被 push 到流尾，思考跑到正文后面）；空块不会进历史——
         // 固化时 solidifyAssistantContent 丢弃无内容占位块
         const copy = JSON.parse(JSON.stringify(block))
-        if (typeof copy === 'object' && copy !== null) {
-            markContentIndex(copy, index)
-            replayed.push(copy)
-        }
+        markContentIndex(copy, index)
+        replayed.push(copy)
     })
     return replayed
 }
