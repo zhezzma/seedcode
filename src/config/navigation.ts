@@ -1,6 +1,5 @@
 import {
     Squares2X2Icon,
-    SparklesIcon,
     HomeIcon,
     Cog6ToothIcon,
     CubeIcon,
@@ -15,7 +14,6 @@ import {
     HomeIcon as HomeIconSolid,
     Squares2X2Icon as Squares2X2IconSolid,
     Cog6ToothIcon as Cog6ToothIconSolid,
-    SparklesIcon as SparklesIconSolid,
     CubeIcon as CubeIconSolid,
     ChatBubbleLeftRightIcon as ChatBubbleLeftRightIconSolid,
     DocumentTextIcon as DocumentTextIconSolid,
@@ -82,13 +80,6 @@ export const ALL_NAV_ITEMS: NavItem[] = [
         activeIcon: ClockIconSolid,
         route: 'cron',
         showInSidebar: true
-    },
-    {
-        label: 'sidebar.skills',
-        icon: SparklesIcon,
-        activeIcon: SparklesIconSolid,
-        route: 'skills',
-        showInSidebar: false
     },
     {
         label: 'settings.title',

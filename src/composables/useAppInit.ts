@@ -6,7 +6,6 @@ import { useChatState } from './useChatState'
 import { useSessionsState } from './useSessionsState'
 import { useCronState } from './useCronState'
 import { useModelsState } from './useModelsState'
-import { useSkillsState } from './useSkillsState'
 import { connectServer } from './notify-server-connection'
 import { ensureLocalServerLoaded, waitForLocalServerReady, isLocalServerBootFailed } from './local-server'
 import { useExecApproval } from './useExecApproval'
@@ -23,7 +22,6 @@ export function useAppInit() {
     const agentsState = useAgentsState()
     const sessionsState = useSessionsState()
     const { loadModels } = useModelsState()
-    const { initConvexConnection } = useSkillsState()
     const chatState = useChatState()
     const { loadCommands, setCurrentAgent } = useCommandState()
     useCronState()
@@ -80,7 +78,6 @@ export function useAppInit() {
             await loadCommands(chatState.agentsSelectedId || undefined)
         }
 
-        initConvexConnection()
         connectServer()
     }
 

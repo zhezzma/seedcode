@@ -20,25 +20,52 @@ const processing = ref<Record<string, boolean>>({})
 
 const globalSkills = ref<any[]>([])
 
-// 扩展技能分组视图：每个注册了技能的扩展一行，展开看全部技能
+// 扩展技能分组（客户端按 extensionId 分组，方案 B 2026-10-04：列表条目自带
+// extensionId/extensionName/kind，不再调 /api/skills/extensions）
 const extensionSkills = ref<any[]>([])
 const expandedExtensions = ref<Record<string, boolean>>({})
 
 // Agent skills are now full objects, not just strings
 const agentSkills = ref<any[]>([])
 
+// 全量 catalog 按归属分组：extensionId 条目进扩展区，其余按 scope 分 agent/global
+// （system 条目沿旧口径不展示）
+const groupSkills = (skills: any[]) => {
+    const extGroups = new Map<string, any[]>()
+    for (const skill of skills) {
+        if (skill.extensionId) {
+            const list = extGroups.get(skill.extensionId) ?? []
+            list.push(skill)
+            extGroups.set(skill.extensionId, list)
+        }
+    }
+    agentSkills.value = skills.filter((s) => !s.extensionId && s.scope === 'agent')
+    globalSkills.value = skills.filter((s) => !s.extensionId && s.scope === 'global')
+    extensionSkills.value = [...extGroups.entries()].map(([extensionId, entries]) => {
+        // 根身份位（kind 'extension-skill'）承载扩展开关；无根技能的扩展开关不可用
+        const root = entries.find((s) => s.kind === 'extension-skill')
+        const basis = root ?? entries[0]
+        return {
+            extensionId,
+            name: basis.extensionName || extensionId,
+            hasRootSkill: !!root,
+            rootSkillName: root?.name,
+            enabled: !!basis.enabled,
+            globallyDisabled: !!basis.extensionGloballyDisabled,
+            skills: entries.map((s) => ({
+                name: s.name,
+                description: s.description,
+                root: s.kind === 'extension-skill'
+            }))
+        }
+    })
+}
+
 const fetchSkills = async () => {
     if (!props.agent?.id) return
     loading.value = true
     try {
-        const [agent, global, extensions] = await Promise.all([
-            skillsState.loadAgentSkills(props.agent.id),
-            skillsState.fetchGlobalSkills(props.agent.id),
-            skillsState.fetchExtensionSkills(props.agent.id)
-        ])
-        agentSkills.value = agent
-        globalSkills.value = global
-        extensionSkills.value = extensions
+        groupSkills(await skillsState.loadAgentSkills(props.agent.id))
     } finally {
         loading.value = false
     }
@@ -92,18 +119,12 @@ const toggleSkill = async (skill: any, event?: Event) => {
     }
 }
 
-// Helper to get display name from public skills (if available)
-const getSkillDisplayName = (skillId: string) => {
-    const publicSkill = skillsState.publicSkills?.find((s: any) => s.skill.slug === skillId || s.skill._id === skillId)
-    return publicSkill?.skill.displayName || skillId
-}
-
 const handleUninstallGlobal = async (skillId: string) => {
     if (!confirm(t('skills.confirmUninstall', { name: skillId }))) return
 
     processing.value[skillId] = true
     try {
-        await skillsState.uninstallGlobalSkill(skillId)
+        await skillsState.uninstallGlobalSkill(props.agent.id, skillId)
         globalSkills.value = globalSkills.value.filter(s => s.id !== skillId)
         toast.success(t('skills.uninstallSuccess', { name: skillId }))
     } catch (e: any) {
@@ -174,8 +195,7 @@ const currentSkillDocContent = ref('')
 const loadingDoc = ref(false)
 
 const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
-    const skillNameOrId = type === 'agent' ? skill.name : skill.id
-    currentSkillDocTitle.value = getSkillDisplayName(skillNameOrId)
+    currentSkillDocTitle.value = skill.name
     currentSkillDocContent.value = ''
     loadingDoc.value = true
 
@@ -187,7 +207,7 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
         if (type === 'agent') {
             content = await skillsState.getAgentSkillContent(props.agent.id, skill.id)
         } else if (type === 'global') {
-            content = await skillsState.getGlobalSkillContent(skill.id)
+            content = await skillsState.getGlobalSkillContent(props.agent.id, skill.id)
         }
         currentSkillDocContent.value = content || t('skills.noContent', 'No documentation available.')
     } catch (e: any) {
@@ -229,7 +249,7 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
                             </div>
                             <div class="min-w-0">
                                 <h3 class="font-bold truncate" :title="skill.name">
-                                    {{ getSkillDisplayName(skill.name) }}
+                                    {{ skill.name }}
                                 </h3>
                                 <div class="flex items-center gap-2">
                                     <p class="text-xs text-base-content/60 font-mono truncate">{{ skill.name }}</p>
@@ -364,7 +384,7 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
                             </div>
                             <div class="min-w-0">
                                 <h3 class="font-bold truncate" :title="skill.name">
-                                    {{ getSkillDisplayName(skill.id) }}
+                                    {{ skill.name }}
                                 </h3>
                                 <p class="text-xs text-base-content/60 font-mono truncate">{{ skill.path }}</p>
                             </div>

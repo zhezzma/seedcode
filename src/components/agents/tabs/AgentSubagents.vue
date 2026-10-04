@@ -184,12 +184,9 @@ const selectedSkills = ref<string[]>([])
 const loadAvailableSkills = async () => {
     if (!props.agent?.id) return
     try {
-        const [agent, global, system] = await Promise.all([
-            skillsState.loadAgentSkills(props.agent.id),
-            skillsState.fetchGlobalSkills(props.agent.id),
-            skillsState.fetchSystemSkills(props.agent.id)
-        ])
-        availableSkills.value = [...agent, ...global, ...system]
+        // GET /api/skills/:agentId 返回全量 catalog（agent/global/system），
+        // 单请求即覆盖旧的三次拼接
+        availableSkills.value = await skillsState.loadAgentSkills(props.agent.id)
     } catch (e: any) {
         console.error('Failed to load skills:', e)
         availableSkills.value = []
