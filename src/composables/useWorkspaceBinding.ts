@@ -4,9 +4,9 @@ import { apiGet } from "./api-client";
 
 export interface WorkspaceResolvePayload {
     resolved: { path: string; basename: string; isGit: boolean };
-    pi: {
-        hasSettings: boolean; hasSkills: boolean; hasExtensions: boolean;
-        hasPrompts: boolean; hasSystemMd: boolean;
+    seedcode: {
+        hasSkills: boolean; hasExtensions: boolean;
+        hasPrompts: boolean; hasTools: boolean;
     };
     boundAgents: Array<{ id: string; name: string }>;
     warnings: string[];

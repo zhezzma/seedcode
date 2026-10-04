@@ -2,7 +2,7 @@
 /**
  * 工作区路径输入 + 服务端校验字段（spec §5.1）。
  * - 校验管线来自 useWorkspaceBinding（防抖 + GET /api/workspace/resolve），
- *   状态行展示 校验中/成功(git・.pi 标记)/失败(错误码→i18n)。
+ *   状态行展示 校验中/成功(git・.seedcode 标记)/失败(错误码→i18n)。
  * - 仅 Tauri 壳内且网关指向本机（回环/*.localhost）时显示原生文件夹选择器
  *   （plugin-dialog，选完回填即走同一校验管线）；Web 构建/远程网关一律手输。
  * 注：binding 是含 refs 的普通对象，模板对其属性不自动解包，需 binding.x.value。
@@ -69,9 +69,9 @@ defineExpose({ revalidate: binding.revalidate });
             <span class="flex items-center gap-1.5 text-success">
                 <CheckCircleIcon class="w-4 h-4 shrink-0" />
                 <span>{{ binding.result.value.resolved.isGit ? t('workspaceBinding.okGit') : t('workspaceBinding.okPlain') }}</span>
-                <span v-if="binding.result.value.pi.hasSettings || binding.result.value.pi.hasSkills
-                    || binding.result.value.pi.hasExtensions || binding.result.value.pi.hasPrompts"
-                    class="badge badge-ghost badge-xs font-mono">.pi</span>
+                <span v-if="binding.result.value.seedcode.hasSkills || binding.result.value.seedcode.hasExtensions
+                    || binding.result.value.seedcode.hasPrompts || binding.result.value.seedcode.hasTools"
+                    class="badge badge-ghost badge-xs font-mono">.seedcode</span>
             </span>
             <template v-if="binding.boundAgents.value.length === 1">
                 <span class="opacity-40">·</span>
