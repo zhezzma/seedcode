@@ -271,8 +271,9 @@ onMounted(() => {
 
 /**
  * 视口中心当前命中的消息 entryId（滚动跟随高亮）。
- * 中心落在伪消息（streaming-pending / 压缩行，仅出现在列表末尾）上时，
- * 回退到之前最近一条有 entryId 的消息，避免流式期间 rail 丢失加粗指示。
+ * 中心落在伪消息（streaming-pending / 压缩行，通常在列表末尾；streaming-pending
+ * 之后也可能跟排队中的 user 气泡）上时，回退到之前最近一条有 entryId 的消息，
+ * 避免流式期间 rail 丢失加粗指示。
  */
 const activeEntryId = computed(() => {
     const items = enrichedItems.value
@@ -328,7 +329,7 @@ onBeforeUnmount(() => {
         <template v-for="item in enrichedItems" :key="item.key">
             <!-- 已挂载的行 -->
             <div v-if="visibleKeys.has(item.key)" :ref="setRowRef(item.key) as any" class="virtual-row" :data-key="item.key">
-                <MessageBubble :message="item.msg" :is-loading="isBusy && item.isLast" :is-busy="isBusy"
+                <MessageBubble :message="item.msg" :is-loading="isBusy && (item.isLast || item.msg.id === 'streaming-pending')" :is-busy="isBusy"
                     :is-last-message="item.isLast"
                     :is-branch-tail="item.isBranchTail"
                     :flash="!!item.msg.entryId && item.msg.entryId === flashEntryId"

@@ -576,7 +576,7 @@ export function useChatMessages(state: ChatStateShape) {
         }
 
         // 2. 处理流式输出（Streaming）
-        // 【条件说明】只有当 chatStream 非空且有实际内容时，才进入流式渲染分支。
+        // 【条件说明】只有当 chatStream 非空且能转换出实际展示内容时，才进入流式渲染分支。
         //
         // 为什么不用 "chatStream != null" 作为条件？
         //   - sendMessage 时 chatStream 被初始化为 []（空数组）
@@ -584,31 +584,35 @@ export function useChatMessages(state: ChatStateShape) {
         //   - 空数组虽然是 truthy，但没有内容可渲染，这时应该显示 loading 动画而非空 bubble
         //   - 如果条件是 "chatStream != null"，空数组会进入此分支，跳过 loading placeholder 的 else if，
         //     导致 loading 动画消失，用户无法感知系统正在工作
+        //   - 同理：stream 非空但全是空块（message_start 播种的位置占位块，convertToBlocks
+        //     过滤后为空）也必须落回 placeholder 分支——否则首个 delta 到达前气泡区域无任何指示
         const compacting = state.compacting === true
 
-        if (state.chatStream && Array.isArray(state.chatStream) && state.chatStream.length > 0) {
-            const streamBlocks: DisplayBlock[] = convertToBlocks(state.chatStream)
+        const streamArr = state.chatStream
+        const streamBlocks: DisplayBlock[] = (streamArr && Array.isArray(streamArr) && streamArr.length > 0)
+            ? convertToBlocks(streamArr)
+            : []
 
-            if (streamBlocks.length > 0) {
-                const lastMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null
+        if (streamBlocks.length > 0) {
+            const lastMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null
 
-                // 根据设置决定是否合并到上一条 assistant 消息（多轮工具调用场景）
-                const shouldMergeStream = settings.assistantMsgMerge && lastMsg && lastMsg.role === 'assistant'
+            // 根据设置决定是否合并到上一条 assistant 消息（多轮工具调用场景）
+            const shouldMergeStream = settings.assistantMsgMerge && lastMsg && lastMsg.role === 'assistant'
 
-                if (shouldMergeStream && lastMsg) {
-                    // 合并模式：追加到前一条 assistant 消息的 blocks 中
-                    lastMsg.blocks.push(...streamBlocks)
-                } else {
-                    // 独立模式：作为新的 streaming bubble 插入
-                    displayMessages.push({
-                        id: 'streaming-pending',
-                        role: 'assistant',
-                        blocks: streamBlocks,
-                        timestamp: Date.now()
-                    })
-                }
+            if (shouldMergeStream && lastMsg) {
+                // 合并模式：追加到前一条 assistant 消息的 blocks 中
+                lastMsg.blocks.push(...streamBlocks)
+            } else {
+                // 独立模式：作为新的 streaming bubble 插入
+                displayMessages.push({
+                    id: 'streaming-pending',
+                    role: 'assistant',
+                    blocks: streamBlocks,
+                    timestamp: Date.now()
+                })
             }
-        } else if (!compacting && (state.chatSending || Boolean(state.chatRunId))) {
+        }
+        if (streamBlocks.length === 0 && !compacting && (state.chatSending || Boolean(state.chatRunId))) {
             // 3. 等待中状态（Loading placeholder）
             // 压缩窗口内不插入占位气泡：此刻模型不在生成（压缩指示行接管展示，
             // 避免点动画与压缩行叠加误导用户「在等待生成」）
