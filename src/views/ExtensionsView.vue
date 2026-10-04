@@ -60,7 +60,8 @@ async function toggleExtension(item: ExtensionItem) {
     try {
         await apiPost(`/api/extensions/${encodeURIComponent(item.id)}/${next ? 'enable' : 'disable'}`)
         // 扩展可注册命令：启停后强制刷新当前作用域的斜杠命令缓存，
-        // 否则 / 命令面板保持陈旧直到整页刷新
+        // 否则 / 命令面板保持陈旧直到整页刷新（无 agent 语境 __global__ 作用域
+        // 服务端命令为空，loadCommands 内部直接短路不发请求）
         void useCommandState().forceReload(useCommandState().currentAgentId.value)
     } catch {
         item.enabled = !next

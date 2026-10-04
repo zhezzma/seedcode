@@ -62,10 +62,20 @@ const loadCommands = async (agentId?: string, options?: { force?: boolean }) => 
     if (state.loadingByAgentId[scopeKey]) return
     if (!force && state.loadedByAgentId[scopeKey]) return
 
+    // 服务端契约：/api/commands 的 agentId 必填（缺失 400 / 未注册 404）。
+    // 无 agent 语境（未选择代理 / __global__ 作用域）不发请求：服务端命令本就
+    // 按 agent 视角下发，此时该作用域仅剩客户端本地命令（CLIENT_COMMANDS 在
+    // / 补全层另行合并；updateGlobalPromptCaches 写入的 prompt 缓存也保留）。
+    // 该作用域缓存只可能由本地写入，无需清空，标记已加载避免反复空转。
+    const trimmedAgentId = agentId?.trim() ?? ''
+    if (!trimmedAgentId || trimmedAgentId === GLOBAL_COMMAND_SCOPE) {
+        state.loadedByAgentId[scopeKey] = true
+        return
+    }
+
     state.loadingByAgentId[scopeKey] = true
     try {
-        const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''
-        const result = await apiGet<CommandsResponse>(`/api/commands${query}`)
+        const result = await apiGet<CommandsResponse>(`/api/commands?agentId=${encodeURIComponent(trimmedAgentId)}`)
         state.commandsByAgentId[scopeKey] = (result?.commands ?? []).filter(
             cmd => !HIDDEN_SERVER_COMMANDS.has(cmd.name)
         )
