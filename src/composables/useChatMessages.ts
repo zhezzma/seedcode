@@ -4,6 +4,7 @@ import { useUiSettingsStore } from '../stores/setting'
 import type { A2UIComponent } from '../components/a2ui/types'
 import { getOrCreateSurface, updateSurfaceDataModel, deleteSurface } from './useA2UISurfaces'
 import { ensureRenderableBlocks, markErroredToolBlocks, isAbortErrorMessage } from '../utils/chatMessageRender'
+import { isLiveStreamBlock } from '../utils/chat-attach'
 import { resolveMediaUrl } from '../utils/media-url'
 import type { PendingItem, PendingSendMode } from '../utils/pending-queue'
 import { i18n } from '../i18n'
@@ -13,6 +14,8 @@ import { isSupportedA2uiMessage, isSurfaceCatalogAllowed, isComponentCatalogAllo
 export interface DisplayBlock {
     type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting'
     text?: string
+    /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染 */
+    streaming?: boolean
     toolCallId?: string
     toolName?: string
     toolArgs?: any
@@ -363,11 +366,15 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
                         }
                     })
                 } else if (item.type === 'thinking') {
-                    // 过滤掉空的或仅包含空白的思考过程
+                    // 过滤掉空的或仅包含空白的思考过程；
+                    // streaming：该块是流内活跃增长块（delta 正落在它上）→ ThinkingBlock 用纯文本
+                    // 直播；否则（已定格/历史消息）→ markdown 一次性渲染。数据驱动判定，
+                    // 不依赖「是否最后一个块」位置启发（交错推理/合并气泡下会误判）
                     if (item.thinking && item.thinking.trim().length > 0) {
                         blocks.push({
                             type: 'thinking',
-                            text: item.thinking
+                            text: item.thinking,
+                            streaming: isLiveStreamBlock(content, item)
                         })
                     }
                 } else {

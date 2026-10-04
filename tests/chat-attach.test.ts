@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {
     applyAttachMessageState,
     getLastMessageEntryId,
+    isLiveStreamBlock,
+    markLiveStreamBlock,
     shouldAttachSession,
 } from '../src/utils/chat-attach.ts'
 
@@ -23,6 +25,39 @@ function createSessionData() {
 test('shouldAttachSession only when there is no active SSE', () => {
     assert.equal(shouldAttachSession(false), true)
     assert.equal(shouldAttachSession(true), false)
+})
+
+test('live stream block marker: multi-mark survives delta switching, isolated per stream, JSON-safe', () => {
+    const streamA = [{ type: 'thinking', thinking: 'a' }, { type: 'text', text: 'b' }]
+    const streamB = [{ type: 'thinking', thinking: 'c' }]
+
+    assert.equal(isLiveStreamBlock(streamA, streamA[0]), false, 'unmarked stream has no live block')
+
+    markLiveStreamBlock(streamA, streamA[0])
+    assert.equal(isLiveStreamBlock(streamA, streamA[0]), true)
+    assert.equal(isLiveStreamBlock(streamA, streamA[1]), false)
+
+    // 交错推理：text_delta 落到另一块后，先前标记的思考块不能丢标记（单标记会
+    // 被「挬走」，导致仍在增长的思考块在 text/thinking 交错间隙被误判为已定格）
+    markLiveStreamBlock(streamA, streamA[1])
+    assert.equal(isLiveStreamBlock(streamA, streamA[0]), true, 'thinking block must stay live during interleaved text deltas')
+    assert.equal(isLiveStreamBlock(streamA, streamA[1]), true)
+
+    // 标记存在流数组上：多会话并发（各自独立 chatStream）互不串扰
+    assert.equal(isLiveStreamBlock(streamB, streamB[0]), false)
+
+    // JSON 序列化不污染块（message_end 固化/快照拷贝天然剥离）
+    assert.deepEqual(JSON.parse(JSON.stringify(streamA)), [
+        { type: 'thinking', thinking: 'a' },
+        { type: 'text', text: 'b' },
+    ])
+
+    // 历史消息内容（普通数组，无标记）恒为 false
+    assert.equal(isLiveStreamBlock(undefined, streamA[1]), false)
+    assert.equal(isLiveStreamBlock(null, streamA[1]), false)
+    // 防御：空入参不抛
+    assert.doesNotThrow(() => markLiveStreamBlock(null, streamA[0]))
+    assert.doesNotThrow(() => markLiveStreamBlock(streamA, undefined))
 })
 
 test('getLastMessageEntryId reads the last persisted message entry id', () => {
@@ -85,6 +120,26 @@ test('applyAttachMessageState restores stream content when attach lands on an ac
     assert.deepEqual(sessionData.chatStream, [{ type: 'text', text: 'partial' }])
 })
 
+test('attach replay re-marks thinking blocks live so streaming thinking stays plain text', () => {
+    const sessionData = createSessionData()
+
+    applyAttachMessageState(sessionData as any, {
+        streamMessage: {
+            content: [
+                { type: 'thinking', thinking: 'half-thought' },
+                { type: 'text', text: 'partial' },
+            ],
+        },
+        isStreaming: true,
+    })
+
+    // 重放重建的流数组是全新对象（JSON 深拷贝），原标记天然丢失——必须补标记，
+    // 否则重连后到下一个 delta 到达前，增长中的思考块被误判为已定格而走 markdown
+    const stream = sessionData.chatStream as any[]
+    const thinking = stream.find((b: any) => b.type === 'thinking')
+    assert.ok(isLiveStreamBlock(stream, thinking), 'replayed thinking block must be live')
+})
+
 test('applyAttachMessageState strips stale toolCall blocks from replayed stream snapshot', () => {
     const sessionData = createSessionData()
 
@@ -105,7 +160,9 @@ test('applyAttachMessageState strips stale toolCall blocks from replayed stream 
         isStreaming: true,
     })
 
-    assert.deepEqual(sessionData.chatStream, [{ type: 'thinking', thinking: 'partial thought' }])
+    // 注意不比较整个数组（markLiveStreamBlock 在流数组上挂 __liveBlocks expando，
+    // 整组 deepEqual 会看到）；按元素比较块内容
+    assert.deepEqual([...(sessionData.chatStream as any[])], [{ type: 'thinking', thinking: 'partial thought' }])
 })
 
 test('applyAttachMessageState keeps empty stream when snapshot only contained a toolCall', () => {

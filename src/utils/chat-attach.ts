@@ -33,6 +33,36 @@ export function markContentIndex(block: object, contentIndex: number): void {
 }
 
 /**
+ * 流内「正在增长」块标记：块收到 delta 即标记为活跃（多标记：不因后续 delta
+ * 落到其他块上而丢失——交错推理时 thinking 与 text 块的 delta 交替到达，
+ * 单标记会被来回挬走，仍在增长的思考块在 text_delta 间隙被误判为已定格，
+ * 错误走进 markdown 全量重渲热路径）。
+ * 展示层（useChatMessages.convertToBlocks → ThinkingBlock）据此选择纯文本直播渲染。
+ *
+ * 标记存在流数组本身的 __liveBlocks Set 上而非块对象上：
+ * - JSON 深拷贝/固化天然剥离（数组不被拷贝，历史消息永远不带标记）；
+ * - 每个 session 有独立 chatStream 数组，多会话并发互不串扰；
+ * - message_end 置 chatStream = null 时标记随数组一起消失（思考定格）；
+ * - 刻意不提供清除：流的生命周期就是标记的生命周期，避免相位边界/交错
+ *   时序下的误清除。
+ */
+export function markLiveStreamBlock(stream: object[] | null | undefined, target: object | null | undefined): void {
+    if (!stream || !target) return
+    // 普通赋值而非 defineProperty：chatStream 可能是 Vue 响应式代理，
+    // defineProperty 在 proxy 上会触发不可变式错误（get 包装后返回值不一致）；
+    // 而赋值会透写到底层数组，raw/代理两侧读到同一属性。数组 expando
+    // 不参与 JSON 序列化与数组遍历，仅在 deepEqual 整组比较时可见（测试侧规避）
+    const existing = (stream as any).__liveBlocks
+    const set: Set<object> = existing instanceof Set ? existing : ((stream as any).__liveBlocks = new Set())
+    set.add(target)
+}
+
+/** 该块是否为所在流（content 即 chatStream 数组；历史消息数组无标记 → 恒 false）的活跃增长块 */
+export function isLiveStreamBlock(stream: unknown, block: unknown): boolean {
+    return !!stream && ((stream as any).__liveBlocks instanceof Set) && (stream as any).__liveBlocks.has(block as object)
+}
+
+/**
  * pi partial 消息 content → 流内块数组。两个消费方共用：
  * - attach 快照重放（streamMessage，本文件）；
  * - live assistant message_start 首批播种（useChatState）——pi-durable 语义下首批
@@ -109,7 +139,14 @@ export function applyAttachMessageState(sessionData: ChatSessionData, state: Att
     // 3. 恢复或清空半截 assistant 流。
     if (state.streamMessage?.content && Array.isArray(state.streamMessage.content)) {
         // replayPartialBlocks 返回逐块深拷贝（与旧的整包 JSON 拷贝同语义，切断对快照对象的引用）
-        sessionData.chatStream = replayPartialBlocks(state.streamMessage.content)
+        const rebuilt = replayPartialBlocks(state.streamMessage.content)
+        // 重放的思考块补上活跃标记：标记随 JSON 深拷贝丢失，而流仍在增长——
+        // 若不补，重连后到下一个 delta 到达前的窗口内（推理停顿时可达秒级），
+        // 增长中的思考块被误判为已定格而走 markdown 全量重渲
+        for (const block of rebuilt) {
+            if (block?.type === 'thinking') markLiveStreamBlock(rebuilt, block)
+        }
+        sessionData.chatStream = rebuilt
         return
     }
 

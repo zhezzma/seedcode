@@ -4,7 +4,7 @@ import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
-import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, replayPartialBlocks, shouldAttachSession } from '../utils/chat-attach'
+import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, markLiveStreamBlock, replayPartialBlocks, shouldAttachSession } from '../utils/chat-attach'
 import { blocksTextSignature, hasAssistantTextContent, solidifyAssistantContent } from '../utils/chat-solidify'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
 import { isAbortErrorMessage } from '../utils/chatMessageRender'
@@ -552,12 +552,17 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     const lastBlock = stream.length > 0 ? stream[stream.length - 1] : null
                     if (lastBlock?.type === type) {
                         // 同类型：追加到末尾 block
+                        targetBlock = lastBlock
                         lastBlock[contentKey] = (lastBlock[contentKey] || '') + data.delta
                     } else {
                         // 不同类型（如从 thinking 切换到 text）：插入新 block
-                        stream.push({ type, [contentKey]: data.delta })
+                        targetBlock = { type, [contentKey]: data.delta }
+                        stream.push(targetBlock)
                     }
                 }
+                // 标记当前增长块（唯一）：展示层据此判定「该思考块仍在增长」，
+                // 走纯文本直播而非 markdown 全量重渲（见 chat-attach.markLiveStreamBlock）
+                markLiveStreamBlock(stream, targetBlock)
             }
             break
         }

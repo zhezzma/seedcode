@@ -517,11 +517,13 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         </div>
                     </div>
                     </template>
-                    <!-- 思考块：默认折叠且内容零挂载；流式中展开走纯文本直播（详见 ThinkingBlock）。
-                         streaming 判定：thinking 是最后一个 block 且本轮仍在忙 → 仍在增长 -->
+                    <!-- 思考块：默认折叠且内容零挂载；streaming（delta 正落在该块上）展开走纯文本直播。
+                         数据驱动判定（流内活跃块标记），不依赖「是否最后一个块」位置启发——
+                         交错推理/合并气泡 + 排队消息场景下位置启发会误判，增长中的思考被
+                         错误送进 markdown 全量重渲热路径 -->
                     <ThinkingBlock v-else-if="block.type === 'thinking' && !currentAgent?.hideThinkingBlock"
                         :text="block.text || ''"
-                        :streaming="isLoading && bIndex === assistantParsedBlocks.length - 1" />
+                        :streaming="block.streaming === true" />
                     <!-- 瞬态压缩行（伪消息唯一块）：compaction_start → end 窗口内存在，
                          随窗口消失零痕迹 -->
                     <div v-else-if="block.type === 'compacting'" class="flex items-center gap-2 text-sm opacity-70 select-none py-1">

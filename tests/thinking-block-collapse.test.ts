@@ -58,8 +58,12 @@ test('settled thinking renders markdown once via MarkdownRenderer', () => {
 
 test('MessageBubble delegates thinking blocks to ThinkingBlock', () => {
     assert.ok(bubbleSource.includes('ThinkingBlock'), 'MessageBubble should use ThinkingBlock')
-    // streaming 判定：thinking 是最后一个 block 且本轮仍在流式中
-    assert.match(bubbleSource, /:streaming="isLoading && bIndex === assistantParsedBlocks\.length - 1"/)
+    // streaming 判定（数据驱动）：delta 正落在该块上（流内活跃块标记，
+    // useChatMessages.convertToBlocks 写入 block.streaming）→ 纯文本直播。
+    // 旧位置启发「isLoading && 是最后一个 block」已废除：交错推理（_ci 中间块）与
+    // 合并气泡 + 排队消息（行不在列表末尾）场景下会误判为已定格，增长中的思考块
+    // 被错误送进 markdown 全量重渲热路径（每个 delta 双渲染，UI 卡死点击丢失）
+    assert.match(bubbleSource, /:streaming="block\.streaming === true"/)
     // hideThinkingBlock 开关必须保留
     assert.match(bubbleSource, /block\.type === 'thinking' && !currentAgent\?\.hideThinkingBlock/)
 })

@@ -42,6 +42,14 @@ const activeSubId = ref('')
 
 const activeResult = computed(() => tabs.value.find((r: any) => r.subagentSessionId === activeSubId.value))
 
+// 活跃子代理（状态非终态）：正在直播的轨迹尾块思考走纯文本（is-loading 透传给
+// MessageBubble → ThinkingBlock），不做 markdown 全量重渲——抽屉 1.5s 轮询一次，
+// markdown 分支会随思考文本增长每次全量双渲染，是抽屉卡顿主因
+const traceActive = computed(() => {
+    const r = activeResult.value as any
+    return !!r && r.status !== 'completed' && r.status !== 'error' && r.status !== 'aborted'
+})
+
 // ─── 轨迹数据与轮询 ───
 interface TraceEntry {
     type: string
@@ -341,7 +349,9 @@ function close() { trace.close() }
                         {{ $t('subagentTrace.empty') }}
                     </div>
 
-                    <MessageBubble v-for="m in displayMessages" :key="m.id" :message="m"
+                    <MessageBubble v-for="(m, mi) in displayMessages" :key="m.id" :message="m"
+                        :is-busy="traceActive"
+                        :is-loading="traceActive && mi === displayMessages.length - 1"
                         :agent-name="activeResult?.agent" @copy="copyMessage" @read-aloud="readAloud" />
                 </div>
             </div>
