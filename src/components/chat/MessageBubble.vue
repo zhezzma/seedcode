@@ -521,7 +521,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                          数据驱动判定（流内活跃块标记），不依赖「是否最后一个块」位置启发——
                          交错推理/合并气泡 + 排队消息场景下位置启发会误判，增长中的思考被
                          错误送进 markdown 全量重渲热路径 -->
-                    <ThinkingBlock v-else-if="block.type === 'thinking' && !currentAgent?.hideThinkingBlock"
+                    <ThinkingBlock v-else-if="block.type === 'thinking'"
                         :text="block.text || ''"
                         :streaming="block.streaming === true" />
                     <!-- 瞬态压缩行（伪消息唯一块）：compaction_start → end 窗口内存在，

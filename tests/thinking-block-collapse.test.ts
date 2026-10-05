@@ -64,8 +64,8 @@ test('MessageBubble delegates thinking blocks to ThinkingBlock', () => {
     // 合并气泡 + 排队消息（行不在列表末尾）场景下会误判为已定格，增长中的思考块
     // 被错误送进 markdown 全量重渲热路径（每个 delta 双渲染，UI 卡死点击丢失）
     assert.match(bubbleSource, /:streaming="block\.streaming === true"/)
-    // hideThinkingBlock 开关必须保留
-    assert.match(bubbleSource, /block\.type === 'thinking' && !currentAgent\?\.hideThinkingBlock/)
+    // hideThinkingBlock 开关已随 Settings 残留清理移除：思考块无条件渲染
+    assert.match(bubbleSource, /block\.type === 'thinking'/)
 })
 
 test('live follow only tracks when user is near bottom', () => {
