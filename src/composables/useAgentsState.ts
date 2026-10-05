@@ -34,7 +34,6 @@ export interface AgentInfo {
     retry?: number | RetrySettings
     sessionId?: string
     createdAt?: string
-    lastActiveAt?: string
     skills?: string[]
 }
 
