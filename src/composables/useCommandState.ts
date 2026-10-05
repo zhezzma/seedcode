@@ -22,8 +22,6 @@ interface CommandsResponse {
 
 // ==================== State ====================
 
-const GLOBAL_COMMAND_SCOPE = '__global__'
-
 /** 服务端内置命令中客户端隐藏的名单：pi-harness 迁移后 Phase 3 桩（调用即 501）。
  *  隐藏而非删除：服务端接回后移除名单即可恢复展示。手输完整命令仍会到达服务端。 */
 const HIDDEN_SERVER_COMMANDS = new Set(['share', 'export'])
@@ -37,10 +35,10 @@ const state = reactive<{
     commandsByAgentId: {},
     loadedByAgentId: {},
     loadingByAgentId: {},
-    currentAgentId: GLOBAL_COMMAND_SCOPE,
+    currentAgentId: '',
 })
 
-const resolveScopeKey = (agentId?: string) => (agentId?.trim() || GLOBAL_COMMAND_SCOPE)
+const resolveScopeKey = (agentId?: string) => (agentId?.trim() || '')
 
 const getCommandsForScope = (agentId?: string): CommandInfo[] => {
     const scopeKey = resolveScopeKey(agentId)
@@ -63,12 +61,12 @@ const loadCommands = async (agentId?: string, options?: { force?: boolean }) => 
     if (!force && state.loadedByAgentId[scopeKey]) return
 
     // 服务端契约：/api/commands 的 agentId 必填（缺失 400 / 未注册 404）。
-    // 无 agent 语境（未选择代理 / __global__ 作用域）不发请求：服务端命令本就
+    // 无 agent 语境（未选择代理，scope key 为空串）不发请求：服务端命令本就
     // 按 agent 视角下发，此时该作用域仅剩客户端本地命令（CLIENT_COMMANDS 在
     // / 补全层另行合并；updateGlobalPromptCaches 写入的 prompt 缓存也保留）。
     // 该作用域缓存只可能由本地写入，无需清空，标记已加载避免反复空转。
     const trimmedAgentId = agentId?.trim() ?? ''
-    if (!trimmedAgentId || trimmedAgentId === GLOBAL_COMMAND_SCOPE) {
+    if (!trimmedAgentId) {
         state.loadedByAgentId[scopeKey] = true
         return
     }
