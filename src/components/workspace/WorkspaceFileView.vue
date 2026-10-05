@@ -31,6 +31,7 @@ import {
 import { useToast } from '../../composables/useToast'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useWorkspaceGit } from '../../composables/useWorkspaceGit'
+import { notifyGitFileSaved } from '../../utils/gitSaveRefresh'
 import { monaco, languageFromPath, guessLanguageFromContent, resolveLanguageId, monacoThemeFromDaisy, MONACO_FILE_EDITOR_OPTIONS } from './monaco-setup'
 import MarkdownRenderer from '../chat/MarkdownRenderer.vue'
 
@@ -265,34 +266,11 @@ async function save(): Promise<boolean> {
             baselineContent.value = next
             content.value = next
             // 通知 git store：保存改了 worktree → status 与 repos 下拉摘要都可能变。
-            // 守门：仅 workspace scope（agent scope 与 git 无关）。
-            // 归属门控：save 的网络往返期间可能已切 agent（ensureAgent → reset 过），
-            // 此时组件已卸载、props 冻结，三联快照恒等过；直接 loadStatus 会把旧
-            // agent 的数据写进新 agent 的 store（store 层也有同步归属守护，这里
-            // 提前拦下更省一次无效 fetch）。
-            // status：仅当前文件归属 git.statusRepo 时重拉；statusRepo 为 null（Git tab
-            //   未打开过）时不主动拉 —— 用户没看 Git tab 就不付出代价。
-            // repos：RepoSelector 下拉菜单的 dirty 徽标数据源，同样只在已加载过时重拉。
-            // 均 fire-and-forget：save 的语义是"保存成功"，不被刷新阻塞。
+            // 守门：仅 workspace scope（agent scope 与 git 无关）且 store 仍归属本
+            // agent（save 网络往返期间可能已切 agent，此时组件已卸载、props 冻结）。
+            // 归属门控与 fire-and-forget 语义见 notifyGitFileSaved（utils/gitSaveRefresh）。
             if (scopeAtStart === 'workspace' && git.currentAgentId === agentAtStart) {
-                const repo = git.statusRepo
-                // repo === '.' 表示 workspace 根本身是个 repo（服务端 emit relPath "."）
-                //   → 任何 workspace 文件都属于它。
-                // 严格前缀匹配避免 'foo' 误匹 'foobar'；path === repo 作为防御性分支保留。
-                if (repo !== null) {
-                    const belongs = repo === '.'
-                        || pathAtStart === repo
-                        || pathAtStart.startsWith(repo + '/')
-                    if (belongs) git.loadStatus(agentAtStart, repo)
-                }
-                // repos 同样只在前缀归属时才拉：保存仓库外的 scratch 文件不该付出
-                // N 仓 git status 的代价（与 status 的 belongs 门控同语义，严格前缀
-                // 匹配避免 'foo' 误匹 'foobar'）。
-                const inLoadedRepo = git.repos.value.some(r =>
-                    r.path === '.'
-                    || pathAtStart === r.path
-                    || pathAtStart.startsWith(r.path + '/'))
-                if (inLoadedRepo) git.loadRepos(agentAtStart)
+                notifyGitFileSaved({ git, agentId: agentAtStart, path: pathAtStart })
             }
         }
         toast.success(t('workspace.fileSaved'))

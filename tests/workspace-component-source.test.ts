@@ -412,8 +412,9 @@ test('WorkspaceTabGit: discard 后同步磁盘副作用（树缓存失效 + view
     // 分类逻辑必须走 classifyDiscardEffects（staged-add 删除判别不可内联重造）
     assert.match(src, /classifyDiscardEffects\(changes, repo, stagedAdds\)/, 'must classify via classifyDiscardEffects')
     const adStart = src.indexOf('function afterDiscard')
-    const adEnd = src.indexOf('\nfunction ', adStart)
-    const adBody = src.slice(adStart, adEnd !== -1 ? adEnd : undefined)
+    // 边界须容忍 async function（相邻函数可能是 async，如 openFile）
+    const adEnd = src.slice(adStart + 1).search(/\n(?:async )?function /)
+    const adBody = src.slice(adStart, adEnd !== -1 ? adStart + 1 + adEnd : undefined)
     assert.ok(!adBody.includes('selectedRepo'), 'afterDiscard body must NOT read selectedRepo (stale after in-flight repo switch)')
     // tracked 'D'（工作区删除）discard = git restore 恢复文件回磁盘 → 父目录列表新增
     // 条目，需要失效父目录缓存，否则幽灵缺失
@@ -456,10 +457,12 @@ test('FileTreeNode: workspace 文件 mutation 后刷新 git store', () => {
 
 test('WorkspaceFileView: workspace 保存后重拉 repos（下拉 dirty 徽标数据源）', () => {
     const src = read('src/components/workspace/WorkspaceFileView.vue')
+    // 刷新逻辑抽到 utils/gitSaveRefresh（notifyGitFileSaved，行为有专属单测）；
+    // 这里断言 workspace scope 的保存收尾确实调用了它。
     assert.match(
         src,
-        /scopeAtStart === 'workspace'[\s\S]*?git\.loadRepos\(agentAtStart\)/,
-        'save in workspace scope must refresh repos summary',
+        /scopeAtStart === 'workspace'[\s\S]*?notifyGitFileSaved\(/,
+        'save in workspace scope must refresh repos summary (via notifyGitFileSaved)',
     )
     // 保存网络往返期间可能已切 agent：组件卸载后 props 冻结、三联快照恒真，
     // 必须额外校验 store 归属，否则旧 agent 的刷新会写进新 agent 的 store

@@ -113,7 +113,15 @@ function onBlankAreaClick(e: MouseEvent) {
     void loadAll(repo)
 }
 
-function openDiff(group: GitGroup, change: FileChange) {
+/** 换 diff/file 目标前统一拦截：viewer 有未保存改动（含可编辑 diff 的脏 buffer）时拦
+ *  confirm，同 WorkspaceTabFiles.confirmIfDirty—— diff 可编辑后，静默换目标 = 丢编辑。 */
+async function confirmIfDirty(): Promise<boolean> {
+    if (!viewer.dirty.value) return true
+    return await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
+}
+
+async function openDiff(group: GitGroup, change: FileChange) {
+    if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
     viewer.openDiff({ repo, mode: group, file: change.path })
@@ -121,7 +129,8 @@ function openDiff(group: GitGroup, change: FileChange) {
 
 /** 在 unstaged 与 untracked 合并后，单文件 diff 需要看 file.status 决定 mode：
  *  '?' → untracked（服务端走 git diff --no-index）；其余 → unstaged（git diff）。 */
-function openUnstagedDiff(change: FileChange) {
+async function openUnstagedDiff(change: FileChange) {
+    if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
     const mode = change.status === '?' ? 'untracked' : 'unstaged'
@@ -179,12 +188,19 @@ async function afterDiscard(changes: FileChange[], repo: string, stagedAdds: Set
         // 重开强制重拉（commit diff 不受 discard 影响；deleted 的 diff 重拉只会报错，直接关）。
         if (cur?.type === 'diff' && cur.mode !== 'commit' && cur.repo === repo) {
             const wsFile = repoJoin(repo, cur.file)
-            if (revertedPaths.has(wsFile)) {
+            if (deletedPaths.has(wsFile)) {
+                // 磁盘文件已删：dirty buffer 是唯一副本（同 file 分支），静默丢弃不可接受
+                if (viewer.dirty.value?.path === wsFile) {
+                    const ok = await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
+                    if (!ok) return
+                }
+                viewer.close()
+            } else if (revertedPaths.has(wsFile) && viewer.dirty.value?.path !== wsFile) {
+                // 无未保存改动才 close+reopen 强制重拉；dirty 时 buffer 权威高于磁盘
+                // （同 file 分支语义），是否覆盖 revert 后的文件由用户保存时决定。
                 viewer.close()
                 await nextTick()
                 viewer.openDiff({ repo: cur.repo, mode: cur.mode, file: cur.file, ref: cur.ref })
-            } else if (deletedPaths.has(wsFile)) {
-                viewer.close()
             }
         }
         return
@@ -216,21 +232,24 @@ async function afterDiscard(changes: FileChange[], repo: string, stagedAdds: Set
  *  路径需要 workspace 相对路径：repoPath + '/' + entry.path（根仓库 relPath "." 时
  *  由 repoJoin 直接用 entry.path，避免 "./" 前缀）。
  *  staged 模式 + deleted 状态：文件可能不在 worktree，调用方靠 disabledFor 屏蔽。 */
-function openFile(change: FileChange) {
+async function openFile(change: FileChange) {
+    if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
     const wsRelPath = repoJoin(repo, change.path)
     viewer.openFile(wsRelPath)
 }
 
-function openCommitDiff(args: { ref: string; file: string }) {
+async function openCommitDiff(args: { ref: string; file: string }) {
+    if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
     viewer.openDiff({ repo, mode: 'commit', ref: args.ref, file: args.file })
 }
 
 /** commit 文件行右键"打开文件"：打开工作区当前版本（workspace 相对路径 repo/file）。 */
-function openCommitFile(file: string) {
+async function openCommitFile(file: string) {
+    if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
     viewer.openFile(repoJoin(repo, file))

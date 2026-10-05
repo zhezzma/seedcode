@@ -6,11 +6,11 @@
  * - 返回（带 dirty 确认）
  * - 面包屑（dirty 圆点提示）
  * - file 模式：Save 按钮（dirty 时高亮，readOnly 时禁用）
- * - diff 模式：Split/Inline toggle
+ * - diff 模式：unstaged/untracked 可编辑 → Save 按钮（dirty 高亮）；Split/Inline toggle
  *
  * 快捷键：
  * - Esc 关闭（带 dirty 确认）
- * - Ctrl/Cmd+S 保存（由 WorkspaceFileView 内部 monaco command 处理）
+ * - Ctrl/Cmd+S 保存（file 与可编辑 diff 均可：子组件 monaco command + viewer 级监听双路径处理）
  *
  * 路由：
  * - target.type === 'file' → WorkspaceFileView (默认就能编辑，VSCode 风格)
@@ -90,11 +90,25 @@ const filePreviewMode = computed(() => fileViewRef.value?.previewMode ?? false)
 
 // ── diff 模式按钮状态 ──
 const diffSideBySide = computed(() => diffViewRef.value?.sideBySide ?? true)
+// diff 可编辑后的保存态（unstaged/untracked 才 expose isEditable=true）；
+// 只读 diff（staged/commit）不显示 Save。与 file 模式同一套 disabled 逻辑。
+const diffIsEditable = computed(() => diffViewRef.value?.isEditable ?? false)
+const diffIsReadOnly = computed(() => diffViewRef.value?.isReadOnly ?? true)
+const diffIsDirty = computed(() => diffViewRef.value?.isDirty ?? false)
+const diffIsSaving = computed(() => diffViewRef.value?.isSaving ?? false)
+const diffSaveDisabled = computed(() =>
+    diffIsReadOnly.value || diffIsSaving.value || !diffIsDirty.value)
 
 async function confirmDiscardIfDirty(): Promise<boolean> {
-    if (!isFileMode.value) return true
-    if (!fileIsDirty.value) return true
-    return await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
+    if (isFileMode.value) {
+        if (!fileIsDirty.value) return true
+        return await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
+    }
+    // diff 可编辑后（unstaged/untracked）同样有未保存改动，丢弃前必须确认
+    if (target.value?.type === 'diff' && diffIsDirty.value) {
+        return await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
+    }
+    return true
 }
 
 async function close() {
@@ -106,7 +120,7 @@ async function close() {
     // 新文件关掉。
     const startTarget = viewer.current.value
     let waitMs = 0
-    while (fileViewRef.value?.isSaving === true && waitMs < 10_000) {
+    while ((fileViewRef.value?.isSaving === true || diffViewRef.value?.isSaving === true) && waitMs < 10_000) {
         await new Promise(r => setTimeout(r, 50))
         waitMs += 50
         if (viewer.current.value !== startTarget) return
@@ -119,6 +133,12 @@ async function close() {
 async function onClickSave() {
     if (!fileViewRef.value) return
     await fileViewRef.value.save()
+}
+
+/** diff 模式保存（unstaged/untracked 的 modified 侧 → 工作区文件）。 */
+async function onClickSaveDiff() {
+    if (!diffViewRef.value) return
+    await diffViewRef.value.save()
 }
 
 /** 复制当前内容到剪贴板（file 模式）。content 是编辑器实时内容，含未保存修改。 */
@@ -177,9 +197,14 @@ async function onSaveShortcut(e: KeyboardEvent) {
     if (!(e.ctrlKey || e.metaKey)) return
     if (e.key !== 's' && e.key !== 'S') return
     if (e.isComposing) return
-    if (!isFileMode.value) return
+    // 可编辑 diff 也要走 viewer 级 Ctrl+S：焦点不在 editor 时 monaco command 不生效
+    if (!isFileMode.value && !diffIsEditable.value) return
     e.preventDefault()
-    await fileViewRef.value?.save()
+    if (isFileMode.value) {
+        await fileViewRef.value?.save()
+    } else {
+        await diffViewRef.value?.save()
+    }
 }
 
 async function focusRoot() {
@@ -220,7 +245,7 @@ watch(target, () => {
                      dirty 点放 truncate 元素外（shrink-0），路径截断时不被一起裁掉 -->
                 <div class="flex-1 min-w-0 flex items-center gap-1 max-w-[150px] lg:max-w-none">
                     <span class="min-w-0 truncate text-sm font-mono text-base-content/70" :title="breadcrumb">{{ breadcrumb }}</span>
-                    <span v-if="isFileMode && fileIsDirty" class="text-warning shrink-0">●</span>
+                    <span v-if="(isFileMode && fileIsDirty) || diffIsDirty" class="text-warning shrink-0">●</span>
                 </div>
             </template>
             <template #actions>
@@ -252,8 +277,17 @@ watch(target, () => {
                     </button>
                 </template>
 
-                <!-- diff 模式按钮：Copy unified diff + Split / Inline 切换 -->
+                <!-- diff 模式按钮：Save（仅可编辑）+ Copy unified diff + Split / Inline 切换 -->
                 <template v-else-if="target?.type === 'diff'">
+                    <button v-if="diffIsEditable" class="btn btn-sm gap-1"
+                        :class="diffIsDirty && !diffIsReadOnly ? 'btn-primary' : 'btn-ghost'"
+                        :disabled="diffSaveDisabled" :title="$t('workspace.save') + ' (Ctrl+S)'"
+                        @click="onClickSaveDiff">
+                        <DocumentCheckIcon class="h-4 w-4" />
+                        <span class="hidden md:inline text-xs">
+                            {{ diffIsSaving ? $t('workspace.saving') : $t('workspace.save') }}
+                        </span>
+                    </button>
                     <button class="btn btn-ghost btn-sm gap-1" :title="$t('common.copy')"
                         :disabled="isCopyingDiff" @click="onClickCopyDiff">
                         <ClipboardDocumentIcon class="h-4 w-4" />
