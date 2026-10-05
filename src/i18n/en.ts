@@ -113,7 +113,6 @@ export default {
             model: 'Model',
             provider: 'Provider',
             thinkingLevel: 'Thinking Level',
-            messageCount: 'Messages',
             cwd: 'Working Directory',
             path: 'Session Path',
             created: 'Created',

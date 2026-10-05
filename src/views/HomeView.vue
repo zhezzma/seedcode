@@ -170,13 +170,13 @@ const currentSessionName = computed(() => {
         || sessionsState.taskSessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
         || sessionsState.archivedSessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
     if (found) {
-        return found.name || truncateText(found.firstMessage, 9)
+        return found.name || truncateText(found.name, 9) || '新对话'
     }
 
     // Fallback 到 chatState.currentSession
     const session = chatState.currentSession
     if (!session) return ''
-    return session.name || truncateText(session.firstMessage, 9)
+    return session.name || '新对话'
 })
 
 const isCreatingSession = ref(false)
@@ -500,7 +500,7 @@ const handleSend = async () => {
     const trimmedUserText = originalUserText.trimStart()
     const isCommand = isCommandInvocation(trimmedUserText, knownCommandNames)
     const currentSession = targetSessionKey ? sessionsState.findSessionLocal(targetSessionKey) : undefined
-    if (targetSessionKey && originalUserText && !isCommand && !currentSession?.name) {
+    if (targetSessionKey && originalUserText && !isCommand && !currentSession?.titleSet) {
         sessionsState
             .triggerSessionRename(targetSessionKey, originalUserText)
             .catch(err => {

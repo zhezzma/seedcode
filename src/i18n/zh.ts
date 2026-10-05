@@ -113,7 +113,6 @@ export default {
             model: '模型',
             provider: '模型提供方',
             thinkingLevel: '思考程度',
-            messageCount: '消息数',
             cwd: '工作目录',
             path: '会话路径',
             created: '创建时间',

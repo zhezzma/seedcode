@@ -174,7 +174,7 @@ const displaySessions = computed<DisplaySession[]>(() => {
             : sessionsState.archivedSessionsResult?.sessions
     return raw?.map((s: SessionRow) => ({
         key: s.id,
-        label: s?.name || truncateText(s.firstMessage, 9),
+        label: s?.name || '新对话',
         pinned: Boolean(s.pinned),
         archived: Boolean(s.archived),
         agentId: s.agentId || '',

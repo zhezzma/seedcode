@@ -32,7 +32,6 @@ const rows = computed<InfoRow[]>(() => {
         { label: 'sidebar.sessionInfo.model', value: s.model || '-' },
         { label: 'sidebar.sessionInfo.provider', value: s.modelProvider || '-' },
         { label: 'sidebar.sessionInfo.thinkingLevel', value: s.thinkingLevel || '-' },
-        { label: 'sidebar.sessionInfo.messageCount', value: s.messageCount != null ? String(s.messageCount) : '-' },
         { label: 'sidebar.sessionInfo.cwd', value: s.cwd || '-' },
         { label: 'sidebar.sessionInfo.path', value: s.path || '-' },
         { label: 'sidebar.sessionInfo.created', value: formatDate(s.created) },

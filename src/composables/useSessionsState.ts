@@ -17,9 +17,10 @@ export interface SessionRow {
     agentName?: string
     created?: string
     cwd?: string
-    firstMessage?: string
+    /** 会话标题（永不为空——首条消息即占位标题，截断展示同旧 firstMessage 语义） */
     name?: string
-    messageCount?: number
+    /** 标题是否已被正式设置（用户改名/AI 命名）；false = 占位标题，自动命名仍可触发 */
+    titleSet?: boolean
     modelProvider?: string
     model?: string
     modified?: string
