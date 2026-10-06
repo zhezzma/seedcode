@@ -216,6 +216,21 @@ const followUpMode = computed({
     }
 })
 
+// 模型/思考档位生效范围：session = 切换后全部分支生效；branch = 各分支独立记忆
+const modelScope = computed({
+    get: () => props.agent?.modelScope || 'session',
+    set: async (val: string) => {
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                modelScope: val
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+        }
+    }
+})
+
 const compactionModal = ref<HTMLDialogElement | null>(null)
 const compactionSettings = ref<{
     enabled: boolean;
@@ -441,6 +456,15 @@ const handleDeleteAgent = async () => {
                                 <select v-model="followUpMode" class="select select-bordered select-sm w-full font-sans">
                                     <option value="all">{{ $t('agent.modeAll') }}</option>
                                     <option value="one-at-a-time">{{ $t('agent.modeOneAtATime') }}</option>
+                                </select>
+                            </div>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.modelScope') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <select v-model="modelScope" class="select select-bordered select-sm w-full font-sans">
+                                    <option value="session">{{ $t('agent.modelScopeSession') }}</option>
+                                    <option value="branch">{{ $t('agent.modelScopeBranch') }}</option>
                                 </select>
                             </div>
                         </li>

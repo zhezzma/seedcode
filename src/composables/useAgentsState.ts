@@ -28,6 +28,7 @@ export interface AgentInfo {
     defaultProvider?: string
     defaultModel?: string
     defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+    modelScope?: "session" | "branch"
     steeringMode?: "all" | "one-at-a-time" | string
     followUpMode?: "all" | "one-at-a-time" | string
     compaction?: boolean | CompactionSettings
