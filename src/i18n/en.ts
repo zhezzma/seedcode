@@ -208,7 +208,7 @@ export default {
             customTools: 'Custom Tools',
             inheritParent: 'Inherit Parent',
             customSelection: 'Custom Selection',
-            // Blacklist semantics note: subagent tool config stores exclusions (deniedTools); checked = available
+            // Blacklist semantics note: subagent tool config stores exclusions (disabledTools); checked = available
             hint: 'Checked tools are available to the subagent; unchecked tools are denied.',
             parentDenied: 'Parent agent has {count} denied tool(s)',
             customToolsExcluded: 'Custom Tools ({count} excluded)',

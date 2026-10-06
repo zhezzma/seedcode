@@ -4,7 +4,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from './api-client'
 
 export interface SubagentToolsConfig {
     type: "inherit" | "custom"
-    deniedTools?: string[]
+    disabledTools?: string[]
 }
 
 export interface SubagentSkillsConfig {

@@ -208,7 +208,7 @@ export default {
             customTools: '自定义工具',
             inheritParent: '继承父智能体',
             customSelection: '自定义选择',
-            // 黑名单语义说明：子代理工具配置实际存储为排除项（deniedTools），勾选 = 允许使用
+            // 黑名单语义说明：子代理工具配置实际存储为排除项（disabledTools），勾选 = 允许使用
             hint: '勾选表示允许子代理使用；未勾选的工具不会提供给子代理。',
             parentDenied: '父智能体已禁用 {count} 个工具',
             customToolsExcluded: '自定义工具（排除 {count} 个）',

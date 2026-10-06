@@ -253,7 +253,7 @@ const openEditModal = (subagent: SubagentConfig) => {
     }
 
     if (formData.value.tools.type === 'custom') {
-        const denied = formData.value.tools.deniedTools || []
+        const denied = formData.value.tools.disabledTools || []
         selectedTools.value = availableTools.value
             .map((t: any) => t.name)
             .filter((name: string) => !denied.includes(name))
@@ -305,15 +305,15 @@ const saveSubagent = async () => {
             return
         }
 
-        // Convert selectedTools to deniedTools when using 'custom'
+        // Convert selectedTools to disabledTools when using 'custom'
         if (formData.value.tools?.type === 'custom') {
             const selected = selectedTools.value
             const denied = availableTools.value
                 .map((t: any) => t.name)
                 .filter((name: string) => !selected.includes(name))
-            formData.value.tools.deniedTools = denied
+            formData.value.tools.disabledTools = denied
         } else if (formData.value.tools) {
-            delete formData.value.tools.deniedTools
+            delete formData.value.tools.disabledTools
         }
 
         // Convert selectedSkills to disabledSkills when using 'custom'
@@ -450,7 +450,7 @@ const parentDeniedToolsCount = computed(() =>
 const parentDisabledSkillsCount = computed(() =>
     availableSkills.value.filter((s: any) => s.enabled === false).length)
 // 卡片徽章排除数：收进 helper 避免模板三元内跨表达式访问可选链（TS18048）
-const deniedToolsCountOf = (s: SubagentConfig) => s.tools?.deniedTools?.length ?? 0
+const deniedToolsCountOf = (s: SubagentConfig) => s.tools?.disabledTools?.length ?? 0
 const disabledSkillsCountOf = (s: SubagentConfig) => s.skills?.disabledSkills?.length ?? 0
 
 </script>
@@ -696,7 +696,7 @@ const disabledSkillsCountOf = (s: SubagentConfig) => s.skills?.disabledSkills?.l
                         <div v-if="formData.tools.type === 'custom'"
                             class="bg-base-200/50 rounded-xl border border-base-300">
                             <div class="p-4 max-h-48 overflow-y-auto custom-scrollbar">
-                                <!-- 黑名单语义说明：实际存储为排除项（deniedTools），勾选 = 允许使用 -->
+                                <!-- 黑名单语义说明：实际存储为排除项（disabledTools），勾选 = 允许使用 -->
                                 <p class="text-xs text-base-content/50 mb-3">{{ $t('agent.tools.hint') }}</p>
                                 <div v-if="availableTools.length === 0"
                                     class="text-center text-sm text-base-content/50 py-2">

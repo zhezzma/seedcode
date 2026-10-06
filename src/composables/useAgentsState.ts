@@ -110,8 +110,7 @@ const loadAgentTools = async (agentId: string) => {
     try {
         const res = await apiGet<{
             tools: { name: string, description?: string, parameters?: any }[],
-            activeToolNames: string[],
-            deniedTools: string[]
+            activeToolNames: string[]
         }>(`/api/agents/${agentId}/tools`)
 
         if (res) {
@@ -120,7 +119,7 @@ const loadAgentTools = async (agentId: string) => {
                 description: t.description,
                 parameters: t.parameters,
                 active: res.activeToolNames.includes(t.name),
-                denied: res.deniedTools.includes(t.name)
+                denied: !res.activeToolNames.includes(t.name)
             }))
         }
     } catch (err: any) {
@@ -141,7 +140,7 @@ const toggleAgentTool = async (agentId: string, toolName: string, enable: boolea
             }
         }
         const body = enable ? { enable: [toolName] } : { disable: [toolName] }
-        await apiPatch<{ deniedTools: string[] }>(`/api/agents/${agentId}/tools`, body)
+        await apiPatch<{ disabledTools: string[] }>(`/api/agents/${agentId}/tools`, body)
         await loadAgentTools(agentId)
     } catch (err: any) {
         console.error(`Failed to toggle tool ${toolName} for agent ${agentId}:`, err)
