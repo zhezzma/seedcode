@@ -146,7 +146,7 @@ watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState
 })
 
 
-// 会话行的统一渲染投影（三桶共用）
+// 会话行的统一渲染投影（四桶共用）
 type DisplaySession = {
     key: string
     label: string
@@ -155,6 +155,8 @@ type DisplaySession = {
     /** 分组键用 agentId：显示名可重复/可改，不能作为分组身份 */
     agentId: string
     agent: string
+    /** 软删会话被活会话 fork 引用的次数（仅回收站桶，> 0 = 清空时保留） */
+    referencedBy: number
 }
 
 // agent 显示名：任务会话接口只带 agentId 不带 agentName，本地从 agent 列表解析。
@@ -181,6 +183,7 @@ const displaySessions = computed<DisplaySession[]>(() => {
         archived: Boolean(s.archived),
         agentId: s.agentId || '',
         agent: agentDisplayName(s),
+        referencedBy: sessionTab.value === 'trash' ? (s.referencedBy ?? 0) : 0,
     })) ?? []
 })
 
@@ -231,7 +234,7 @@ const sessionGroups = computed(() => {
 // 列表渲染模型：分组开 → 组头与行交错；关 → 纯行。
 // 组头/行共用一个 v-for，行模板无需按两种视图复制
 type SessionGroupItem = { kind: 'group', key: string, label: string, groupKey: string }
-type SessionRowItem = { kind: 'session', key: string, label: string, pinned: boolean, archived: boolean }
+type SessionRowItem = { kind: 'session', key: string, label: string, pinned: boolean, archived: boolean, referencedBy: number }
 type SessionListItem = SessionGroupItem | SessionRowItem
 const toSessionItem = (session: DisplaySession): SessionRowItem => ({
     kind: 'session',
@@ -239,6 +242,7 @@ const toSessionItem = (session: DisplaySession): SessionRowItem => ({
     label: session.label,
     pinned: session.pinned,
     archived: session.archived,
+    referencedBy: session.referencedBy,
 })
 
 // 组的展开/收起状态：按 tab 独立记忆互不干扰（仅会话内记忆，不持久化）；
@@ -303,10 +307,7 @@ const createSessionForAgent = (agentId: string) => {
 }
 
 const handleDeleteSession = async (session: { key: string, label: string }) => {
-    if (!await confirm(t('sidebar.deleteChatConfirm', { key: session.label }))) {
-        return
-    }
-
+    // 软删可从回收站恢复，无需确认打断（真删除 = 清空回收站，那里仍有确认）
     const result = await sessionsState.deleteSession(session.key)
     if (result?.deleted && chatState.sessionKey === session.key) {
         router.push({ name: 'home' })
@@ -332,7 +333,8 @@ const handleRestoreSession = async (session: { key: string, label: string }) => 
     toast.success(t('sidebar.restoreSuccess', { key: session.label }))
 }
 
-// 清空回收站：确认后物理清理全部软删会话；busy agent 被跳过并在结果中提示
+// 清空回收站：确认后物理清理全部软删会话；不保证全清——busy agent 整体跳过、
+// 被活会话引用的死树保留（防断链）。purge 后已重拉列表，以剩余数量为准提示
 const isPurging = ref(false)
 const handlePurgeDeleted = async () => {
     const count = displaySessions.value.length
@@ -343,11 +345,16 @@ const handlePurgeDeleted = async () => {
     isPurging.value = true
     try {
         const results = await sessionsState.purgeDeleted()
-        const skippedBusy = results.filter(r => r.skipped === 'busy')
-        if (skippedBusy.length > 0) {
-            toast.warning(t('sidebar.purgeSkippedBusy', { agents: skippedBusy.map(r => r.agentId).join(', ') }))
-        } else {
+        const purged = results.reduce((sum, r) => sum + (r.deletedConversations || 0), 0)
+        const remaining = sessionsState.deletedSessionsResult?.sessions?.length ?? 0
+        const skippedBusy = results.filter(r => r.skipped === 'busy').map(r => r.agentId)
+
+        if (remaining === 0) {
             toast.success(t('sidebar.purgeSuccess'))
+        } else if (skippedBusy.length > 0) {
+            toast.warning(t('sidebar.purgePartialBusy', { purged, count: remaining, agents: skippedBusy.join(', ') }))
+        } else {
+            toast.info(t('sidebar.purgePartial', { purged, count: remaining }))
         }
     } finally {
         isPurging.value = false
@@ -673,6 +680,12 @@ const handleNavClick = (item: any) => {
                             <span class="text-sm truncate flex-1"
                                 :class="activeSessionKey === session.key ? 'font-semibold text-primary' : ''">{{
                                 session.label }}</span>
+                            <!-- 回收站：被 fork 链引用标记（清空时会被保留，tooltip 说明原因） -->
+                            <span v-if="session.referencedBy > 0"
+                                class="shrink-0 badge badge-ghost badge-sm gap-0.5 font-normal text-base-content/50"
+                                :title="$t('sidebar.referencedTooltip', { count: session.referencedBy })">
+                                {{ $t('sidebar.referencedBadge', { count: session.referencedBy }) }}
+                            </span>
                             <SessionActionMenu :ref="(el) => setSessionMenuRef(session.key, el)"
                                 :actions="getSessionMenuItems(session)" :menu-id="`recent:${session.key}`"
                                 :title="$t('sidebar.more')" @select="handleSessionMenuSelect(session, $event)" />

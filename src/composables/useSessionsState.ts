@@ -4,6 +4,7 @@ import { ApiError, apiGet, apiPost, apiDelete } from './api-client'
 import { useInputHistoryStore } from '../stores/inputHistory'
 import type { SessionCategory } from './session-route-state'
 import {
+    mergeSessionToRouteState,
     moveSessionToRouteState,
     normalizeSessionRouteState,
     removeSessionFromResult,
@@ -31,6 +32,8 @@ export interface SessionRow {
     pinned?: boolean
     /** 软删（回收站桶标记；归档过再删的恢复后回归档桶，archived 独立保留） */
     deleted?: boolean
+    /** 软删会话专属：被活会话 fork 链引用的次数（> 0 = 清空时会被保留） */
+    referencedBy?: number
 }
 
 export interface SessionsResult {
@@ -79,8 +82,10 @@ const upsertSessionByRouteState = (session: SessionRow, routeState?: SessionRout
         ...session,
         ...normalized,
     }
-    Object.assign(state, moveSessionToRouteState(state, nextSession, normalized))
-    // 索引必须存桶里的同一个实例：moveSessionToRouteState 内部会再展开一次生成
+    // merge（按 modified 定位插入）而非 move（置顶）：单查回填不得改变列表排序
+    //（排序权威在服务端；点击会话/冷启动回填跳到最前是 bug，见回收站点击跳序）
+    Object.assign(state, mergeSessionToRouteState(state, nextSession, normalized))
+    // 索引必须存桶里的同一个实例：mergeSessionToRouteState 内部会再展开一次生成
     // 桶行副本，若索引存 nextSession 本体，getSessionById 返回的行就会与列表行
     // 分叉（历史 bug：currentSession 与侧边栏各行其是，单侧写入"看起来没生效"）
     sessionsIndex.set(session.id, findSessionLocal(session.id) ?? nextSession)

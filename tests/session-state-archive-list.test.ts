@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { moveSessionToRouteState, normalizeSessionRouteState, prependSessionToResult } from '../src/composables/session-route-state.ts'
+import { insertSessionByModified, mergeSessionToRouteState, moveSessionToRouteState, normalizeSessionRouteState, prependSessionToResult } from '../src/composables/session-route-state.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const sessionsStateSource = readFileSync(path.join(root, 'src/composables/useSessionsState.ts'), 'utf8')
@@ -177,4 +177,53 @@ test('moveSessionToRouteState restores a soft-deleted session back to its origin
   assert.equal(nextState.deletedSessionsResult?.total, 0)
   assert.deepEqual(nextState.archivedSessionsResult?.sessions, [{ ...deletedSession, deleted: false }])
   assert.equal(nextState.archivedSessionsResult?.total, 1)
+})
+
+test('insertSessionByModified inserts by modified order instead of pinning to top', () => {
+  // 单查回填（点击会话 / 冷启动回填）按 modified 定位：不改变既有列表排序
+  const older = { id: 'a', modified: '2026-01-01T00:00:00Z' }
+  const newer = { id: 'b', modified: '2026-01-03T00:00:00Z' }
+  const clicked = { id: 'c', modified: '2026-01-02T00:00:00Z' }
+
+  const next = insertSessionByModified(
+    { sessions: [newer, older], total: 2 },
+    clicked,
+  )
+
+  assert.deepEqual(next.sessions.map(s => s.id), ['b', 'c', 'a'])
+  assert.equal(next.total, 3)
+})
+
+test('insertSessionByModified never crosses pinned rows and dedupes in place', () => {
+  // 置顶行保持在前（与后端置顶优先排序一致），回填行插在置顶区之后
+  const pinned = { id: 'p', modified: '2025-01-01T00:00:00Z', pinned: true }
+  const older = { id: 'a', modified: '2026-01-01T00:00:00Z' }
+  const updated = { id: 'a', modified: '2026-06-01T00:00:00Z' }
+
+  const inserted = insertSessionByModified(
+    { sessions: [pinned, older], total: 2 },
+    updated,
+  )
+  assert.deepEqual(inserted.sessions.map(s => s.id), ['p', 'a'])
+  assert.equal(inserted.total, 2)
+})
+
+test('mergeSessionToRouteState fills back without reordering the bucket', () => {
+  // 点击回收站会话 → /info 回填：行落到回收站桶的 modified 位置，不跳到最前
+  const first = { id: 'x-1', modified: '2026-02-01T00:00:00Z', deleted: true }
+  const second = { id: 'x-2', modified: '2026-01-01T00:00:00Z', deleted: true }
+  const clicked = { id: 'x-2', modified: '2026-01-01T00:00:00Z', deleted: true }
+
+  const nextState = mergeSessionToRouteState(
+    {
+      sessionsResult: { sessions: [], total: 0 },
+      taskSessionsResult: { sessions: [], total: 0 },
+      archivedSessionsResult: { sessions: [], total: 0 },
+      deletedSessionsResult: { sessions: [first, second], total: 2 },
+    },
+    clicked,
+  )
+
+  assert.deepEqual(nextState.deletedSessionsResult?.sessions.map(s => s.id), ['x-1', 'x-2'])
+  assert.equal(nextState.deletedSessionsResult?.total, 2)
 })
