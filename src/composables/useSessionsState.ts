@@ -29,6 +29,8 @@ export interface SessionRow {
     sessionCategory?: SessionCategory
     archived?: boolean
     pinned?: boolean
+    /** 软删（回收站桶标记；归档过再删的恢复后回归档桶，archived 独立保留） */
+    deleted?: boolean
 }
 
 export interface SessionsResult {
@@ -46,12 +48,15 @@ export interface SessionsState {
     taskSessionsResult: SessionsResult | null
     /** 已归档会话（侧栏「归档」tab 数据源） */
     archivedSessionsResult: SessionsResult | null
+    /** 回收站（侧栏「回收站」tab 数据源，软删会话） */
+    deletedSessionsResult: SessionsResult | null
 }
 
 const state = reactive<SessionsState>({
     sessionsResult: null,
     taskSessionsResult: null,
     archivedSessionsResult: null,
+    deletedSessionsResult: null,
 })
 
 // Session ID → SessionRow 的索引，用于 O(1) 快速查找
@@ -64,6 +69,7 @@ const rebuildIndex = () => {
     state.sessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
     state.taskSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
     state.archivedSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
+    state.deletedSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
 }
 
 
@@ -84,6 +90,7 @@ const findSessionLocal = (id: string) =>
     state.sessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
     || state.taskSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
     || state.archivedSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
+    || state.deletedSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
 
 // sessions 变更时自动重建索引（模块级全局 watcher）
 watch(() => [state.sessionsResult, state.taskSessionsResult, state.archivedSessionsResult], rebuildIndex, { immediate: true, deep: false })
@@ -96,6 +103,7 @@ const loadSessions = async (_opts?: any) => {
 // 懒加载请求序号：归档/取消归档会本地搬运桶内容，晚到的旧响应不得覆盖新状态
 let taskSessionsRequestId = 0
 let archivedSessionsRequestId = 0
+let deletedSessionsRequestId = 0
 
 // 侧栏 tab 懒加载依赖返回值区分成败：失败返回 null（桶保持旧值），成功返回结果或空列表
 const loadTaskSessions = async (page = 1, pageSize = 50): Promise<SessionsResult | null> => {
@@ -121,6 +129,19 @@ const loadArchivedSessions = async (page = 1, pageSize = 50): Promise<SessionsRe
         return result || { sessions: [] }
     } catch (error) {
         console.error('Failed to load archived sessions', error)
+        return null
+    }
+}
+
+const loadDeletedSessions = async (page = 1, pageSize = 50): Promise<SessionsResult | null> => {
+    const requestId = ++deletedSessionsRequestId
+    try {
+        const result = await apiGet<SessionsResult>(`/api/sessions/deleted?page=${page}&pageSize=${pageSize}`)
+        if (requestId !== deletedSessionsRequestId) return result || { sessions: [] }
+        state.deletedSessionsResult = result || { sessions: [] }
+        return result || { sessions: [] }
+    } catch (error) {
+        console.error('Failed to load deleted sessions', error)
         return null
     }
 }
@@ -228,13 +249,71 @@ const unpinSession = async (id: string) => {
 
 const deleteSession = async (key: string) => {
     await apiDelete(`/api/sessions/${encodeURIComponent(key)}`)
-    state.sessionsResult = removeSessionFromResult(state.sessionsResult, key)
-    state.taskSessionsResult = removeSessionFromResult(state.taskSessionsResult, key)
-    state.archivedSessionsResult = removeSessionFromResult(state.archivedSessionsResult, key)
-    sessionsIndex.delete(key)
+    // 本地搬进回收站桶（服务端为软删，会话可恢复；归档/任务分类字段原样保留）
+    const known = findSessionLocal(key)
+    if (known) {
+        const deletedSession = {
+            ...known,
+            ...normalizeSessionRouteState({
+                sessionCategory: known.sessionCategory,
+                archived: known.archived,
+                deleted: true,
+            }),
+        }
+        Object.assign(state, moveSessionToRouteState(state, deletedSession, deletedSession))
+        sessionsIndex.set(key, findSessionLocal(key) ?? deletedSession)
+    } else {
+        state.sessionsResult = removeSessionFromResult(state.sessionsResult, key)
+        state.taskSessionsResult = removeSessionFromResult(state.taskSessionsResult, key)
+        state.archivedSessionsResult = removeSessionFromResult(state.archivedSessionsResult, key)
+        state.deletedSessionsResult = removeSessionFromResult(state.deletedSessionsResult, key)
+    }
     useInputHistoryStore().removeSessionHistory(key)
     // 排队队列随服务端账本生命周期（abort/会话替换时已清），本地无持久化，无需额外清理
     return { deleted: true }
+}
+
+/** 恢复软删会话：本地从回收站桶搬回原桶（archived 独立字段决定回归对话/归档桶） */
+const restoreSession = async (id: string) => {
+    await apiPost(`/api/sessions/${encodeURIComponent(id)}/restore`)
+
+    const known = findSessionLocal(id)
+    if (known) {
+        const restoredSession = {
+            ...known,
+            ...normalizeSessionRouteState({
+                sessionCategory: known.sessionCategory,
+                archived: known.archived,
+                deleted: false,
+            }),
+        }
+        Object.assign(state, moveSessionToRouteState(state, restoredSession, restoredSession))
+        sessionsIndex.set(id, findSessionLocal(id) ?? restoredSession)
+    } else {
+        state.deletedSessionsResult = removeSessionFromResult(state.deletedSessionsResult, id)
+    }
+
+    return { restored: true }
+}
+
+/** 清空回收站：物理清理全部软删会话。返回逐 agent 报告（skipped busy 等）。
+ *  被跳过 agent（busy）的软删会话仍在服务端——拉取后以服务端为准，不清空桶。 */
+const purgeDeleted = async (): Promise<PurgeResult[]> => {
+    const result = await apiPost<{ results: PurgeResult[] }>('/api/sessions/purge', {})
+    await loadDeletedSessions()
+    return result?.results || []
+}
+
+export interface PurgeResult {
+    agentId: string
+    dryRun?: boolean
+    skipped?: 'busy' | 'no-database' | 'schema-version'
+    detail?: string
+    deletedConversations: number
+    deletedEntries?: number
+    deletedTasks?: number
+    deletedSubmissions?: number
+    deletedDocuments?: number
 }
 
 const commitNewSession = async (agentId: string, inputText?: string): Promise<string> => {
@@ -277,6 +356,7 @@ const _sessionsState = Object.assign(state, {
     loadSessions,
     loadTaskSessions,
     loadArchivedSessions,
+    loadDeletedSessions,
     patchSession,
     updateSessionLocal,
     archiveSession,
@@ -284,6 +364,8 @@ const _sessionsState = Object.assign(state, {
     pinSession,
     unpinSession,
     deleteSession,
+    restoreSession,
+    purgeDeleted,
     findSessionLocal,
     commitNewSession,
     triggerSessionRename,

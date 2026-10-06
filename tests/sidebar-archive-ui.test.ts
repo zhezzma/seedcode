@@ -34,7 +34,8 @@ test('sidebar renders three session tabs and lazy-loads per tab', () => {
 test('sidebar batch delete button is removed', () => {
     assert.doesNotMatch(sidebarSource, /handleDeleteAllSessions/)
     assert.doesNotMatch(sidebarSource, /deleteSessions\(/)
-    assert.doesNotMatch(sidebarSource, /TrashIcon/)
+    // 旧「删除全部会话」入口的残留文案不得回归；TrashIcon 现用于回收站 tab
+    // （sidebar-tabs.test.ts 钉住第 4 桶与清空按钮语义），此处不再禁图标本体
     assert.doesNotMatch(sidebarSource, /sidebar\.clearAll/)
 })
 

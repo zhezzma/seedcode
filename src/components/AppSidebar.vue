@@ -3,11 +3,9 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
     PlusIcon,
-    ChatBubbleLeftRightIcon,
     ChevronDoubleLeftIcon,
     ChevronDoubleRightIcon,
-    CalendarDaysIcon,
-    ArchiveBoxIcon,
+    TrashIcon,
     HashtagIcon,
     FolderOpenIcon,
     ArrowLeftStartOnRectangleIcon,
@@ -21,6 +19,7 @@ import SessionInfoModal from './chat/SessionInfoModal.vue'
 import GatewaySwitcher from './GatewaySwitcher.vue'
 
 import { useConfirm } from '../composables/useConfirm'
+import { useToast } from '../composables/useToast'
 import { NEW_SESSION_ROUTE_NAME } from '../utils/route-helpers'
 
 
@@ -38,26 +37,25 @@ type SessionMenuItem = {
     tone?: 'default' | 'danger'
 }
 
-// 侧栏会话列表 tab：对话 / 计划 / 归档
-export type SidebarSessionTab = 'chats' | 'plans' | 'archived'
+// 侧栏会话列表 tab：对话 / 计划 / 归档 / 回收站
+export type SidebarSessionTab = 'chats' | 'plans' | 'archived' | 'trash'
 
 const sessionTab = ref<SidebarSessionTab>('chats')
 
-// 胶囊分段控件的 tab 配置（图标随 tab 显示）
-const SESSION_TABS: Array<{ key: SidebarSessionTab, labelKey: string, icon: any }> = [
-    { key: 'chats', labelKey: 'sidebar.tabChats', icon: ChatBubbleLeftRightIcon },
-    { key: 'plans', labelKey: 'sidebar.tabPlans', icon: CalendarDaysIcon },
-    { key: 'archived', labelKey: 'sidebar.tabArchived', icon: ArchiveBoxIcon },
+// 胶囊分段控件的 tab 配置（纯文字：窄侧栏里四档加图标会被挤到截断，标签自解释）
+const SESSION_TABS: Array<{ key: SidebarSessionTab, labelKey: string }> = [
+    { key: 'chats', labelKey: 'sidebar.tabChats' },
+    { key: 'plans', labelKey: 'sidebar.tabPlans' },
+    { key: 'archived', labelKey: 'sidebar.tabArchived' },
+    { key: 'trash', labelKey: 'sidebar.tabTrash' },
 ]
-
-// 会话行左侧图标跟随当前 tab，与分段控件图标一致
-const rowIcon = computed(() => SESSION_TABS.find(tab => tab.key === sessionTab.value)?.icon ?? ChatBubbleLeftRightIcon)
 
 // 需懒加载的 tab 与对应 loader（loader 失败返回 null，据此移除标记下次重试）；
 // chats 不在此列：数据由启动链 useAppInit.loadSessions 加载，无需懒加载
 const TAB_LOADERS: Partial<Record<SidebarSessionTab, () => Promise<unknown>>> = {
     plans: () => sessionsState.loadTaskSessions(),
     archived: () => sessionsState.loadArchivedSessions(),
+    trash: () => sessionsState.loadDeletedSessions(),
 }
 // 已懒加载过的 tab；失败不标记，下次切换重试
 const loadedTabs = new Set<SidebarSessionTab>()
@@ -89,6 +87,7 @@ const switchSessionTab = async (tab: SidebarSessionTab) => {
 const route = useRoute()
 const router = useRouter()
 const { confirm } = useConfirm()
+const toast = useToast()
 
 const sessionsState = useSessionsState()
 const chatState = useChatState()
@@ -129,6 +128,7 @@ const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
     if (sessionsState.sessionsResult?.sessions?.some(s => s.id === key)) return 'chats'
     if (sessionsState.taskSessionsResult?.sessions?.some(s => s.id === key)) return 'plans'
     if (sessionsState.archivedSessionsResult?.sessions?.some(s => s.id === key)) return 'archived'
+    if (sessionsState.deletedSessionsResult?.sessions?.some(s => s.id === key)) return 'trash'
     return null
 }
 
@@ -136,7 +136,7 @@ const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
 // 冷启动点通知时桶数据由 setSessionKey → getSessionById 单查回填，
 // 命中晚于路由跳转，因此同时监听三桶引用变化补切
 let followedKey: string | null = null
-watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.archivedSessionsResult], () => {
+watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.archivedSessionsResult, () => sessionsState.deletedSessionsResult], () => {
     const key = activeSessionKey.value
     if (!key || followedKey === key) return
     const tab = sessionTabOfKey(key)
@@ -165,17 +165,19 @@ const agentDisplayName = (s: SessionRow): string => {
     return agent?.name || s.agentId || ''
 }
 
-// 当前 tab 展示的会话列表
+// 当前 tab 展示的会话列表（回收站行不显示置顶标记——置顶对软删会话无意义）
 const displaySessions = computed<DisplaySession[]>(() => {
     const raw = sessionTab.value === 'chats'
         ? sessionsState.sessionsResult?.sessions
         : sessionTab.value === 'plans'
             ? sessionsState.taskSessionsResult?.sessions
-            : sessionsState.archivedSessionsResult?.sessions
+            : sessionTab.value === 'trash'
+                ? sessionsState.deletedSessionsResult?.sessions
+                : sessionsState.archivedSessionsResult?.sessions
     return raw?.map((s: SessionRow) => ({
         key: s.id,
         label: s?.name || '新对话',
-        pinned: Boolean(s.pinned),
+        pinned: sessionTab.value !== 'trash' && Boolean(s.pinned),
         archived: Boolean(s.archived),
         agentId: s.agentId || '',
         agent: agentDisplayName(s),
@@ -245,6 +247,7 @@ const collapsedGroups = ref<Record<SidebarSessionTab, Set<string>>>({
     chats: new Set(),
     plans: new Set(),
     archived: new Set(),
+    trash: new Set(),
 })
 const toggleGroup = (key: string) => {
     const tab = sessionTab.value
@@ -323,11 +326,48 @@ const handleUnarchiveSession = async (session: { key: string, label: string }) =
     await sessionsState.unarchiveSession(session.key)
 }
 
+// 恢复回收站会话（本地搬回原桶；归档过再删的恢复后回归档桶）
+const handleRestoreSession = async (session: { key: string, label: string }) => {
+    await sessionsState.restoreSession(session.key)
+    toast.success(t('sidebar.restoreSuccess', { key: session.label }))
+}
+
+// 清空回收站：确认后物理清理全部软删会话；busy agent 被跳过并在结果中提示
+const isPurging = ref(false)
+const handlePurgeDeleted = async () => {
+    const count = displaySessions.value.length
+    if (!await confirm(t('sidebar.emptyTrashConfirm', { count }))) {
+        return
+    }
+
+    isPurging.value = true
+    try {
+        const results = await sessionsState.purgeDeleted()
+        const skippedBusy = results.filter(r => r.skipped === 'busy')
+        if (skippedBusy.length > 0) {
+            toast.warning(t('sidebar.purgeSkippedBusy', { agents: skippedBusy.map(r => r.agentId).join(', ') }))
+        } else {
+            toast.success(t('sidebar.purgeSuccess'))
+        }
+    } finally {
+        isPurging.value = false
+    }
+}
+
 // 各 tab 的行菜单配置：
 // - 对话：置顶/取消置顶仅普通会话有效（后端 pin 只作用于普通列表）
 // - 归档仅对话 tab 的普通会话可用：任务会话（计划 tab）不支持归档
 // - 已归档行（归档 tab 全部 + 计划 tab 中已归档项）显示取消归档
+// - 回收站行：恢复/重命名/信息（删除/归档/置顶对软删会话无意义）
 const getSessionMenuItems = (session: { pinned?: boolean, archived?: boolean }): SessionMenuItem[] => {
+    if (sessionTab.value === 'trash') {
+        return [
+            { key: 'restore', label: t('sidebar.restore') },
+            { key: 'rename', label: t('sidebar.rename') },
+            { key: 'info', label: t('sidebar.viewInfo') },
+        ]
+    }
+
     const items: SessionMenuItem[] = [
         {
             key: 'rename',
@@ -456,6 +496,11 @@ const handleSessionMenuSelect = async (session: { key: string, label: string }, 
         return
     }
 
+    if (action === 'restore') {
+        await handleRestoreSession(session)
+        return
+    }
+
     if (action === 'delete') {
         await handleDeleteSession(session)
     }
@@ -545,13 +590,13 @@ const handleNavClick = (item: any) => {
         <div class="shrink-0 px-3 pt-2 pb-1 flex items-center gap-1" :class="isCollapsed && 'lg:hidden'">
             <div role="tablist" class="flex flex-1 min-w-0 items-center gap-0.5 rounded-full bg-base-300 p-1">
                 <button v-for="tab in SESSION_TABS" :key="tab.key" role="tab" type="button"
-                    class="flex flex-1 min-w-0 items-center justify-center gap-1 rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap cursor-pointer border transition-all duration-200"
+                    class="flex flex-1 min-w-0 items-center justify-center rounded-full px-1 py-1 text-xs font-medium whitespace-nowrap cursor-pointer border transition-all duration-200"
                     :class="sessionTab === tab.key
                         ? 'bg-base-100 border-base-300 shadow-sm text-base-content'
                         : 'border-transparent text-base-content/55 hover:text-base-content'"
                     :aria-selected="sessionTab === tab.key"
+                    :title="$t(tab.labelKey)"
                     @click="switchSessionTab(tab.key)">
-                    <component :is="tab.icon" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span class="truncate">{{ $t(tab.labelKey) }}</span>
                 </button>
             </div>
@@ -567,6 +612,16 @@ const handleNavClick = (item: any) => {
 
         <!-- Conversations List - scrollable -->
         <div class="flex-1 overflow-y-auto px-3 pb-4 min-h-0" :class="isCollapsed && 'lg:hidden'">
+            <!-- 回收站：清空按钮（仅回收站 tab 显示，整行带边框） -->
+            <div v-if="sessionTab === 'trash' && displaySessions.length > 0 && !tabLoading"
+                class="pb-2">
+                <button type="button" :disabled="isPurging"
+                    class="btn btn-sm btn-block btn-outline btn-error gap-1.5 rounded-xl font-medium"
+                    @click="handlePurgeDeleted">
+                    <TrashIcon class="h-4 w-4" />
+                    <span>{{ isPurging ? $t('sidebar.purging') : $t('sidebar.emptyTrash') }}</span>
+                </button>
+            </div>
             <!-- Loading state: 当前 tab 首次懒加载在途 -->
             <div v-if="tabLoading"
                 class="flex items-center justify-center py-4">
@@ -575,7 +630,7 @@ const handleNavClick = (item: any) => {
             <!-- Empty state -->
             <div v-else-if="!displaySessions || displaySessions.length === 0"
                 class="text-center py-4 text-base-content/50 text-sm">
-                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : 'sidebar.noArchived') }}
+                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : sessionTab === 'trash' ? 'sidebar.noTrash' : 'sidebar.noArchived') }}
             </div>
             <!-- Sessions list: 分组开时组头与行交错，否则纯行 -->
             <div v-else class="space-y-1">
@@ -610,8 +665,6 @@ const handleNavClick = (item: any) => {
                             <span class="h-4 w-4 shrink-0 inline-flex items-center justify-center" :title="$t('sidebar.pin')" aria-hidden="true">📌</span>
                             <span class="sr-only">{{ $t('sidebar.pin') }}</span>
                         </template>
-                        <component :is="rowIcon" v-else class="h-4 w-4 shrink-0"
-                            :class="activeSessionKey === session.key ? 'text-primary opacity-80' : 'opacity-50'" />
                         <input v-if="renamingKey === session.key" :ref="setRenameInput" v-model="renameText" type="text"
                             class="input input-xs input-bordered flex-1 min-w-0 h-6 rounded-lg" @click.stop @contextmenu.stop
                             @keydown.enter.prevent="confirmRename" @keydown.esc.prevent="cancelRename"

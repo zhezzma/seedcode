@@ -3,6 +3,8 @@ export type SessionCategory = 'default' | 'task'
 export interface SessionRouteState {
     sessionCategory?: SessionCategory
     archived?: boolean
+    /** 软删（回收站）：优先级高于 archived（归档过再删的恢复后仍回归档桶） */
+    deleted?: boolean
 }
 
 export interface SessionRouteRow extends SessionRouteState {
@@ -20,15 +22,18 @@ export interface SessionRouteBuckets<TSession extends SessionRouteRow> {
     sessionsResult: SessionRouteResult<TSession> | null
     taskSessionsResult: SessionRouteResult<TSession> | null
     archivedSessionsResult: SessionRouteResult<TSession> | null
+    deletedSessionsResult: SessionRouteResult<TSession> | null
 }
 
 export const normalizeSessionRouteState = (routeState?: SessionRouteState): Required<SessionRouteState> => ({
     sessionCategory: routeState?.sessionCategory === 'task' ? 'task' : 'default',
     archived: Boolean(routeState?.archived),
+    deleted: Boolean(routeState?.deleted),
 })
 
 export const getSessionBucketKey = (routeState?: SessionRouteState): keyof SessionRouteBuckets<SessionRouteRow> => {
     const normalized = normalizeSessionRouteState(routeState)
+    if (normalized.deleted) return 'deletedSessionsResult'
     if (normalized.sessionCategory === 'task') return 'taskSessionsResult'
     if (normalized.archived) return 'archivedSessionsResult'
     return 'sessionsResult'
@@ -79,12 +84,14 @@ export const moveSessionToRouteState = <TSession extends SessionRouteRow>(
         ...session,
         sessionCategory: normalized.sessionCategory,
         archived: normalized.archived,
+        deleted: normalized.deleted,
     } as TSession
 
     const nextState: SessionRouteBuckets<TSession> = {
         sessionsResult: removeSessionFromResult(sessionsState.sessionsResult, session.id),
         taskSessionsResult: removeSessionFromResult(sessionsState.taskSessionsResult, session.id),
         archivedSessionsResult: removeSessionFromResult(sessionsState.archivedSessionsResult, session.id),
+        deletedSessionsResult: removeSessionFromResult(sessionsState.deletedSessionsResult, session.id),
     }
 
     nextState[targetKey] = prependSessionToResult(nextState[targetKey], nextSession)

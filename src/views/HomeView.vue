@@ -164,11 +164,12 @@ const currentSessionName = computed(() => {
     const sessionKey = chatState.sessionKey
     if (!sessionKey) return ''
 
-    // 从 sessionsState 三个桶中依次查找（patchSession / triggerSessionRename 会更新这里）
+    // 从 sessionsState 四个桶中依次查找（patchSession / triggerSessionRename 会更新这里）
     const found =
         sessionsState.sessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
         || sessionsState.taskSessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
         || sessionsState.archivedSessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
+        || sessionsState.deletedSessionsResult?.sessions.find((s: SessionRow) => s.id === sessionKey)
     if (found) {
         return found.name || truncateText(found.name, 9) || '新对话'
     }

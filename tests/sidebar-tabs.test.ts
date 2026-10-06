@@ -6,13 +6,19 @@ import path from 'node:path'
 const root = path.resolve(import.meta.dirname, '..')
 const sidebarSource = readFileSync(path.join(root, 'src/components/AppSidebar.vue'), 'utf8')
 
-test('sidebar defines three session tabs with pill segmented-control styling', () => {
-    assert.match(sidebarSource, /export type SidebarSessionTab = 'chats' \| 'plans' \| 'archived'/)
-    // 三个 tab 由 SESSION_TABS 配置驱动（v-for 渲染），各有 label 与图标
-    assert.match(sidebarSource, /const SESSION_TABS: Array<\{ key: SidebarSessionTab, labelKey: string, icon: any \}> = \[/)
-    assert.match(sidebarSource, /\{ key: 'chats', labelKey: 'sidebar\.tabChats', icon: ChatBubbleLeftRightIcon \}/)
-    assert.match(sidebarSource, /\{ key: 'plans', labelKey: 'sidebar\.tabPlans', icon: CalendarDaysIcon \}/)
-    assert.match(sidebarSource, /\{ key: 'archived', labelKey: 'sidebar\.tabArchived', icon: ArchiveBoxIcon \}/)
+test('sidebar defines four session tabs with pill segmented-control styling', () => {
+    assert.match(sidebarSource, /export type SidebarSessionTab = 'chats' \| 'plans' \| 'archived' \| 'trash'/)
+    // 四个 tab 由 SESSION_TABS 配置驱动（v-for 渲染），各有 label；
+    // 纯文字档：窄侧栏四档加图标会被挤到截断，禁止图标配置残留
+    assert.match(sidebarSource, /const SESSION_TABS: Array<\{ key: SidebarSessionTab, labelKey: string \}> = \[/)
+    assert.match(sidebarSource, /\{ key: 'chats', labelKey: 'sidebar\.tabChats' \}/)
+    assert.match(sidebarSource, /\{ key: 'plans', labelKey: 'sidebar\.tabPlans' \}/)
+    assert.match(sidebarSource, /\{ key: 'archived', labelKey: 'sidebar\.tabArchived' \}/)
+    assert.match(sidebarSource, /\{ key: 'trash', labelKey: 'sidebar\.tabTrash' \}/)
+    assert.doesNotMatch(sidebarSource, /icon: ChatBubbleLeftRightIcon/)
+    assert.doesNotMatch(sidebarSource, /icon: CalendarDaysIcon/)
+    assert.doesNotMatch(sidebarSource, /icon: ArchiveBoxIcon/)
+    assert.doesNotMatch(sidebarSource, /icon: TrashIcon/)
     // 胶囊分段控件：圆角灰底容器，选中项白底描边阴影
     assert.match(sidebarSource, /rounded-full bg-base-300 p-1/)
     assert.match(sidebarSource, /sessionTab === tab\.key\s*\n\s*\? 'bg-base-100 border-base-300 shadow-sm text-base-content'/)
@@ -80,6 +86,7 @@ test('sidebar tab switch lazily loads the matching data bucket and retries on fa
     // plans/archived 懒加载；chats 依赖启动链 useAppInit，不进 TAB_LOADERS
     assert.match(sidebarSource, /plans: \(\) => sessionsState\.loadTaskSessions\(\)/)
     assert.match(sidebarSource, /archived: \(\) => sessionsState\.loadArchivedSessions\(\)/)
+    assert.match(sidebarSource, /trash: \(\) => sessionsState\.loadDeletedSessions\(\)/)
     assert.doesNotMatch(sidebarSource, /chats: \(\) => sessionsState\.loadSessions\(\)/)
     // 初始无标记，懒加载语义
     assert.match(sidebarSource, /const loadedTabs = new Set<SidebarSessionTab>\(\)/)
@@ -106,8 +113,8 @@ test('sidebar current tab renders only its matching bucket', () => {
 })
 
 test('sidebar empty state per tab and loading indicator during first lazy load', () => {
-    // 空态按 tab 显示 noChats/noPlans/noArchived
-    assert.match(sidebarSource, /sessionTab === 'chats' \? 'sidebar\.noChats' : sessionTab === 'plans' \? 'sidebar\.noPlans' : 'sidebar\.noArchived'/)
+    // 空态按 tab 显示 noChats/noPlans/noArchived/noTrash
+    assert.match(sidebarSource, /sessionTab === 'chats' \? 'sidebar\.noChats' : sessionTab === 'plans' \? 'sidebar\.noPlans' : sessionTab === 'trash' \? 'sidebar\.noTrash' : 'sidebar\.noArchived'/)
     // 首次懒加载在途显示 loading 而非误导性空态
     assert.match(sidebarSource, /<div v-if="tabLoading"[\s\S]*?loading loading-spinner/)
     assert.match(sidebarSource, /<div v-else-if="!displaySessions \|\| displaySessions\.length === 0"/)
@@ -135,9 +142,9 @@ test('sidebar row menu is tab-aware', () => {
 test('sidebar tab follows the active session bucket after navigation', () => {
     // 通知点击/路由跳转 /chat/:id 后，tab 自动切到该会话所属桶：
     // 三桶各自可命中，桶未加载/无此会话时返回 null（等待回填，不盲切）
-    assert.match(sidebarSource, /const sessionTabOfKey = \(key: string\): SidebarSessionTab \| null => \{[\s\S]*?sessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'chats'[\s\S]*?taskSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'plans'[\s\S]*?archivedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'archived'[\s\S]*?return null/)
-    // 同时监听 activeSessionKey 与三桶引用：冷启动点通知时桶由 getSessionById 单查回填，命中晚于跳转
-    assert.match(sidebarSource, /watch\(\[activeSessionKey, \(\) => sessionsState\.sessionsResult, \(\) => sessionsState\.taskSessionsResult, \(\) => sessionsState\.archivedSessionsResult\]/)
+    assert.match(sidebarSource, /const sessionTabOfKey = \(key: string\): SidebarSessionTab \| null => \{[\s\S]*?sessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'chats'[\s\S]*?taskSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'plans'[\s\S]*?archivedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'archived'[\s\S]*?deletedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'trash'[\s\S]*?return null/)
+    // 同时监听 activeSessionKey 与四桶引用：冷启动点通知时桶由 getSessionById 单查回填，命中晚于跳转
+    assert.match(sidebarSource, /watch\(\[activeSessionKey, \(\) => sessionsState\.sessionsResult, \(\) => sessionsState\.taskSessionsResult, \(\) => sessionsState\.archivedSessionsResult, \(\) => sessionsState\.deletedSessionsResult\]/)
     // followedKey 一次性跟随：同一次跳转只切一次，之后用户手动切其他 tab 浏览不被拉回
     assert.match(sidebarSource, /if \(!key \|\| followedKey === key\) return/)
     assert.match(sidebarSource, /followedKey = key/)

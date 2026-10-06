@@ -51,7 +51,7 @@ test('moveSessionToRouteState removes stale default copies when a session become
   assert.deepEqual(nextState.sessionsResult?.sessions, [])
   assert.equal(nextState.sessionsResult?.total, 0)
   // 归档桶内对象应携带 archived: true 且其余字段保留
-  assert.deepEqual(nextState.archivedSessionsResult?.sessions, [{ ...session, archived: true }])
+  assert.deepEqual(nextState.archivedSessionsResult?.sessions, [{ ...session, archived: true, deleted: false }])
   assert.equal(nextState.archivedSessionsResult?.total, 4)
 })
 
@@ -69,7 +69,7 @@ test('moveSessionToRouteState removes stale archived copies when a session becom
 
   assert.deepEqual(nextState.archivedSessionsResult?.sessions, [])
   assert.equal(nextState.archivedSessionsResult?.total, 0)
-  assert.deepEqual(nextState.sessionsResult?.sessions, [{ ...archivedSession, archived: false }])
+  assert.deepEqual(nextState.sessionsResult?.sessions, [{ ...archivedSession, archived: false, deleted: false }])
   assert.equal(nextState.sessionsResult?.total, 3)
 })
 
@@ -89,7 +89,7 @@ test('moveSessionToRouteState keeps task sessions in the task bucket even when a
 
   assert.deepEqual(nextState.sessionsResult?.sessions, [])
   assert.deepEqual(nextState.archivedSessionsResult?.sessions, [])
-  assert.deepEqual(nextState.taskSessionsResult?.sessions, [{ ...taskSession, archived: true }])
+  assert.deepEqual(nextState.taskSessionsResult?.sessions, [{ ...taskSession, archived: true, deleted: false }])
   assert.equal(nextState.taskSessionsResult?.total, 1)
 })
 
@@ -97,10 +97,12 @@ test('normalizeSessionRouteState normalizes undefined to default/unarchived', ()
   assert.deepEqual(normalizeSessionRouteState(undefined), {
     sessionCategory: 'default',
     archived: false,
+    deleted: false,
   })
   assert.deepEqual(normalizeSessionRouteState({ sessionCategory: 'task', archived: true }), {
     sessionCategory: 'task',
     archived: true,
+    deleted: false,
   })
 })
 
@@ -135,4 +137,44 @@ test('session state keeps three buckets for sidebar tabs without notification ro
   assert.doesNotMatch(sessionsStateSource, /resolveNotificationSessionCategory/)
   // getSessionById 不再携带 category（所有会话统一走 /chat）
   assert.doesNotMatch(sessionsStateSource, /getSessionById, category/)
+})
+
+test('moveSessionToRouteState routes soft-deleted sessions to the recycle bin bucket', () => {
+  // deleted 优先于 archived/task：软删会话一律进回收站桶（带 deleted 标志）
+  const archivedSession = { id: 'sess-del', sessionCategory: 'default' as const, archived: true }
+  const nextState = moveSessionToRouteState(
+    {
+      sessionsResult: { sessions: [], total: 0 },
+      taskSessionsResult: { sessions: [], total: 0 },
+      archivedSessionsResult: { sessions: [archivedSession], total: 1 },
+      deletedSessionsResult: { sessions: [], total: 0 },
+    },
+    archivedSession,
+    { archived: true, deleted: true },
+  )
+
+  assert.deepEqual(nextState.archivedSessionsResult?.sessions, [])
+  assert.equal(nextState.archivedSessionsResult?.total, 0)
+  assert.deepEqual(nextState.deletedSessionsResult?.sessions, [{ ...archivedSession, deleted: true }])
+  assert.equal(nextState.deletedSessionsResult?.total, 1)
+})
+
+test('moveSessionToRouteState restores a soft-deleted session back to its original bucket', () => {
+  // 归档过再删的会话恢复后回归档桶（archived 字段独立保留，不受 deleted 影响）
+  const deletedSession = { id: 'sess-restore', sessionCategory: 'default' as const, archived: true, deleted: true }
+  const nextState = moveSessionToRouteState(
+    {
+      sessionsResult: { sessions: [], total: 0 },
+      taskSessionsResult: { sessions: [], total: 0 },
+      archivedSessionsResult: { sessions: [], total: 0 },
+      deletedSessionsResult: { sessions: [deletedSession], total: 1 },
+    },
+    deletedSession,
+    { archived: true, deleted: false },
+  )
+
+  assert.deepEqual(nextState.deletedSessionsResult?.sessions, [])
+  assert.equal(nextState.deletedSessionsResult?.total, 0)
+  assert.deepEqual(nextState.archivedSessionsResult?.sessions, [{ ...deletedSession, deleted: false }])
+  assert.equal(nextState.archivedSessionsResult?.total, 1)
 })
