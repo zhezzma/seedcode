@@ -16,23 +16,22 @@ import RepoSelector from './git/RepoSelector.vue'
 import StatusGroup from './git/StatusGroup.vue'
 import HistoryList from './git/HistoryList.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
-import { useWorkspaceGit, repoJoin, classifyDiscardEffects } from '../../composables/useWorkspaceGit'
+import { useWorkspaceGit, repoJoin } from '../../composables/useWorkspaceGit'
 import { useWorkspacePanel, HISTORY_MIN_HEIGHT } from '../../composables/useWorkspacePanel'
-import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
 import {
     buildGitFileMenuItems, buildGitInlineActions,
-    runDiscardAllFlow, type GitGroup,
+    type GitGroup,
 } from '../../composables/useGitFileActions'
+import { useGitBulkActions } from '../../composables/useGitBulkActions'
 import { buildAbsolutePath } from '../../composables/useFileActions'
 import type { FileChange } from '../../composables/workspace-api'
 
 const props = defineProps<{ agentId: string }>()
 const git = useWorkspaceGit()
 const panel = useWorkspacePanel()
-const tree = useWorkspaceTree()
 const viewer = useWorkspaceViewer()
 const toast = useToast()
 const { confirm } = useConfirm()
@@ -137,97 +136,6 @@ async function openUnstagedDiff(change: FileChange) {
     viewer.openDiff({ repo, mode, file: change.path })
 }
 
-/** discard 前快照 staged 里 HEAD 中不存在的路径（'A' 新增 / 'R'/'C' 的新路径）。
- *  服务端对 tracked 一律 `restore --staged --worktree --source=HEAD`（源码明示
- *  「让 staged-add 文件也能被还原到不存在状态」，git 实测 AM 文件 discard 后
- *  连目录带文件被删）：这些文件 discard = 被删除，树/viewer 必须按删除处理，
- *  否则树缓存留幽灵条目、viewer 重开进 404。
- *  必须在 git.discard 之前取：discard 完成后 status 已重拉，staged 里的 'A' 行
- *  已消失，届时无从判别。 */
-function stagedAddsSnapshot(): Set<string> {
-    const staged = git.status.value?.staged ?? []
-    return new Set(
-        staged
-            .filter(c => c.status === 'A' || c.status === 'R' || c.status === 'C')
-            .map(c => c.path),
-    )
-}
-
-// ── discard 的磁盘副作用同步 ──
-// discard 不只改 git 状态：untracked 被删（Files tab 树缓存过期）、tracked 被还原
-// （viewer 若开着该文件，编辑器 buffer 已落后磁盘，继续保存会把刚丢弃的改动写回去）。
-// status / repos 的重拉由 store 的 discard() 自己负责，这里只处理树与 viewer。
-// repo 与 stagedAdds 由调用方闭包传入（与 git.discard 用的是同一时点）：await 期间
-// 用户可能在 RepoSelector 切了仓库，selectedRepo 已不是被 discard 的仓库，用它算
-// 前缀会失效错目录 / 关错 viewer；stagedAdds 则必须在 discard 前快照——discard
-// 完成后 status 已重拉，staged 里的 'A' 行已消失。
-async function afterDiscard(changes: FileChange[], repo: string, stagedAdds: Set<string>) {
-    // discard 的 await 期间可能已切 agent：此时树缓存/store 已归属新 agent，
-    // 旧 agent 的路径失效与重拉会污染它们（viewer 是全局单槽，同理不能动）。
-    if (git.currentAgentId !== props.agentId) return
-    if (!repo) return
-    const { deletedPaths, deletedParents, revertedPaths } = classifyDiscardEffects(changes, repo, stagedAdds)
-    // 树：失效受影响目录**及其祖先链**上已缓存（展开过）的目录并重拉，避免为没看过的
-    // 目录付请求成本。
-    // 为什么祖先也要失效：目录自身的缓存可能恰在它从磁盘消失期间被清掉（Files tab
-    // 删除目录 → invalidatePrefix），此时持有过期列表（「该目录不存在」旧世界）的是
-    // 最近已缓存祖先；restore 重建目录（git 实测：rm -rf 后 restore 连目录带文件
-    // 重建）后不重拉祖先 → 幽灵缺失目录，直到手动刷新。
-    for (const p of deletedParents) {
-        for (let dir = p; ; dir = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '') {
-            if (tree.entriesAt(dir) !== null || tree.isLoading(dir)) {
-                tree.invalidate(dir)
-                void tree.loadPath(props.agentId, dir)
-            }
-            if (dir === '') break
-        }
-    }
-    const cur = viewer.current.value
-    if (cur?.type !== 'file') {
-        // diff 型 viewer 对着被丢弃文件：untracked/unstaged diff 会停在旧内容，
-        // 重开强制重拉（commit diff 不受 discard 影响；deleted 的 diff 重拉只会报错，直接关）。
-        if (cur?.type === 'diff' && cur.mode !== 'commit' && cur.repo === repo) {
-            const wsFile = repoJoin(repo, cur.file)
-            if (deletedPaths.has(wsFile)) {
-                // 磁盘文件已删：dirty buffer 是唯一副本（同 file 分支），静默丢弃不可接受
-                if (viewer.dirty.value?.path === wsFile) {
-                    const ok = await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
-                    if (!ok) return
-                }
-                viewer.close()
-            } else if (revertedPaths.has(wsFile) && viewer.dirty.value?.path !== wsFile) {
-                // 无未保存改动才 close+reopen 强制重拉；dirty 时 buffer 权威高于磁盘
-                // （同 file 分支语义），是否覆盖 revert 后的文件由用户保存时决定。
-                viewer.close()
-                await nextTick()
-                viewer.openDiff({ repo: cur.repo, mode: cur.mode, file: cur.file, ref: cur.ref })
-            }
-        }
-        return
-    }
-    // viewer 正看着被删的 untracked 文件 → 关闭（与 FileTreeNode.onDeleted 同语义：
-    // 有未保存改动先确认——磁盘文件已删，buffer 是唯一副本，静默丢弃不可接受）
-    if (deletedPaths.has(cur.path)) {
-        if (viewer.dirty.value?.path === cur.path) {
-            const ok = await confirm(t('workspace.unsavedChanges'), t('common.confirm'))
-            if (!ok) return
-        }
-        viewer.close()
-        return
-    }
-    // 看着被还原的 tracked 文件且无未保存改动 → close+open 强制重载。
-    // 必须隔一个 nextTick：同 tick 内 close+open 两次 mutation 会被 Vue 批处理成一次
-    // patch，v-if 从 true（旧对象）到 true（新对象）会保留组件实例 —— 不卸载、path
-    // prop 不变、watcher 不触发，重拉完全不生效（运行时实验实证过）。
-    // 有未保存改动时不动：用户的 buffer 权威高于磁盘，是否覆盖由用户保存时决定。
-    // 代价是聊天区闪现一帧；若在意可改 nonce key 方案（openFile 带 force 序号）。
-    if (revertedPaths.has(cur.path) && viewer.dirty.value?.path !== cur.path) {
-        viewer.close()
-        await nextTick()
-        viewer.openFile(cur.path)
-    }
-}
-
 /** 在 viewer 里打开"工作区当前文件"（VSCode 风格 Open File）。
  *  路径需要 workspace 相对路径：repoPath + '/' + entry.path（根仓库 relPath "." 时
  *  由 repoJoin 直接用 entry.path，避免 "./" 前缀）。
@@ -257,12 +165,19 @@ async function openCommitFile(file: string) {
 
 const commitsCount = computed(() => git.commits.value.length || null)
 
-// ── 合并 unstaged + untracked：VSCode 风格，"工作区改动" 包含 tracked 修改 + 未跟踪。
-//    服务端仕然分两个数组（状态字符 ? vs M/A/D 区分）；UI 为合并显示。
-const unstagedAndUntracked = computed<FileChange[]>(() => {
-    const s = git.status.value
-    if (!s) return []
-    return [...s.unstaged, ...s.untracked]
+// ── 分组级批量动作（stage all / unstage all / discard all）与面板空白右键菜单共用 ──
+// 实现在 useGitBulkActions（含 discard 的树缓存失效 / viewer 重载副作用同步）。
+// 解构重命名保持模板绑定不变；单行 onDiscard 闭包也复用这里的 stagedAddsSnapshot / afterDiscard。
+const {
+    unstagedAndUntracked,
+    stagedAddsSnapshot,
+    afterDiscard,
+    stageAll: onStageAllChanges,
+    unstageAll: onUnstageAll,
+    discardAll: onDiscardAllChanges,
+} = useGitBulkActions({
+    agentId: () => props.agentId,
+    repo: () => selectedRepo.value,
 })
 
 // ── 共用：构造单行的 callback 集合（行内按钮和右键菜单都拿同一份） ──
@@ -309,43 +224,6 @@ function buildInlineFor(group: GitGroup, change: FileChange) {
     const repo = selectedRepo.value
     if (!repo) return []
     return buildGitInlineActions(callbacksFor(group, change))
-}
-
-// ── 分组级动作（stage all / unstage all / discard all） ──
-async function onStageAllChanges() {
-    const repo = selectedRepo.value
-    const files = unstagedAndUntracked.value.map(c => c.path)
-    if (!repo || files.length === 0) return
-    try { await git.stage(props.agentId, repo, files) }
-    catch (e: any) { toast.error(`${t('workspace.git.stage')}: ${e?.message || e}`) }
-}
-
-async function onUnstageAll() {
-    const repo = selectedRepo.value
-    const status = git.status.value
-    if (!repo || !status || status.staged.length === 0) return
-    try { await git.unstage(props.agentId, repo) /* all */ }
-    catch (e: any) { toast.error(`${t('workspace.git.unstage')}: ${e?.message || e}`) }
-}
-
-async function onDiscardAllChanges() {
-    const repo = selectedRepo.value
-    const list = unstagedAndUntracked.value
-    if (!repo || list.length === 0) return
-    // 文案划分：全是 untracked 走删除文案提示，其他走「丢弃修改」提示。
-    // 混合场景仍走「丢弃修改」（不会误导：该提示不说 untracked 会被保留）。
-    const allUntracked = list.every(c => c.status === '?')
-    await runDiscardAllFlow({
-        count: list.length,
-        kind: allUntracked ? 'untracked' : 'mixed',
-        // 服务端内部会逐个分辨 tracked / untracked 走不同逻辑。
-        onConfirmed: async () => {
-            const stagedAdds = stagedAddsSnapshot()
-            const r = await git.discard(props.agentId, repo, list.map(c => c.path))
-            if (r.stale) return
-            await afterDiscard(list, repo, stagedAdds)
-        },
-    })
 }
 
 // ── Commit bar ──

@@ -13,7 +13,7 @@
  * `display:contents` 让 wrapper 不参与布局，splitter 与 aside 仍是父 flex 的 item。
  */
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
 import { useContextMenu, type ContextMenuItem } from '../../composables/useContextMenu'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
@@ -22,6 +22,7 @@ import { runNewFileFlow, runNewDirFlow, runUploadFlow } from '../../composables/
 import { useWorkspacePanel, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../../composables/useWorkspacePanel'
 import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useWorkspaceGit } from '../../composables/useWorkspaceGit'
+import { useGitBulkActions } from '../../composables/useGitBulkActions'
 import { useAgentFiles } from '../../composables/useAgentFiles'
 import WorkspaceTabFiles from './WorkspaceTabFiles.vue'
 import WorkspaceTabGit from './WorkspaceTabGit.vue'
@@ -112,9 +113,17 @@ const { isRefreshing, refreshAll } = useWorkspaceRefresh()
 // ─── 面板右键菜单 ───
 // 文件树行自带右键菜单（行 handler 已 preventDefault），这里用 defaultPrevented
 // 区分：只响应面板空白处/git 行的右键，不覆盖行菜单。
-// Files tab 下补充根目录新建 / 上传入口；Git tab 只有刷新 —— 全面板只有空白菜单 + 文件行菜单两种。
+// Files tab 下补充根目录新建 / 上传入口；Git tab 下补充暂存所有 / 取消所有暂存 / 丢弃所有
+// —— 全面板只有空白菜单 + 文件行菜单两种。
 const { t } = useI18n()
 const ctxMenu = useContextMenu()
+
+// Git tab 空白菜单的三个批量动作与 WorkspaceTabGit 分组头按钮共用同一实现
+//（useGitBulkActions 内含 discard 的树缓存失效 / viewer 重载副作用同步）。
+const gitBulk = useGitBulkActions({
+    agentId: () => props.agentId,
+    repo: () => panel.getRepoForAgent(props.agentId),
+})
 
 function onPanelContextMenu(e: MouseEvent) {
     if (props.mobile || e.defaultPrevented) return
@@ -150,6 +159,26 @@ function onPanelContextMenu(e: MouseEvent) {
                     agentId: props.agentId, scope: 'workspace', parentPath: '',
                     onMutated: () => refreshAll(props.agentId, () => props.agentId),
                 }),
+            },
+        )
+    } else if (panel.activeTab.value === 'git') {
+        items.push(
+            {
+                label: t('workspace.git.stageAll'),
+                icon: PlusIcon,
+                separator: true,
+                action: () => gitBulk.stageAll(),
+            },
+            {
+                label: t('workspace.git.unstageAll'),
+                icon: MinusIcon,
+                action: () => gitBulk.unstageAll(),
+            },
+            {
+                label: t('workspace.git.discardAll'),
+                icon: ArrowUturnLeftIcon,
+                danger: true,
+                action: () => gitBulk.discardAll(),
             },
         )
     }

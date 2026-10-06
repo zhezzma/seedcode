@@ -165,7 +165,8 @@ test('GitTab: 换 diff/file 目标前拦截脏 buffer（confirmIfDirty，同 Fil
 })
 
 test('GitTab: discard 后 diff 分支尊重 dirty buffer（deleted 确认 / reverted 不重拉）', () => {
-    const src = read('src/components/workspace/WorkspaceTabGit.vue')
+    // afterDiscard 已抽到 useGitBulkActions（分组头按钮与面板空白右键菜单共用）
+    const src = read('src/composables/useGitBulkActions.ts')
     const block = src.match(/cur\?\.type === 'diff'[\s\S]*?\n    }/)
     assert.ok(block, 'afterDiscard diff branch must exist')
     // deleted：dirty buffer 是唯一副本（同 file 分支），丢弃前必须确认

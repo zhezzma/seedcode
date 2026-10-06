@@ -359,17 +359,21 @@ test('markdown: 代码块全屏读取 fence 语言并透传给 openText', () => 
 // Files tab 的文件 mutation 与编辑器保存都会改 worktree → git status / repos 下拉
 // 数据源必须同步；discard 会 revert/删文件 → 树缓存与 viewer 必须跟进。
 
-test('WorkspaceTabGit: discard 后同步磁盘副作用（树缓存失效 + viewer 重载/关闭）', () => {
+test('WorkspaceTabGit/useGitBulkActions: discard 后同步磁盘副作用（树缓存失效 + viewer 重载/关闭）', () => {
+    // 批量动作（stagedAddsSnapshot / afterDiscard / discardAll）已抽到 useGitBulkActions：
+    // Git tab 分组头按钮（WorkspaceTabGit）与面板空白右键菜单（WorkspacePanel）共用同一实现
     const src = read('src/components/workspace/WorkspaceTabGit.vue')
-    assert.match(src, /function afterDiscard/, 'must define afterDiscard for disk side-effects')
-    // 单文件与全部丢弃两条路径都要走 afterDiscard；stagedAdds 与 repo 同源闭包传入
+    const bulk = read('src/composables/useGitBulkActions.ts')
+    assert.match(bulk, /function afterDiscard/, 'must define afterDiscard for disk side-effects')
+    // 单文件（WorkspaceTabGit 闭包）与全部丢弃（useGitBulkActions）两条路径都要走 afterDiscard；
+    // stagedAdds 与 repo 同源闭包传入
     assert.match(
         src,
         /onDiscard: group === 'unstaged' && repo\s*\?\s*async \(\) => \{[\s\S]*?afterDiscard\(\[change\], repo, stagedAdds\)/,
         'single-file discard must run afterDiscard with the same repo as git.discard',
     )
     assert.match(
-        src,
+        bulk,
         /onConfirmed: async \(\) => \{[\s\S]*?afterDiscard\(list, repo, stagedAdds\)/,
         'discard-all must run afterDiscard with the same repo as git.discard',
     )
@@ -377,52 +381,52 @@ test('WorkspaceTabGit: discard 后同步磁盘副作用（树缓存失效 + view
     // discard 前快照 staged（discard 后 'A' 行已消失），否则 AM 文件被当还原处理
     // → 树幽灵条目 + viewer 重开 404
     assert.match(
-        src,
+        bulk,
         /function stagedAddsSnapshot[\s\S]*?c\.status === 'A' \|\| c\.status === 'R' \|\| c\.status === 'C'/,
         'must snapshot staged A/R/C paths before discard for delete classification',
     )
     assert.match(
-        src,
+        bulk,
         /const stagedAdds = stagedAddsSnapshot\(\)[\s\S]*?await git\.discard/,
         'snapshot must be taken before git.discard (post-discard status no longer has the A rows)',
     )
     // discard 返回 stale（epoch 失配：切 agent / 改绑 workspace）→ 跳过 afterDiscard
     assert.match(
-        src,
+        bulk,
         /const r = await git\.discard\([\s\S]*?if \(r\.stale\) return[\s\S]*?await afterDiscard/,
         'must skip afterDiscard when discard reports stale (rebind keeps currentAgentId, ownership check alone cannot block)',
     )
     // untracked 被删 / 目录增删 → 失效已缓存（展开过）的受影响目录**及祖先链**并重拉
-    assert.match(src, /tree\.invalidate\(/, 'must invalidate tree cache of deleted parents')
-    assert.match(src, /entriesAt\(dir\)[\s\S]*?isLoading\(dir\)/, 'must only reload already-cached dirs')
+    assert.match(bulk, /tree\.invalidate\(/, 'must invalidate tree cache of deleted parents')
+    assert.match(bulk, /entriesAt\(dir\)[\s\S]*?isLoading\(dir\)/, 'must only reload already-cached dirs')
     assert.match(
-        src,
+        bulk,
         /for \(let dir = p; ; dir = dir\.includes\('\/'\) \? dir\.slice\(0, dir\.lastIndexOf\('\/'\)\) : ''\)/,
         'must walk the ancestor chain (dir itself may be uncached while the stale listing lives in the nearest cached ancestor)',
     )
     // viewer 正看着被删的 untracked 文件 → 关闭；看着被还原的 tracked 文件且无未保存改动 → close+nextTick+open 强制重载
     // （close 与 openFile 必须隔 nextTick：同 tick 批处理会让 v-if 保留实例、不重拉）
-    assert.match(src, /deletedPaths\.has\(cur\.path\)[\s\S]*?viewer\.close\(\)/, 'must close viewer showing deleted untracked file')
-    assert.match(src, /viewer\.close\(\)\s*await nextTick\(\)\s*viewer\.openFile\(cur\.path\)/, 'must force-reload reverted file via close+nextTick+open')
+    assert.match(bulk, /deletedPaths\.has\(cur\.path\)[\s\S]*?viewer\.close\(\)/, 'must close viewer showing deleted untracked file')
+    assert.match(bulk, /viewer\.close\(\)\s*await nextTick\(\)\s*viewer\.openFile\(cur\.path\)/, 'must force-reload reverted file via close+nextTick+open')
     // discard await 期间切 agent → 续体不得污染新 agent 的缓存与 viewer（全局单槽）
-    assert.match(src, /afterDiscard[\s\S]*?git\.currentAgentId !== props\.agentId/, 'afterDiscard must guard against agent switch during in-flight discard')
+    assert.match(bulk, /afterDiscard[\s\S]*?git\.currentAgentId !== args\.agentId\(\)/, 'afterDiscard must guard against agent switch during in-flight discard')
     // repo / stagedAdds 必须由调用方闭包传入（discard 用的同一时点），不得在 await 后重读
-    // selectedRepo：用户可能已在在飞期间切了仓库，用新仓库算前缀会失效错目录/关错 viewer
-    assert.match(src, /function afterDiscard\(changes: FileChange\[\], repo: string, stagedAdds: Set<string>\)/, 'afterDiscard must take repo/stagedAdds from caller closure, not re-read selectedRepo')
+    // repo getter：用户可能已在在飞期间切了仓库，用新仓库算前缀会失效错目录/关错 viewer
+    assert.match(bulk, /function afterDiscard\(changes: FileChange\[\], repo: string, stagedAdds: Set<string>\)/, 'afterDiscard must take repo/stagedAdds from caller closure, not re-read the repo getter')
     // 分类逻辑必须走 classifyDiscardEffects（staged-add 删除判别不可内联重造）
-    assert.match(src, /classifyDiscardEffects\(changes, repo, stagedAdds\)/, 'must classify via classifyDiscardEffects')
-    const adStart = src.indexOf('function afterDiscard')
-    // 边界须容忍 async function（相邻函数可能是 async，如 openFile）
-    const adEnd = src.slice(adStart + 1).search(/\n(?:async )?function /)
-    const adBody = src.slice(adStart, adEnd !== -1 ? adStart + 1 + adEnd : undefined)
-    assert.ok(!adBody.includes('selectedRepo'), 'afterDiscard body must NOT read selectedRepo (stale after in-flight repo switch)')
+    assert.match(bulk, /classifyDiscardEffects\(changes, repo, stagedAdds\)/, 'must classify via classifyDiscardEffects')
+    const adStart = bulk.indexOf('function afterDiscard')
+    // 边界须容忍 async function 与工厂内函数缩进（相邻函数可能是 async，如 stageAll）
+    const adEnd = bulk.slice(adStart + 1).search(/\n[ \t]*(?:async )?function /)
+    const adBody = bulk.slice(adStart, adEnd !== -1 ? adStart + 1 + adEnd : undefined)
+    assert.ok(!adBody.includes('args.repo()'), 'afterDiscard body must NOT re-read the repo getter (stale after in-flight repo switch)')
     // tracked 'D'（工作区删除）discard = git restore 恢复文件回磁盘 → 父目录列表新增
     // 条目，需要失效父目录缓存，否则幽灵缺失
     // （分类已抽到 classifyDiscardEffects 纯函数，行为由 workspace-git.test.ts 锁死）
     // 被删 untracked 文件的 viewer 有未保存改动 → buffer 是唯一副本，先确认再关
     // （与 FileTreeNode.onDeleted 同语义）
     assert.match(
-        src,
+        bulk,
         /deletedPaths\.has\(cur\.path\)\)[\s\S]*?dirty\.value\?\.path === cur\.path[\s\S]*?confirm\([\s\S]*?viewer\.close\(\)/,
         'must confirm before closing dirty viewer of discarded untracked file',
     )
@@ -489,9 +493,10 @@ test('WorkspaceTabGit: 显式仓库选择不被静默覆写 + tab 挂载后台�
     // agent 切换后的迟到 mutation 返回 stale → 跳过成功 toast（误导归属）
     const toastSkips = src.match(/if \(!r\.stale\) toast\.success/g) || []
     assert.ok(toastSkips.length >= 2, `commit+sync 都要 stale 守卫，got ${toastSkips.length}`)
-    // diff viewer 对着被丢弃文件：强制重开（commit diff 跳过）
+    // diff viewer 对着被丢弃文件：强制重开（commit diff 跳过）—— 逻辑在 useGitBulkActions.afterDiscard
+    const bulk = read('src/composables/useGitBulkActions.ts')
     assert.match(
-        src,
+        bulk,
         /cur\?\.type === 'diff'[\s\S]*?cur\.mode !== 'commit'[\s\S]*?viewer\.openDiff/,
         'must force-reload unstaged/untracked diff of discarded file',
     )
@@ -500,6 +505,23 @@ test('WorkspaceTabGit: 显式仓库选择不被静默覆写 + tab 挂载后台�
 test('RepoSelector: 嵌套仓库（不在 /repos 列表）合成仅名字的展示条目', () => {
     const src = read('src/components/workspace/git/RepoSelector.vue')
     assert.match(src, /lastIndexOf\('\/'\)/, 'must derive display name for nested repo selection')
+})
+
+test('WorkspacePanel: Git tab 空白右键菜单三个批量动作复用 useGitBulkActions', () => {
+    const src = read('src/components/workspace/WorkspacePanel.vue')
+    // git tab 分支下追加：暂存所有 / 取消所有暂存 / 丢弃所有
+    assert.match(src, /panel\.activeTab\.value === 'git'/, 'git-tab branch must add bulk actions to the blank-area menu')
+    assert.match(src, /useGitBulkActions/, 'must reuse the shared bulk-actions factory (not raw git API calls)')
+    assert.match(src, /agentId: \(\) => props\.agentId/, 'must wire live agent getter')
+    assert.match(src, /repo: \(\) => panel\.getRepoForAgent\(props\.agentId\)/, 'must read the selected repo at action time')
+    // 顺序：暂存所有 → 取消所有暂存 → 丢弃所有；丢弃为危险操作（红字），确认由 factory 内 runDiscardAllFlow 负责
+    const iStage = src.indexOf("t('workspace.git.stageAll')")
+    const iUnstage = src.indexOf("t('workspace.git.unstageAll')")
+    const iDiscard = src.indexOf("t('workspace.git.discardAll')")
+    assert.ok(iStage !== -1 && iUnstage !== -1 && iDiscard !== -1, 'menu must include stageAll / unstageAll / discardAll')
+    assert.ok(iStage < iUnstage && iUnstage < iDiscard, 'menu order must be stageAll → unstageAll → discardAll')
+    const discardBlock = src.slice(iDiscard, src.indexOf('ctxMenu.openAt', iDiscard))
+    assert.match(discardBlock, /danger: true/, 'discardAll must be marked as danger (red)')
 })
 
 test('useWorkspaceRefresh: refreshAll 快照 agentId + 手动刷新带 refresh=1', () => {
