@@ -13,12 +13,12 @@
  * `display:contents` 让 wrapper 不参与布局，splitter 与 aside 仍是父 flex 的 item。
  */
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, FolderIcon, CodeBracketIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
 import { useContextMenu, type ContextMenuItem } from '../../composables/useContextMenu'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
 import { isDesktopTauri } from '../../utils/environment'
-import { runNewFileFlow, runNewDirFlow } from '../../composables/useFileActions'
+import { runNewFileFlow, runNewDirFlow, runUploadFlow } from '../../composables/useFileActions'
 import { useWorkspacePanel, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../../composables/useWorkspacePanel'
 import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useWorkspaceGit } from '../../composables/useWorkspaceGit'
@@ -112,7 +112,7 @@ const { isRefreshing, refreshAll } = useWorkspaceRefresh()
 // ─── 面板右键菜单 ───
 // 文件树行自带右键菜单（行 handler 已 preventDefault），这里用 defaultPrevented
 // 区分：只响应面板空白处/git 行的右键，不覆盖行菜单。
-// Files tab 下补充根目录新建入口；Git tab 只有刷新 —— 全面板只有空白菜单 + 文件行菜单两种。
+// Files tab 下补充根目录新建 / 上传入口；Git tab 只有刷新 —— 全面板只有空白菜单 + 文件行菜单两种。
 const { t } = useI18n()
 const ctxMenu = useContextMenu()
 
@@ -139,6 +139,14 @@ function onPanelContextMenu(e: MouseEvent) {
                 label: t('workspace.menu.newDir'),
                 icon: FolderPlusIcon,
                 action: () => runNewDirFlow({
+                    agentId: props.agentId, scope: 'workspace', parentPath: '',
+                    onMutated: () => refreshAll(props.agentId, () => props.agentId),
+                }),
+            },
+            {
+                label: t('workspace.menu.upload'),
+                icon: ArrowUpOnSquareIcon,
+                action: () => runUploadFlow({
                     agentId: props.agentId, scope: 'workspace', parentPath: '',
                     onMutated: () => refreshAll(props.agentId, () => props.agentId),
                 }),
