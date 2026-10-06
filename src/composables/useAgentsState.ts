@@ -3,10 +3,13 @@ import { reactive } from 'vue'
 import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, apiPatchMultipart } from './api-client'
 
 // ==================== Types ====================
+// 与服务端 AgentConfig（HarnessSettings 对齐）的对象 Partial 形态一致；
+// 旧 API 的 compaction:boolean / retry:number 联合已删（服务端加载期归一）
 export interface CompactionSettings {
     enabled?: boolean;
     reserveTokens?: number;
     keepRecentTokens?: number;
+    backgroundTokens?: number;
 }
 
 export interface RetrySettings {
@@ -15,6 +18,12 @@ export interface RetrySettings {
     baseDelayMs?: number;
     /** agent 级重试退避上限（pi 默认 60000ms） */
     maxAgentDelayMs?: number;
+}
+
+/** 进度提交频率（pi DEFAULT_PROGRESS_POLICY 默认 100/100） */
+export interface ProgressSettings {
+    partialIntervalMs?: number;
+    outputIntervalMs?: number;
 }
 
 export interface AgentInfo {
@@ -29,10 +38,13 @@ export interface AgentInfo {
     defaultModel?: string
     defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
     modelScope?: "session" | "branch"
-    steeringMode?: "all" | "one-at-a-time" | string
-    followUpMode?: "all" | "one-at-a-time" | string
-    compaction?: boolean | CompactionSettings
-    retry?: number | RetrySettings
+    steeringMode?: "all" | "one-at-a-time"
+    followUpMode?: "all" | "one-at-a-time"
+    /** 工具执行模式（pi-durable ToolExecutionMode，缺省 parallel） */
+    toolExecution?: "parallel" | "sequential"
+    compaction?: CompactionSettings
+    retry?: RetrySettings
+    progress?: ProgressSettings
     sessionId?: string
     createdAt?: string
     skills?: string[]

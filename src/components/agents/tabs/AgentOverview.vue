@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
 
 
 const defaultThinkingLevel = computed({
-    get: () => props.agent?.defaultThinkingLevel || 'off',
+    get: () => props.agent?.defaultThinkingLevel || 'high',
     set: async (val: string) => {
         try {
             await agentsState.updateAgent({
@@ -188,8 +188,10 @@ const defaultThinkingLevel = computed({
     }
 })
 
+// 队列/执行模式回退值对齐服务端 DEFAULT_AGENT_CONFIG / 框架默认
+// （steering/followUp 缺省 one-at-a-time，toolExecution 缺省 parallel）
 const steeringMode = computed({
-    get: () => props.agent?.steeringMode || 'all',
+    get: () => props.agent?.steeringMode || 'one-at-a-time',
     set: async (val: string) => {
         try {
             await agentsState.updateAgent({
@@ -203,12 +205,26 @@ const steeringMode = computed({
 })
 
 const followUpMode = computed({
-    get: () => props.agent?.followUpMode || 'all',
+    get: () => props.agent?.followUpMode || 'one-at-a-time',
     set: async (val: string) => {
         try {
             await agentsState.updateAgent({
                 agentId: props.agent.id,
                 followUpMode: val
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+        }
+    }
+})
+
+const toolExecution = computed({
+    get: () => props.agent?.toolExecution || 'parallel',
+    set: async (val: string) => {
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                toolExecution: val
             })
         } catch (err: any) {
             toast.error(err.message || String(err))
@@ -243,28 +259,29 @@ const compactionSettings = ref<{
 })
 
 const openCompactionModal = () => {
+    // 回退值对齐服务端 DEFAULT_AGENT_CONFIG（compaction.enabled 默认 true）
     const c = props.agent?.compaction;
-    let enabled = false;
-    let reserveTokens = 16384;
-    let keepRecentTokens = 20000;
-
-    if (typeof c === 'boolean') {
-        enabled = c;
-    } else if (c && typeof c === 'object') {
-        enabled = c.enabled ?? false;
-        reserveTokens = c.reserveTokens ?? 16384;
-        keepRecentTokens = c.keepRecentTokens ?? 20000;
+    compactionSettings.value = {
+        enabled: c?.enabled ?? true,
+        reserveTokens: c?.reserveTokens ?? 16384,
+        keepRecentTokens: c?.keepRecentTokens ?? 20000
     }
-
-    compactionSettings.value = { enabled, reserveTokens, keepRecentTokens }
     compactionModal.value?.showModal()
 }
 
 const saveCompaction = async () => {
     try {
+        // 主字段归一：清空 = 省略该字段（服务端 deepMerge 保持已存值；从未存过则框架
+        // 默认生效），避免 v-model.number 清空后拿到 '' 原样落盘（'' 在阈值算式里按 0 计）
+        const reserveTokens = toNumOrUndefined(compactionSettings.value.reserveTokens)
+        const keepRecentTokens = toNumOrUndefined(compactionSettings.value.keepRecentTokens)
         await agentsState.updateAgent({
             agentId: props.agent.id,
-            compaction: { ...compactionSettings.value }
+            compaction: {
+                enabled: compactionSettings.value.enabled,
+                ...(reserveTokens !== undefined ? { reserveTokens } : {}),
+                ...(keepRecentTokens !== undefined ? { keepRecentTokens } : {})
+            }
         })
         toast.success(t('common.savedSuccess'))
         compactionModal.value?.close()
@@ -280,9 +297,9 @@ const retrySettings = ref<{
     baseDelayMs: number;
     maxAgentDelayMs: number;
 }>({
-    enabled: false,
+    enabled: true,
     maxRetries: 3,
-    baseDelayMs: 1000,
+    baseDelayMs: 2000,
     maxAgentDelayMs: 60000
 })
 
@@ -291,30 +308,21 @@ const toNumOrUndefined = (v: number | '' | undefined): number | undefined =>
     (v === undefined || v === '' || Number.isNaN(v)) ? undefined : v
 
 const openRetryModal = () => {
+    // 回退值对齐 pi DEFAULT_RETRY_POLICY（enabled/maxRetries/baseDelayMs 与
+    // 服务端 DEFAULT_AGENT_CONFIG 同值；旧客户端写入的 maxDelayMs 是无效字段，不读）
     const r = props.agent?.retry;
-    let enabled = false;
-    let maxRetries = 3;
-    let baseDelayMs = 1000;
-    let maxAgentDelayMs = 60000;
-
-    if (typeof r === 'number') {
-        enabled = r > 0;
-        maxRetries = r;
-    } else if (r && typeof r === 'object') {
-        enabled = r.enabled ?? false;
-        maxRetries = r.maxRetries ?? 3;
-        baseDelayMs = r.baseDelayMs ?? 1000;
-        // pi 默认 60000（DEFAULT_MAX_AGENT_RETRY_DELAY_MS）；旧客户端写入的 maxDelayMs 是无效字段，不读
-        maxAgentDelayMs = r.maxAgentDelayMs ?? 60000;
+    retrySettings.value = {
+        enabled: r?.enabled ?? true,
+        maxRetries: r?.maxRetries ?? 3,
+        baseDelayMs: r?.baseDelayMs ?? 2000,
+        maxAgentDelayMs: r?.maxAgentDelayMs ?? 60000
     }
-
-    retrySettings.value = { enabled, maxRetries, baseDelayMs, maxAgentDelayMs }
     retryModal.value?.showModal()
 }
 
 const saveRetry = async () => {
     try {
-        // 主字段归一：清空 = 省略字段（pi 默认生效），避免 v-model.number 的 '' 原样落盘
+        // 主字段归一：清空 = 省略该字段（服务端 deepMerge 保持已存值；从未存过则 pi 默认生效）
         const maxRetries = toNumOrUndefined(retrySettings.value.maxRetries)
         const baseDelayMs = toNumOrUndefined(retrySettings.value.baseDelayMs)
         const maxAgentDelayMs = toNumOrUndefined(retrySettings.value.maxAgentDelayMs)
@@ -334,6 +342,43 @@ const saveRetry = async () => {
     }
 }
 
+const progressModal = ref<HTMLDialogElement | null>(null)
+const progressSettings = ref<{
+    partialIntervalMs: number;
+    outputIntervalMs: number;
+}>({
+    partialIntervalMs: 100,
+    outputIntervalMs: 100
+})
+
+const openProgressModal = () => {
+    // 回退值对齐 pi DEFAULT_PROGRESS_POLICY（100/100）
+    const p = props.agent?.progress;
+    progressSettings.value = {
+        partialIntervalMs: p?.partialIntervalMs ?? 100,
+        outputIntervalMs: p?.outputIntervalMs ?? 100
+    }
+    progressModal.value?.showModal()
+}
+
+const saveProgress = async () => {
+    try {
+        // 主字段归一：清空 = 省略该字段（服务端 deepMerge 保持已存值；从未存过则框架默认生效）
+        const partialIntervalMs = toNumOrUndefined(progressSettings.value.partialIntervalMs)
+        const outputIntervalMs = toNumOrUndefined(progressSettings.value.outputIntervalMs)
+        await agentsState.updateAgent({
+            agentId: props.agent.id,
+            progress: {
+                ...(partialIntervalMs !== undefined ? { partialIntervalMs } : {}),
+                ...(outputIntervalMs !== undefined ? { outputIntervalMs } : {})
+            }
+        })
+        toast.success(t('common.savedSuccess'))
+        progressModal.value?.close()
+    } catch (err: any) {
+        toast.error(err.message || String(err))
+    }
+}
 
 // Delete Agent Logic
 import { useRouter } from 'vue-router'
@@ -460,6 +505,15 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.toolExecution') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <select v-model="toolExecution" class="select select-bordered select-sm w-full font-sans">
+                                    <option value="parallel">{{ $t('agent.toolExecutionParallel') }}</option>
+                                    <option value="sequential">{{ $t('agent.toolExecutionSequential') }}</option>
+                                </select>
+                            </div>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="font-medium text-base-content/90">{{ $t('agent.modelScope') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="modelScope" class="select select-bordered select-sm w-full font-sans">
@@ -475,6 +529,10 @@ const handleDeleteAgent = async () => {
                         <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="font-medium text-base-content/90">{{ $t('agent.retrySettings') }}</span>
                             <button class="btn btn-sm btn-outline font-sans" @click="openRetryModal">{{ $t('common.settings') }}</button>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.progressSettings') }}</span>
+                            <button class="btn btn-sm btn-outline font-sans" @click="openProgressModal">{{ $t('common.settings') }}</button>
                         </li>
                     </ul>
                 </div>
@@ -561,6 +619,39 @@ const handleDeleteAgent = async () => {
                             <button class="btn btn-ghost mr-2">{{ $t('common.cancel') }}</button>
                         </form>
                         <button class="btn btn-primary px-8" @click="saveRetry">{{ $t('common.save') }}</button>
+                    </div>
+                </div>
+                <form method="dialog" class="modal-backdrop">
+                    <button>close</button>
+                </form>
+            </dialog>
+
+            <dialog ref="progressModal" class="modal">
+                <div class="modal-box">
+                    <h3 class="font-bold text-lg mb-2">{{ $t('agent.progressSettings') }}</h3>
+                    <p class="text-sm text-base-content/70 mb-4">{{ $t('agent.progressSettingsDesc') }}</p>
+
+                    <div class="form-control w-full mb-4">
+                        <label class="label">
+                            <span class="label-text">{{ $t('agent.progressPartialIntervalMs') }}</span>
+                        </label>
+                        <input type="number" v-model.number="progressSettings.partialIntervalMs"
+                            class="input input-bordered w-full" />
+                    </div>
+
+                    <div class="form-control w-full mb-6">
+                        <label class="label">
+                            <span class="label-text">{{ $t('agent.progressOutputIntervalMs') }}</span>
+                        </label>
+                        <input type="number" v-model.number="progressSettings.outputIntervalMs"
+                            class="input input-bordered w-full" />
+                    </div>
+
+                    <div class="modal-action mt-0">
+                        <form method="dialog">
+                            <button class="btn btn-ghost mr-2">{{ $t('common.cancel') }}</button>
+                        </form>
+                        <button class="btn btn-primary px-8" @click="saveProgress">{{ $t('common.save') }}</button>
                     </div>
                 </div>
                 <form method="dialog" class="modal-backdrop">
