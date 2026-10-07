@@ -638,7 +638,6 @@ export default {
     },
     tool: {
         calling: '正在调用 {toolName}...',
-        resumeCandidates: '可恢复的子代理',
         resumedFrom: '恢复自',
         used: '已使用 {toolName}',
         failed: '调用 {toolName} 失败',
