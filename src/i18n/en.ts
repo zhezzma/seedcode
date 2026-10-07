@@ -101,6 +101,7 @@ export default {
         emptyTrashConfirm: 'This will permanently delete {count} sessions. This cannot be undone. Empty the recycle bin?',
         purgeSuccess: 'Recycle bin emptied',
         purgePartialBusy: 'Deleted {purged} sessions; skipped {agents} (sessions running), {count} left',
+        purgePartialVersion: 'Skipped {agents} (storage schema version needs review); {count} sessions remain',
         purgePartial: 'Deleted {purged} sessions; {count} are still referenced by other sessions (fork origin) and were kept to avoid breaking their history',
         referencedBadge: '{count} refs',
         referencedTooltip: 'Referenced by {count} session(s) via fork: kept when purging, otherwise those sessions would lose this part of their branch tree',

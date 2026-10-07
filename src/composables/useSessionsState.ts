@@ -98,7 +98,7 @@ const findSessionLocal = (id: string) =>
     || state.deletedSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
 
 // sessions 变更时自动重建索引（模块级全局 watcher）
-watch(() => [state.sessionsResult, state.taskSessionsResult, state.archivedSessionsResult], rebuildIndex, { immediate: true, deep: false })
+watch(() => [state.sessionsResult, state.taskSessionsResult, state.archivedSessionsResult, state.deletedSessionsResult], rebuildIndex, { immediate: true, deep: false })
 
 const loadSessions = async (_opts?: any) => {
     const result = await apiGet<SessionsResult>('/api/sessions')

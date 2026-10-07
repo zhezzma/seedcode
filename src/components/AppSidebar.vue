@@ -337,7 +337,9 @@ const handleRestoreSession = async (session: { key: string, label: string }) => 
 // 被活会话引用的死树保留（防断链）。purge 后已重拉列表，以剩余数量为准提示
 const isPurging = ref(false)
 const handlePurgeDeleted = async () => {
-    const count = displaySessions.value.length
+    // 确认框用全量 total：当前页行数有 pageSize 上界，软删超页时少报（与 purge 后
+    // 的 remaining 同一口径）
+    const count = sessionsState.deletedSessionsResult?.total ?? displaySessions.value.length
     if (!await confirm(t('sidebar.emptyTrashConfirm', { count }))) {
         return
     }
@@ -346,13 +348,19 @@ const handlePurgeDeleted = async () => {
     try {
         const results = await sessionsState.purgeDeleted()
         const purged = results.reduce((sum, r) => sum + (r.deletedConversations || 0), 0)
-        const remaining = sessionsState.deletedSessionsResult?.sessions?.length ?? 0
+        const remaining = sessionsState.deletedSessionsResult?.total
+            ?? sessionsState.deletedSessionsResult?.sessions?.length ?? 0
         const skippedBusy = results.filter(r => r.skipped === 'busy').map(r => r.agentId)
+        // 版本门卫跳过：会话未清理但原因不是被引用保留，单独分档避免误导（
+        // no-database 的 agent 无会话，不可能贡献剩余，无需分档）
+        const skippedVersion = results.filter(r => r.skipped === 'schema-version').map(r => r.agentId)
 
         if (remaining === 0) {
             toast.success(t('sidebar.purgeSuccess'))
         } else if (skippedBusy.length > 0) {
             toast.warning(t('sidebar.purgePartialBusy', { purged, count: remaining, agents: skippedBusy.join(', ') }))
+        } else if (skippedVersion.length > 0) {
+            toast.warning(t('sidebar.purgePartialVersion', { count: remaining, agents: skippedVersion.join(', ') }))
         } else {
             toast.info(t('sidebar.purgePartial', { purged, count: remaining }))
         }

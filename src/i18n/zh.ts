@@ -101,6 +101,7 @@ export default {
         emptyTrashConfirm: '将永久删除 {count} 个会话，此操作不可撤销。确定清空回收站吗？',
         purgeSuccess: '回收站已清空',
         purgePartialBusy: '已删除 {purged} 个会话；{agents} 有会话正在运行被跳过，剩余 {count} 个',
+        purgePartialVersion: '{agents} 的存储版本未经复查已跳过清理，剩余 {count} 个会话未删除',
         purgePartial: '已删除 {purged} 个会话；剩余 {count} 个仍被其他会话引用（fork 来源），为避免那些会话历史缺失已保留',
         referencedBadge: '被 {count} 个会话引用',
         referencedTooltip: '该会话被 {count} 个会话 fork 引用：清空时会保留它，否则那些会话的分支树会缺失这段历史',
