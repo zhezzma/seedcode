@@ -79,6 +79,11 @@ const subagentMode = computed(() => {
     return props.details?.mode || 'single'
 })
 
+/** resume 清单（mode:"resume" 无参调用）：可恢复候选列表（服务端 details.candidates） */
+const subagentCandidates = computed(() => {
+    return props.details?.candidates || []
+})
+
 /** 获取子代理状态对应的图标 */
 function getStatusIcon(status?: string) {
     switch (status) {
@@ -137,6 +142,10 @@ function formatTokens(count: number) {
 }
 
 const statusText = computed(() => {
+    // resume 清单：可展开查看候选（含逐项轨迹入口），不产生运行
+    if (isSubagentTool.value && subagentCandidates.value.length > 0) {
+        return `📋 ${props.toolName} — ${t('tool.resumeCandidates')} × ${subagentCandidates.value.length}`
+    }
     // 对 subagent 工具始终显示富状态（运行中与完成后保持一致的结构与文案）
     if (isSubagentTool.value && subagentResults.value.length > 0) {
         const results = subagentResults.value
@@ -365,7 +374,16 @@ function openTrace(subId?: string) {
     // 回落当前会话 id（根分支场景两者一致，兼容历史）
     const parentSessionId = props.details?.sessionId || chatState.currentSession?.id
     if (!parentSessionId) return
-    traceViewer.open(parentSessionId, subagentResults.value, subId)
+    // resume 清单：候选行不是运行结果，用候选数据合成轨迹抽屉的 results 快照
+    const traceResults = subagentCandidates.value.length > 0
+        ? subagentCandidates.value.map((c: any) => ({
+            subagentSessionId: c.conversationId,
+            agent: c.name || c.agentId,
+            status: c.status,
+            errorMessage: c.detail,
+        }))
+        : subagentResults.value
+    traceViewer.open(parentSessionId, traceResults, subId)
 }
 
 /** subagent 卡无可打开轨迹且失败时的兜底：允许展开查看错误信息（否则错误无处可看） */
@@ -373,9 +391,13 @@ const subagentErrorExpandable = computed(() => {
     return isSubagentTool.value && props.state === 'error' && !canViewTrace.value
 })
 
-/** 头部点击：subagent 卡直接打开轨迹（失败且无轨迹时回退展开错误详情）；其他工具卡展开/收起 */
+/** 头部点击：resume 清单卡展开/收起候选；subagent 运行卡直接打开轨迹（失败且无轨迹时回退展开错误详情）；其他工具卡展开/收起 */
 function onHeaderClick() {
     if (isSubagentTool.value) {
+        if (subagentCandidates.value.length > 0) {
+            toggleOpen()
+            return
+        }
         if (canViewTrace.value) openTrace()
         else if (subagentErrorExpandable.value) toggleOpen()
         return
@@ -402,8 +424,8 @@ function onHeaderClick() {
                 {{ statusText }}
             </div>
 
-            <!-- Toggle Icon（subagent 卡无展开内容，不显示；失败且无轨迹时可展开错误详情） -->
-            <div v-if="!isSubagentTool || subagentErrorExpandable" class="flex-none text-base-content/50">
+            <!-- Toggle Icon（subagent 运行卡无展开内容，不显示；resume 清单卡可展开候选；失败且无轨迹时可展开错误详情） -->
+            <div v-if="!isSubagentTool || subagentErrorExpandable || subagentCandidates.length > 0" class="flex-none text-base-content/50">
                 <ChevronDownIcon v-if="isOpen" class="w-4 h-4" />
                 <ChevronRightIcon v-else class="w-4 h-4" />
             </div>
@@ -419,6 +441,9 @@ function onHeaderClick() {
                 <span class="font-mono text-xs font-semibold min-w-0 break-all" :class="getStatusColorClass(r.status)">{{ r.agent }}</span>
                 <!-- Status label -->
                 <span class="text-xs" :class="getStatusColorClass(r.status)">{{ getStatusLabel(r.status) }}</span>
+                <!-- 恢复来源徽标（mode:"resume" 续跑的子代理） -->
+                <span v-if="r.resumedFrom" class="text-xs text-info/80 flex-none"
+                    :title="$t('tool.resumedFrom') + ' ' + r.resumedFrom">↻ {{ r.resumedFrom }}</span>
                 <!-- Current tool (if running) -->
                 <span v-if="r.status === 'tool_running' && r.currentTool" class="text-xs text-warning/80 font-mono">→ {{ r.currentTool }}</span>
                 <!-- Turn info -->
@@ -436,6 +461,31 @@ function onHeaderClick() {
             <div v-if="subagentResults.length === 1 && subagentResults[0].streamingText && subagentResults[0].status === 'thinking'"
                 class="mt-1 text-xs text-base-content/50 font-mono truncate max-w-full">
                 <span class="opacity-60">▸ </span>{{ subagentResults[0].streamingText.slice(-150) }}
+            </div>
+        </div>
+
+        <!-- Resume Candidates（mode:"resume" 无参清单：可展开的候选列表，每项可直查轨迹） -->
+        <div v-if="isOpen && subagentCandidates.length > 0" class="px-3 py-2 pt-0">
+            <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wider mb-1">{{ $t('tool.resumeCandidates') }}</div>
+            <div v-for="c in subagentCandidates" :key="c.conversationId"
+                class="flex items-center gap-2 py-1">
+                <!-- Status icon -->
+                <span class="text-sm flex-none">{{ getStatusIcon(c.status) }}</span>
+                <!-- Agent name + task excerpt -->
+                <span class="font-mono text-xs font-semibold min-w-0 break-all flex-1"
+                    :class="getStatusColorClass(c.status)">{{ c.name || c.agentId }}
+                    <span class="font-normal text-base-content/50">— {{ c.taskExcerpt }}</span>
+                </span>
+                <!-- Status label + 中断原因 -->
+                <span class="text-xs flex-none max-w-[40%] truncate" :class="getStatusColorClass(c.status)"
+                    :title="c.detail">{{ getStatusLabel(c.status) }}<template v-if="c.detail">：{{ c.detail }}</template></span>
+                <!-- Turn info -->
+                <span v-if="Number(c.turns) > 0" class="text-xs text-base-content/40 flex-none">Turn {{ c.turns }}</span>
+                <!-- 轨迹入口：恢复前先看看它卡在哪 -->
+                <button class="btn btn-ghost btn-xs btn-circle flex-none text-base-content/40 hover:text-primary"
+                    :title="$t('subagentTrace.viewAgentTrace', { agent: c.name || c.agentId })" @click.stop="openTrace(c.conversationId)">
+                    <CommandLineIcon class="w-3 h-3" />
+                </button>
             </div>
         </div>
 

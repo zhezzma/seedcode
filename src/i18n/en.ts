@@ -637,6 +637,8 @@ export default {
     },
     tool: {
         calling: 'Calling {toolName}...',
+        resumeCandidates: 'Resumable subagents',
+        resumedFrom: 'resumed from',
         used: 'Used {toolName}',
         failed: 'Failed to call {toolName}',
         args: 'Arguments',
