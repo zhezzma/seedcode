@@ -52,7 +52,13 @@ const OPENAI_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsDeveloperRole', labelKey: 'provider.compat.supportsDeveloperRole' },
     { kind: 'bool', name: 'supportsStore', labelKey: 'provider.compat.supportsStore' },
     { kind: 'bool', name: 'supportsUsageInStreaming', labelKey: 'provider.compat.supportsUsageInStreaming' },
+    { kind: 'bool', name: 'supportsFinishReason', labelKey: 'provider.compat.supportsFinishReason' },
     { kind: 'bool', name: 'supportsStrictMode', labelKey: 'provider.compat.supportsStrictMode' },
+    { kind: 'bool', name: 'supportsOpenAIGrammarTools', labelKey: 'provider.compat.supportsOpenAIGrammarTools' },
+    { kind: 'bool', name: 'supportsThinkingTokenBudget', labelKey: 'provider.compat.supportsThinkingTokenBudget' },
+    { kind: 'enum', name: 'thinkingTokenBudgetField', labelKey: 'provider.compat.thinkingTokenBudgetField', options: ['thinking_token_budget', 'thinking_budget', 'thinking_budget_tokens'] },
+    { kind: 'bool', name: 'supportsMidConvoSystemMessages', labelKey: 'provider.compat.supportsMidConvoSystemMessages' },
+    { kind: 'bool', name: 'supportsMidConvoToolAdditions', labelKey: 'provider.compat.supportsMidConvoToolAdditions' },
     { kind: 'bool', name: 'requiresToolResultName', labelKey: 'provider.compat.requiresToolResultName' },
     { kind: 'bool', name: 'requiresAssistantAfterToolResult', labelKey: 'provider.compat.requiresAssistantAfterToolResult' },
     { kind: 'bool', name: 'requiresThinkingAsText', labelKey: 'provider.compat.requiresThinkingAsText' },
@@ -62,32 +68,51 @@ const OPENAI_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsLongCacheRetention', labelKey: 'provider.compat.supportsLongCacheRetention' },
     { kind: 'enum', name: 'cacheControlFormat', labelKey: 'provider.compat.cacheControlFormat', options: ['anthropic'] },
     { kind: 'enum', name: 'maxTokensField', labelKey: 'provider.compat.maxTokensField', options: ['max_completion_tokens', 'max_tokens'] },
-    { kind: 'enum', name: 'thinkingFormat', labelKey: 'provider.compat.thinkingFormat', options: ['openai', 'openrouter', 'deepseek', 'together', 'zai', 'qwen', 'chat-template', 'qwen-chat-template', 'string-thinking', 'ant-ling'] },
+    { kind: 'enum', name: 'thinkingFormat', labelKey: 'provider.compat.thinkingFormat', options: ['openai', 'openrouter', 'deepseek', 'together', 'baseten', 'zai', 'qwen', 'chat-template', 'qwen-chat-template', 'string-thinking', 'ant-ling'] },
+    { kind: 'enum', name: 'sessionAffinityFormat', labelKey: 'provider.compat.sessionAffinityFormat', options: ['openai', 'openai-nosession', 'openrouter'] },
 ]
 
-// 无 UI 的嵌套/复杂字段：编辑 provider 时必须透传，否则 PATCH 会冲掉 models.json 里的配置。
-const OPENAI_NON_UI_COMPAT_KEYS = ['chatTemplateKwargs', 'openRouterRouting', 'vercelGatewayRouting'] as const
+// 无 UI 的字段（嵌套对象与标量数字）：编辑 provider 时必须透传，否则 PATCH 会冲掉 models.json 里的配置。
+const OPENAI_NON_UI_COMPAT_KEYS = ['chatTemplateKwargs', 'chatTemplateArgs', 'openRouterRouting', 'vercelGatewayRouting', 'vllmPriority'] as const
 
 const ANTHROPIC_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'forceAdaptiveThinking', labelKey: 'provider.compat.forceAdaptiveThinking' },
     { kind: 'bool', name: 'allowEmptySignature', labelKey: 'provider.compat.allowEmptySignature' },
     { kind: 'bool', name: 'supportsEagerToolInputStreaming', labelKey: 'provider.compat.supportsEagerToolInputStreaming' },
     { kind: 'bool', name: 'supportsCacheControlOnTools', labelKey: 'provider.compat.supportsCacheControlOnTools' },
+    { kind: 'bool', name: 'supportsStrictTools', labelKey: 'provider.compat.supportsStrictTools' },
+    { kind: 'bool', name: 'supportsMidConvoEffort', labelKey: 'provider.compat.supportsMidConvoEffort' },
+    { kind: 'bool', name: 'supportsMidConvoSystemMessages', labelKey: 'provider.compat.supportsMidConvoSystemMessages' },
+    { kind: 'bool', name: 'supportsMidConvoToolChanges', labelKey: 'provider.compat.supportsMidConvoToolChanges' },
     { kind: 'bool', name: 'supportsLongCacheRetention', labelKey: 'provider.compat.supportsLongCacheRetention' },
     { kind: 'bool', name: 'sendSessionAffinityHeaders', labelKey: 'provider.compat.sendSessionAffinityHeaders' },
     { kind: 'bool', name: 'supportsTemperature', labelKey: 'provider.compat.supportsTemperature' },
+    { kind: 'enum', name: 'sessionAffinityFormat', labelKey: 'provider.compat.sessionAffinityFormat', options: ['openrouter'] },
 ]
+
+// 无 UI 的复杂字段（如 allowedFallbackModels 降级模型列表）：同上必须透传。
+const ANTHROPIC_NON_UI_COMPAT_KEYS = ['allowedFallbackModels'] as const
 
 const OPENAI_RESPONSES_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsDeveloperRole', labelKey: 'provider.compat.supportsDeveloperRole' },
-    { kind: 'bool', name: 'sendSessionIdHeader', labelKey: 'provider.compat.sendSessionIdHeader' },
+    { kind: 'bool', name: 'supportsStrictMode', labelKey: 'provider.compat.supportsStrictMode' },
+    { kind: 'bool', name: 'supportsOpenAIGrammarTools', labelKey: 'provider.compat.supportsOpenAIGrammarTools' },
+    { kind: 'bool', name: 'supportsAdditionalTools', labelKey: 'provider.compat.supportsAdditionalTools' },
+    { kind: 'bool', name: 'supportsToolSearch', labelKey: 'provider.compat.supportsToolSearch' },
+    { kind: 'bool', name: 'supportsExplicitPromptCacheMode', labelKey: 'provider.compat.supportsExplicitPromptCacheMode' },
+    { kind: 'bool', name: 'supportsMaxOutputTokens', labelKey: 'provider.compat.supportsMaxOutputTokens' },
+    { kind: 'bool', name: 'supportsMidConvoSystemMessages', labelKey: 'provider.compat.supportsMidConvoSystemMessages' },
     { kind: 'bool', name: 'supportsLongCacheRetention', labelKey: 'provider.compat.supportsLongCacheRetention' },
+    { kind: 'enum', name: 'sessionAffinityFormat', labelKey: 'provider.compat.sessionAffinityFormat', options: ['openai', 'openai-nosession', 'openrouter'] },
 ]
 
 const compatFields = computed<CompatFieldDef[]>(() => {
     if (formData.api === 'anthropic-messages') return ANTHROPIC_COMPAT_FIELDS
     if (formData.api === 'openai-completions') return OPENAI_COMPAT_FIELDS
+    // azure/codex 同用 openai-responses wire 协议，compat 字段集一致（pi-ai 类型按 api 联合分派）。
     if (formData.api === 'openai-responses') return OPENAI_RESPONSES_COMPAT_FIELDS
+    if (formData.api === 'azure-openai-responses') return OPENAI_RESPONSES_COMPAT_FIELDS
+    if (formData.api === 'openai-codex-responses') return OPENAI_RESPONSES_COMPAT_FIELDS
     return []
 })
 
@@ -202,9 +227,14 @@ const handleSubmit = async () => {
 
         // compat 只保留当前 api 类型下的字段，避免切换 api 后残留无关项；
         // 同时透传同 api 的无 UI 嵌套字段（如 chatTemplateKwargs），防止例行编辑冲掉配置。
+        const nonUiKeys = formData.api === 'openai-completions'
+            ? OPENAI_NON_UI_COMPAT_KEYS
+            : formData.api === 'anthropic-messages'
+                ? ANTHROPIC_NON_UI_COMPAT_KEYS
+                : []
         const allowedNames = new Set<string>([
             ...compatFields.value.map((f) => f.name),
-            ...(formData.api === 'openai-completions' ? OPENAI_NON_UI_COMPAT_KEYS : []),
+            ...nonUiKeys,
         ])
         const compat: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(formData.compat)) {

@@ -86,7 +86,7 @@ export type ChatTemplateKwargValue =
     | boolean
     | null
     | {
-        $var: 'thinking.enabled' | 'thinking.effort'
+        $var: 'thinking.enabled' | 'thinking.effort' | 'thinking.budget'
         omitWhenOff?: boolean
     }
 
@@ -104,23 +104,39 @@ export interface OpenAICompletionsCompat {
     supportsDeveloperRole?: boolean
     supportsReasoningEffort?: boolean
     supportsUsageInStreaming?: boolean
+    supportsFinishReason?: boolean
     maxTokensField?: 'max_completion_tokens' | 'max_tokens'
     requiresToolResultName?: boolean
     requiresAssistantAfterToolResult?: boolean
     requiresThinkingAsText?: boolean
     requiresReasoningContentOnAssistantMessages?: boolean
-    thinkingFormat?: 'openai' | 'openrouter' | 'deepseek' | 'together' | 'zai' | 'qwen' | 'chat-template' | 'qwen-chat-template' | 'string-thinking' | 'ant-ling'
+    thinkingFormat?: 'openai' | 'openrouter' | 'deepseek' | 'together' | 'baseten' | 'zai' | 'qwen' | 'chat-template' | 'qwen-chat-template' | 'string-thinking' | 'ant-ling'
     /** thinkingFormat=chat-template 时发送的 chat_template_kwargs；无 UI，保存时必须透传。 */
     chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>
+    /** thinkingFormat=baseten 时发送的 chat_template_args；无 UI，保存时必须透传。 */
+    chatTemplateArgs?: Record<string, ChatTemplateKwargValue>
     /** OpenRouter routing；无 UI，保存时必须透传。 */
     openRouterRouting?: OpenRouterRouting
     /** Vercel AI Gateway routing；无 UI，保存时必须透传。 */
     vercelGatewayRouting?: VercelGatewayRouting
     zaiToolStream?: boolean
+    /** 思考 token 预算字段的开关（配合 thinkingTokenBudgetField）。 */
+    supportsThinkingTokenBudget?: boolean
+    /** 思考 token 预算请求字段名（vLLM/Qwen/llama.cpp 各不同）。 */
+    thinkingTokenBudgetField?: 'thinking_token_budget' | 'thinking_budget' | 'thinking_budget_tokens'
+    /** 是否支持 OpenAI 自定义工具的 Lark/regex 语法格式。 */
+    supportsOpenAIGrammarTools?: boolean
+    /** 是否接受对话中段 system/developer 消息。 */
+    supportsMidConvoSystemMessages?: boolean
+    /** 对话中段是否可引入新工具（需 supportsMidConvoSystemMessages）。 */
+    supportsMidConvoToolAdditions?: boolean
     supportsStrictMode?: boolean
     cacheControlFormat?: 'anthropic'
     sendSessionAffinityHeaders?: boolean
+    sessionAffinityFormat?: 'openai' | 'openai-nosession' | 'openrouter'
     supportsLongCacheRetention?: boolean
+    /** vLLM 调度优先级（顶层 priority 字段）。 */
+    vllmPriority?: number
 }
 
 /** api: "anthropic-messages" 专用 compat 字段。 */
@@ -128,16 +144,33 @@ export interface AnthropicMessagesCompat {
     supportsEagerToolInputStreaming?: boolean
     supportsLongCacheRetention?: boolean
     sendSessionAffinityHeaders?: boolean
+    sessionAffinityFormat?: 'openrouter'
     supportsCacheControlOnTools?: boolean
     supportsTemperature?: boolean
     forceAdaptiveThinking?: boolean
     allowEmptySignature?: boolean
+    supportsStrictTools?: boolean
+    /** effort-only system 消息与思考绑定控制。 */
+    supportsMidConvoEffort?: boolean
+    /** 是否接受对话中段 system 角色消息。 */
+    supportsMidConvoSystemMessages?: boolean
+    /** 对话中段 tool_addition/tool_removal 块（需 supportsMidConvoSystemMessages）。 */
+    supportsMidConvoToolChanges?: boolean
+    /** 服务端拒绝降级模型列表（含本地定价）；无 UI，保存时必须透传。 */
+    allowedFallbackModels?: Array<{ provider: string; model: string; cost: ModelCost }>
 }
 
 /** api: "openai-responses" 专用 compat 字段。 */
 export interface OpenAIResponsesCompat {
     supportsDeveloperRole?: boolean
-    sendSessionIdHeader?: boolean
+    supportsStrictMode?: boolean
+    supportsOpenAIGrammarTools?: boolean
+    supportsAdditionalTools?: boolean
+    supportsToolSearch?: boolean
+    supportsExplicitPromptCacheMode?: boolean
+    supportsMaxOutputTokens?: boolean
+    supportsMidConvoSystemMessages?: boolean
+    sessionAffinityFormat?: 'openai' | 'openai-nosession' | 'openrouter'
     supportsLongCacheRetention?: boolean
 }
 
