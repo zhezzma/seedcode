@@ -319,14 +319,17 @@ async function openPathWithDiff(rawPath: string) {
         return
     }
     try {
-        const root = await ensureWorkspaceRoot(agentId)
+        // tree 与 repos 互不依赖：并行取（各有页面级缓存，仅页面加载后首次点击付 RTT）。
+        // repos 接口默认不 fetch 远程（fetch 只在 git 面板显式 refresh=1 时发生），
+        // 所以这条点击链路全程不碰网络 git 操作。
+        const [root, repos] = await Promise.all([ensureWorkspaceRoot(agentId), ensureRepos(agentId)])
         const abs = isAbsolutePath(rawPath) ? toSlash(rawPath) : joinPath(root, rawPath)
         const wsRel = toWorkspaceRelative(root, abs)
         if (!wsRel) {
             wsViewer.openAbsolute(abs) // workspace 外
             return
         }
-        const repo = findRepoFor(wsRel, await ensureRepos(agentId))
+        const repo = findRepoFor(wsRel, repos)
         if (!repo) {
             wsViewer.openAbsolute(abs) // 不在任何 git 仓库
             return

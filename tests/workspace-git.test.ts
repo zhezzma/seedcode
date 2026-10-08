@@ -555,6 +555,24 @@ test('loadStatus 透传 refresh 选项（手动刷新让服务端先 fetch upstr
     assert.match(urls[1], /refresh=1/, '显式 refresh 必须透传到服务端')
 })
 
+test('loadRepos 透传 refresh 选项（git 面板挂载/手动刷新才带，工具卡点击链路保持纯本地）', async () => {
+    await setupSettings()
+    const urls: string[] = []
+    globalThis.fetch = (async (url: string) => {
+        urls.push(String(url))
+        return new Response(JSON.stringify({ ok: true, payload: { repos: [] } }), { status: 200 })
+    }) as any
+    const { useWorkspaceGit } = await import('../src/composables/useWorkspaceGit.ts')
+    const git = useWorkspaceGit()
+    git.reset()
+    git.ensureAgent('coder')
+    await git.loadRepos('coder')
+    await git.loadRepos('coder', { refresh: true })
+    assert.equal(urls.length, 2)
+    assert.doesNotMatch(urls[0], /refresh/, 'mutation 后重载等隐式入口不带 refresh（不走网络）')
+    assert.match(urls[1], /repos\?refresh=1/, '显式 refresh 必须透传到服务端')
+})
+
 test('commit 在 agent 切换（epoch 变化）后返回 stale 标记，caller 据此跳过 toast', async () => {
     await setupSettings()
     let resolveCommit: ((v: Response) => void) | null = null

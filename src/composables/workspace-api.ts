@@ -181,8 +181,14 @@ export function fetchTree(agentId: string, path: string): Promise<TreeResult> {
     return wsGet<TreeResult>(`${base(agentId)}/tree${qs}`)
 }
 
-export function fetchRepos(agentId: string): Promise<{ repos: RepoSummary[] }> {
-    return wsGet(`${base(agentId)}/repos`)
+export function fetchRepos(
+    agentId: string,
+    opts?: { refresh?: boolean },
+): Promise<{ repos: RepoSummary[] }> {
+    // refresh=1：服务端先对各仓 git fetch 刷 upstream 再返回（走网络）。仅 git 面板
+    // 挂载/手动刷新传；工具卡点击链路只用它做仓库发现，保持纯本地不碰网络。
+    const qs = opts?.refresh ? "?refresh=1" : ""
+    return wsGet(`${base(agentId)}/repos${qs}`)
 }
 
 export function fetchStatus(

@@ -251,14 +251,14 @@ const _methods = {
         state.currentAgentId = agentId
     },
 
-    async loadRepos(agentId: string) {
+    async loadRepos(agentId: string, opts?: { refresh?: boolean }) {
         if (!ownedBy(agentId)) return
         const myEpoch = agentEpoch
         const mySeq = ++reposSeq
         state._reposLoading = true
         state._reposError = null
         try {
-            const r = await fetchRepos(agentId)
+            const r = await fetchRepos(agentId, opts)
             if (myEpoch !== agentEpoch || mySeq !== reposSeq) return
             state.reposData = r.repos
         } catch (err: any) {

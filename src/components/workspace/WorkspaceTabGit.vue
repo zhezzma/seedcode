@@ -56,11 +56,13 @@ onMounted(async () => {
         // 逻辑（onMounted 不会重跑），tab 会停在「只有下拉、无选中无状态无历史」
         // 的空壳直到用户手动点一次仓库。重发一次请求的代价可接受（store 的 seq
         // 保证后发者胜，旧响应不会覆盖新数据）。
-        await git.loadRepos(props.agentId)
+        await git.loadRepos(props.agentId, { refresh: true })
     } else {
         // 缓存命中也后台重拉：agent / 终端可能已在面板外改过 git 状态，
         // tab 切换是用户最自然的「看一眼最新」时机（首屏仍用缓存零等待）。
-        void git.loadRepos(props.agentId)
+        // 挂载即用户主动打开 git 面板：带 refresh=1 让服务端刷 upstream，
+        // 下拉徽章直接给真实 behind（fetch 失败降级过期值，不阻塞整表）。
+        void git.loadRepos(props.agentId, { refresh: true })
     }
     // 归属守护：await 期间可能已切 agent（store 被 ensureAgent 接管、repos 里是
     // 新 agent 的数据）。旧实例的续体不得用新 agent 的 repos[0] 写旧 agent 的

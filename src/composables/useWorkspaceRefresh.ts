@@ -50,7 +50,8 @@ export function useWorkspaceRefresh() {
                     await Promise.all(agentExpanded.map(p => agentFiles.loadPath(agentId, p)))
                 }
             } else {
-                await git.loadRepos(agentId)
+                // 手动刷新是用户显式要最新状态：repos 带 refresh=1 让服务端刷各仓 upstream
+                await git.loadRepos(agentId, { refresh: true })
                 if (stale()) return
                 let repo = panel.getRepoForAgent(agentId)
                 // 只在没有选择时回退 repos[0]；显式选过的仓库即使不在列表（嵌套仓库）

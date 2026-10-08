@@ -436,7 +436,7 @@ test('WorkspaceTabGit/useGitBulkActions: discard 后同步磁盘副作用（树�
     // await 后归属复查：旧实例续体不得用新 agent 的 repos[0] 写旧 agent 的持久化选择
     assert.match(
         src,
-        /await git\.loadRepos\(props\.agentId\)[\s\S]*?git\.currentAgentId !== props\.agentId[\s\S]*?return/,
+        /await git\.loadRepos\(props\.agentId,\s*\{\s*refresh:\s*true\s*\}\)[\s\S]*?git\.currentAgentId !== props\.agentId[\s\S]*?return/,
         'onMounted must re-check store ownership after loadRepos await',
     )
 })
@@ -489,7 +489,8 @@ test('WorkspaceTabGit: 显式仓库选择不被静默覆写 + tab 挂载后台�
     )
     // 缓存命中也后台重拉：agent/终端可能已在面板外改过 git 状态
     assert.match(src, /void loadAll\(repo\)/, 'must background-refresh status+log on cache hit')
-    assert.match(src, /void git\.loadRepos\(props\.agentId\)/, 'must background-refresh repos on cache hit')
+    // 挂载即用户主动打开 git 面板：repos 必须带 refresh=1（服务端刷 upstream 给真实 behind）
+    assert.match(src, /void git\.loadRepos\(props\.agentId,\s*\{\s*refresh:\s*true\s*\}\)/, 'must background-refresh repos with upstream fetch on cache hit')
     // agent 切换后的迟到 mutation 返回 stale → 跳过成功 toast（误导归属）
     const toastSkips = src.match(/if \(!r\.stale\) toast\.success/g) || []
     assert.ok(toastSkips.length >= 2, `commit+sync 都要 stale 守卫，got ${toastSkips.length}`)
