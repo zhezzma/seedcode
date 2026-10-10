@@ -157,6 +157,9 @@ const patchSession = async (key: string, patch: { label?: string | null }) => {
         const found = findSessionLocal(key)
         if (found) {
             found.name = patch.label || undefined
+            // 后端 /name 走 renameSession→setName 置位 titleSet，本地同步置位；
+            // 否则下条消息的自动命名守卫（!titleSet）通过，覆盖用户手动名
+            found.titleSet = true
         }
     } catch (error) {
         console.error('Failed to rename session', error)
@@ -176,19 +179,22 @@ const updateSessionLocal = (key: string, patch: Partial<SessionRow>) => {
 }
 
 const triggerSessionRename = async (targetKey: string, userText: string) => {
+    const target = findSessionLocal(targetKey)
+    // 守卫 + 乐观置位同步完成（首次 await 之前）：rename 在途（标题 LLM 调用耗时
+    // 数秒）时，后续消息的守卫读到 true 不再重复触发；失败回滚，下条消息可重试
+    if (!target || target.titleSet) return
+    target.titleSet = true
     try {
         const result = await apiPost<{ sessionId: string; name: string }>(
             `/api/sessions/${encodeURIComponent(targetKey)}/generate-title`,
             { text: userText.substring(0, 500) }
         )
         const name = result?.name
-        if (name) {
-            const target = findSessionLocal(targetKey)
-            if (target) {
-                target.name = name
-            }
+        if (name && target) {
+            target.name = name
         }
     } catch (e) {
+        target.titleSet = false
         console.warn('Failed to auto-rename session', e)
     }
 }
