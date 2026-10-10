@@ -4,7 +4,7 @@ import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
-import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, markLiveStreamBlock, replayPartialBlocks, shouldAttachSession } from '../utils/chat-attach'
+import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, markLiveStreamBlock, replayPartialBlocks, remountLocalReceipts, shouldAttachSession, type LocalReceipt } from '../utils/chat-attach'
 import { blocksTextSignature, hasAssistantTextContent, solidifyAssistantContent } from '../utils/chat-solidify'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
 import { isAbortErrorMessage } from '../utils/chatMessageRender'
@@ -83,6 +83,9 @@ export interface ChatSessionData {
     queueRev?: number
     /** 近期被快照移除的条目（WS 快照先于 SSE 回显时补齐正式气泡的比对缓存） */
     queueRemovedEchoes?: RemovedEcho[]
+    /** 会话内本地回执（!! bash-receipt：服务端不存档）：chatMessages 被服务端
+     * 权威数据整体替换后由 remountLocalReceipts 重挂（见 utils/chat-attach.ts） */
+    localReceipts?: LocalReceipt[]
     // Branch navigation uses a flat entry list, not a nested tree payload.
     sessionTree: SessionTreeEntry[] | null
     sessionLeafId: string | null
@@ -225,6 +228,16 @@ export function attachToSessionIfNeeded(targetKey: string) {
     bindSSELifecycle(sse, targetKey)
 }
 
+/** 尾部向前扫最后一条带 entryId 的 durable 消息（!! 回执登记锚用：尾部可能是
+ *  无 entryId 的本地回执/乐观消息，getLastMessageEntryId 只看末条会误报无锚） */
+function lastDurableEntryId(messages: ChatMessage[]): string | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const id = messages[i]?.entryId
+        if (id) return id
+    }
+    return null
+}
+
 function getSessionData(key: string): ChatSessionData {
     let data = state.sessionsMap.get(key)
     if (!data) {
@@ -232,6 +245,7 @@ function getSessionData(key: string): ChatSessionData {
             chatMessages: [],
             chatToolMessages: [],
             pendingQueue: [],
+            localReceipts: [],
             sessionTree: null,
             sessionLeafId: null,
             chatStream: null,
@@ -319,12 +333,17 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
     }
 
     // Add user message to per-session data
-    sessionData.chatMessages = [...sessionData.chatMessages, {
-        role: 'user',
-        content: optimisticContent,
-        timestamp: Date.now(),
-        id: generateUUID()
-    }]
+    // `!!`（排除出上下文）跳过乐观 user 气泡：回执由 bash-receipt 独立气泡承载，
+    // 乐观气泡会在 done 重拉后被冲掉形成第二处闪现；`!` 保留（被重拉落位的
+    // durable "$ cmd\n输出" 消息无缝替换）
+    if (!text.trim().startsWith('!!')) {
+        sessionData.chatMessages = [...sessionData.chatMessages, {
+            role: 'user',
+            content: optimisticContent,
+            timestamp: Date.now(),
+            id: generateUUID()
+        }]
+    }
 
     const runId = generateUUID()
     sessionData.chatSending = true
@@ -381,7 +400,9 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
 }
 
 // 处理 command_delta 事件的副作用
-// 后端通过 command_delta 显式告知命令类型和数据，前端根据命令名执行对应的副作用
+// 后端通过 command_delta 显式告知命令类型和数据，前端根据命令名执行对应的副作用。
+// 注意：服务端仅对 SIDE_EFFECT_COMMANDS（chat-streaming.ts，与本 switch 的 case 集
+// 人肉同步——问题 3 刻意不修的已知耦合面）发本事件，新增副作用命令需两端同步。
 const handleCommandDelta = (data: any, targetKey: string) => {
     const sessionData = getSessionData(targetKey)
     const command = data?.command as string
@@ -408,10 +429,12 @@ const handleCommandDelta = (data: any, targetKey: string) => {
             break
         }
         case 'reset':
-            // /reset 命令：清空当前会话的所有消息
+            // /reset 命令：清空当前会话的所有消息（本地回执账本一并清——重置前的
+            // bash-receipt 属被抹去的时代，不得在后续整体替换后复活）
             sessionData.chatMessages = []
             sessionData.chatToolMessages = []
             sessionData.chatStream = null
+            sessionData.localReceipts = []
             break
         case 'name': {
             // /name 命令：更新会话名称（后端已持久化，此处仅同步前端状态）
@@ -758,6 +781,9 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             // 一条 role:'custom' 原始消息，展示层（useChatMessages 1.15）会把它并入前一条
             // assistant 气泡，不独立成「第二条 AI 回复」。与历史路径同形状，done 全量
             // 刷新幂等。
+            // 命令回执（command-response / bash-receipt）同通道到达：command-response 有
+            // durable 副本由重拉无感替换；bash-receipt 无 durable（!! 排除≈不存档），
+            // 追加外登记 localReceipts 供整体替换后重挂（锚 = 当前最后一条 durable 消息）。
             const panelMsg: ChatMessage = {
                 role: 'custom',
                 customType: data?.customType,
@@ -765,12 +791,22 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                 entryId: data?.entryId,
                 timestamp: Date.now(),
             }
-            sessionData.chatMessages = [...sessionData.chatMessages, panelMsg]
+            if (data?.customType === 'bash-receipt') {
+                const receipt: LocalReceipt = {
+                    ...panelMsg,
+                    id: generateUUID(),
+                    anchor: lastDurableEntryId(sessionData.chatMessages),
+                }
+                sessionData.chatMessages = [...sessionData.chatMessages, receipt]
+                sessionData.localReceipts = [...(sessionData.localReceipts ?? []), { ...receipt }]
+            } else {
+                sessionData.chatMessages = [...sessionData.chatMessages, panelMsg]
+            }
             break
         }
         case 'command_delta':
-            stream.push({ type: 'text', text: data.delta })
-            // 命令事件：由后端显式推送，触发前端副作用（如 /reset 清空消息、/name 更新标题等）
+            // 命令副作用信号（仅 model/thinking/reset/name/new/fork 六类，纯
+            // {command, data} 无展示文本——展示统一走 custom_message 回执）
             handleCommandDelta(data, targetKey)
             break
         case 'compaction_start':
@@ -834,6 +870,8 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     //（同 loadChatHistory 规则）：不清会与持久化消息双重参与 1.1 合并，
                     // 幂等但永久残留，且随 sessionsMap 永不驱逐
                     sd.chatToolMessages = []
+                    // 本地回执（!!）不在 durable 内，替换后重挂
+                    remountLocalReceipts(sd)
                     // Messages reloaded -> Tree structure definitely valid now
                     fetchSessionTree(targetKey)
                 }
@@ -879,6 +917,8 @@ const abortChat = async (sessionKey?: string) => {
                     // abort 后本轮不会再有 done 事件：收敛靠下一次 todo 调用（服务端重放对齐）、
                     // 下一轮 run 的 done 全量刷新或 loadChatHistory（error 路径保留临时条目同理）
                     sd.chatToolMessages = []
+                    // 本地回执（!!）不在 durable 内，替换后重挂
+                    remountLocalReceipts(sd)
                 }
                 if (typeof result.isStreaming === 'boolean') {
                     sd.chatSending = result.isStreaming
@@ -911,6 +951,8 @@ const loadChatHistory = async (sessionKey?: string) => {
         const sessionId = targetKey
         const result = await apiGet<{ messages: ChatMessage[], isStreaming?: boolean, partialText?: string }>(`/api/chat/${sessionId}/messages`)
         sd.chatMessages = result?.messages || []
+        // 本地回执（!!）不在 durable 内，替换后重挂
+        remountLocalReceipts(sd)
         // 记录全量加载时间：紧随其后的 attach 若收到空闲 done，据此跳过重复刷新
         historyLoadedAt.set(sessionId, performance.now())
         // 页面刷新/切会话恢复：排队队列由紧随其后的 attach 快照（message_state）权威下发
@@ -1094,6 +1136,10 @@ function beginBranchRewriteSSE(
     // 否则被放弃分支的 todo 快照会以“数组位置更靠后”赢得 last-write-wins。
     // 刻意不放进 beginOptimistic：本地 chatMessages 陈旧（找不到目标条目）时分支在服务端照样被改写，清理不可跳过
     sessionData.chatToolMessages = []
+    // 本地回执账本同步作废：截断会移除截断点之后的回执消息，残留账本会在 run
+    // 成功后的 done 重拉中把被放弃分支的回执复活重挂；HTTP 级失败回滚后快照内
+    // 的回执仍显示（账本已清，下次整体替换自然消失，与刷新语义一致）
+    sessionData.localReceipts = []
 
     const runId = generateUUID()
     sessionData.chatSending = true
@@ -1523,6 +1569,9 @@ const navigateBranch = async (targetEntryId: string, sessionKey?: string): Promi
         // 分支已切换：流式临时条目属旧分支，一并作废（同 abort 规则），
         // 否则旧分支 todo 快照在拼接序列尾部残留、误导 last-write-wins
         sd.chatToolMessages = []
+        // 本地回执重挂：锚点规则自动丢弃不在目标分支的回执（anchor 缺失即弃），
+        // 不会把其它分支执行过的 !! 复活进本分支
+        remountLocalReceipts(sd)
         sd.sessionLeafId = targetEntryId
         // 切换 rebind 了服务端会话（fork 语义），树的作用域可能变化；
         // 不刷新会让后续分支切换用陈旧条目定位（服务端 404 → 「切换分支失败」）

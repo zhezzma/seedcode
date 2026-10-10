@@ -100,6 +100,47 @@ export function shouldAttachSession(hasActiveSSE: boolean): boolean {
     return !hasActiveSSE
 }
 
+/** 会话内本地回执条目（`!!` 的 bash-receipt：master 裁决排除≈不存档，仅客户端驻留）：
+ *  在 ChatMessage 基础上多一个定位锚。 */
+export interface LocalReceipt extends ChatMessage {
+    /** 登记时所在位置前一条 durable 消息的 entryId（null = 当时会话无 durable 消息）
+ *  ——重挂定位用，取代 timestamp 比较（免客户端/服务端钟差错位） */
+    anchor: string | null
+}
+
+/**
+ * 重挂本地回执：chatMessages 被服务端权威数据整体替换（done/abort/load/
+ * navigate/attach 全量五出口）后的统一补挂。
+ *
+ * 锚点规则：anchor 命中快照 → 插锚后（同锚多条按登记顺序接续）；快照非空而
+ * anchor 缺失 → 丢弃（回执所属时代已被 /reset 或分支切换抹去——跨窗口 reset
+ * 与跨分支不复活）；无 anchor（登记时会话尚无 durable 消息）→ 插头部；
+ * 快照为空 → 保留尾部。按 id 去重幂等（回滚快照已含回执条目时跳过）。
+ */
+export function remountLocalReceipts(sessionData: ChatSessionData): void {
+    const receipts = sessionData.localReceipts
+    if (!receipts || receipts.length === 0) return
+    const next = [...sessionData.chatMessages]
+    for (const receipt of receipts) {
+        if (next.some((message) => message.id === receipt.id)) continue
+        if (receipt.anchor) {
+            const anchorIdx = next.findIndex((message) => message.entryId === receipt.anchor)
+            if (anchorIdx === -1) continue
+            let pos = anchorIdx + 1
+            // 同锚多条按登记顺序接续（已挂载的同锚回执对象自带 anchor 字段）
+            while (pos < next.length && (next[pos] as LocalReceipt | undefined)?.anchor === receipt.anchor) pos++
+            next.splice(pos, 0, receipt)
+        } else if (next.length > 0) {
+            let pos = 0
+            while (pos < next.length && (next[pos] as LocalReceipt | undefined)?.anchor === null) pos++
+            next.splice(pos, 0, receipt)
+        } else {
+            next.push(receipt)
+        }
+    }
+    sessionData.chatMessages = next
+}
+
 export function applyAttachMessageState(sessionData: ChatSessionData, state: AttachMessageState): void {
     // 1. 对齐当前分支的持久化消息历史。
     if (Array.isArray(state.messages)) {
@@ -107,6 +148,9 @@ export function applyAttachMessageState(sessionData: ChatSessionData, state: Att
         // 全量快照 = 服务端给出的当前分支权威历史：流式临时条目一并作废
         //（若服务端分支已被另一窗口改写，残留条目会以数组尾部位置赢得 last-write-wins）；delta 增量路径不动
         sessionData.chatToolMessages = []
+        // 本地回执（!! bash-receipt）不在权威快照内，替换后重挂（锚点定位，
+        // 跨窗口 reset / 跨分支自动丢弃，见 remountLocalReceipts）
+        remountLocalReceipts(sessionData)
     } else if (Array.isArray(state.deltaMessages) && state.deltaMessages.length > 0) {
         const existingEntryIds = new Set(sessionData.chatMessages.map(message => message.entryId).filter(Boolean))
         const deduped = state.deltaMessages.filter(message => !message.entryId || !existingEntryIds.has(message.entryId))

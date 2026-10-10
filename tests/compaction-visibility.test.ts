@@ -24,7 +24,7 @@
  * 4. 半截内容 abort（流式+历史）：内容保留，无 errorMessage/错误块/中断标记；
  * 5. 真错误（非 abort 签名）保持红色错误块；
  * 6. 断连（无 compaction_end）/done 后 compacting 兜底清零；attach 路径同规则；
- * 7. 手动 /compact（chat 命令路径：compaction_start/end + command_delta 回执）、阈值自动压缩（reason:threshold，run 内
+ * 7. 手动 /compact（chat 命令路径：compaction_start/end + custom_message 回执）、阈值自动压缩（reason:threshold，run 内
  *    自然边界、无 abort 帧）与 SoL-Pi 在线压缩共用同一事件对与同一渲染路径——
  *    三种触发源客户端显示完全一致（统一性验收）。
  */
@@ -118,6 +118,9 @@ const state = { s1HistoryReady: false }
             { role: 'assistant', content: [{ type: 'text', text: 'half-written summary before stop' }], stopReason: 'error', errorMessage: 'This operation was aborted', timestamp: 4, entryId: 'e-abort-2', parentEntryId: 'e-abort-1' },
             { role: 'assistant', content: [{ type: 'text', text: 'crashed mid answer' }], stopReason: 'error', errorMessage: 'API Error 500: upstream failed', timestamp: 5, entryId: 'e-err', parentEntryId: 'e-abort-2' },
             { role: 'assistant', content: [{ type: 'text', text: 'step 2 done' }], timestamp: 6, entryId: 'e-a2', parentEntryId: 'e-err' },
+            // /compact 的 durable 回执（appendCommandReceipt 双写后 /messages 投影带回：
+            // custom_message + customType，无 timestamp）——场景 3.5 钉「重拉无感替换」
+            { type: 'custom_message', role: 'assistant', customType: 'command-response', content: '会话已压缩', entryId: 'e-compact-receipt', parentEntryId: 'e-a2' },
         ], isStreaming: false } })
     }
     if (u.pathname === '/api/chat/S2/messages') {
@@ -270,8 +273,8 @@ attachEmit('compaction_end', { type: 'compaction_end', reason: 'manual' })
 console.log('ATTACH_END isCompacting=' + chat.isCompacting() + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting'))
 
 // ===== 场景 3.5：手动 /compact（统一走 chat 命令路径：streamCommandDeferred）=====
-// 服务端流形：compaction_start → compaction_end → message_start → command_delta
-//（回执"会话已压缩"）→ message_end → turn_end → done
+// 服务端流形（回执单轨）：compaction_start → compaction_end → custom_message
+//（command-response 回执「会话已压缩」）→ done；无 message_start/command_delta/message_end
 {
     await chat.sendMessage('/compact')
     console.log('MANUAL_START busy=' + chat.chatSending + ' isCompacting=' + chat.isCompacting())
@@ -279,16 +282,16 @@ console.log('ATTACH_END isCompacting=' + chat.isCompacting() + ' pseudoVisible='
     compactEmit('compaction_start', { type: 'compaction_start', reason: 'manual' })
     console.log('MANUAL_WINDOW isCompacting=' + chat.isCompacting() + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting'))
     compactEmit('compaction_end', { type: 'compaction_end', reason: 'manual' })
-    compactEmit('message_start', { type: 'message_start', message: { id: 'cm1', role: 'assistant', content: '', timestamp: 30 } })
-    compactEmit('command_delta', { type: 'command_delta', id: 'cm1', delta: '会话已压缩', command: 'compact', data: {} })
-    compactEmit('message_end', { type: 'message_end', message: { id: 'cm1', role: 'assistant', content: '会话已压缩', timestamp: 30 } })
-    // 回执气泡在 message_end 即固化（done 后的 mock 全量刷新不含服务端持久化回执，不在此断言）
+    compactEmit('custom_message', { type: 'custom_message', customType: 'command-response', data: '会话已压缩' })
+    // 回执独立成泡（custom_message 单轨；无伪 assistant 消息生命周期）
     const receipt = msgs.processedMessages.value.some((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text === '会话已压缩'))
-    compactEmit('turn_end', { type: 'turn_end' })
     compactEmit('done', { message: 'Complete' })
     sse.dones.chat()
     await new Promise((r) => setTimeout(r, 50))
-    console.log('MANUAL_DONE isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' receiptBubble=' + receipt)
+    // done 重拉后由 durable 副本（mock 历史尾部的 custom_message 条目）无感替换，
+    // 回执气泡仍在且仍是一条（无闪烁/双泡）
+    const receiptAfterDone = msgs.processedMessages.value.filter((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text === '会话已压缩')).length
+    console.log('MANUAL_DONE isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' receiptBubble=' + receipt + ' receiptAfterDone=' + receiptAfterDone)
 }
 
 // 手动 /compact 失败路径：compaction_end 后 error 事件，干净收敛（无残留压缩行）
@@ -302,6 +305,31 @@ console.log('ATTACH_END isCompacting=' + chat.isCompacting() + ' pseudoVisible='
     sse.dones.chat()
     await new Promise((r) => setTimeout(r, 50))
     console.log('MANUAL_FAIL isCompacting=' + chat.isCompacting() + ' chatSending=' + chat.chatSending + ' pseudoVisible=' + msgs.processedMessages.value.some((m: any) => m.id === 'context-compacting') + ' errorToast=' + JSON.stringify(((globalThis as any).__toasts || []).filter((x: any) => x.type === 'error').map((x: any) => x.message)))
+}
+
+// ===== 场景 3.6：!! bash-receipt 客户端驻留管线（登记 → done 重拉 → 锚点重挂存活 → reset 清账本）=====
+{
+    await chat.sendMessage('!!echo secret')
+    // 无乐观 user 气泡（!! 语义：排除出上下文，回执由 bash-receipt 独立气泡承载）
+    const noOptimistic = !chat.getSessionData('S1').chatMessages.some((m: any) => m.role === 'user' && !m.entryId && m.content === '!!echo secret')
+    const receiptEmit = (event: string, data: any) => sse.handlers.chat.onEvent({ event, data })
+    receiptEmit('custom_message', { type: 'custom_message', customType: 'bash-receipt', data: '$ !!echo secret\\n退出码: 0\\n\\nsecret' })
+    const liveBubble = msgs.processedMessages.value.some((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text.includes('secret')))
+    receiptEmit('done', { message: 'Complete' })
+    sse.dones.chat()
+    await new Promise((r) => setTimeout(r, 50))
+    // done 重拉：mock /messages 不含 bash-receipt（零 durable），回执必须经
+    // localReceipts 锚点重挂存活，且仅一条（无闪烁双泡）
+    const afterDoneCount = msgs.processedMessages.value.filter((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text.includes('secret'))).length
+    console.log('BASH_RECEIPT noOptimistic=' + noOptimistic + ' liveBubble=' + liveBubble + ' afterDoneCount=' + afterDoneCount)
+    // reset 清账本：command_delta 副作用清空消息与回执账本，后续整体替换不复活
+    receiptEmit('command_delta', { type: 'command_delta', command: 'reset', data: {} })
+    receiptEmit('custom_message', { type: 'custom_message', customType: 'command-response', data: '会话已重置' })
+    receiptEmit('done', { message: 'Complete' })
+    sse.dones.chat()
+    await new Promise((r) => setTimeout(r, 50))
+    const goneAfterReset = !msgs.processedMessages.value.some((m: any) => m.blocks.some((b: any) => b.type === 'text' && b.text.includes('secret')))
+    console.log('BASH_RECEIPT_RESET gone=' + goneAfterReset)
 }
 
 // ===== 场景 3.7：阈值自动压缩（reason:"threshold"，run 内自然边界，无 abort 帧）=====
@@ -429,10 +457,13 @@ test('compaction UX: 瞬态压缩行 + abort/display:false 中性渲染全生命
     const ms = need('MANUAL_START')
     assert.match(ms, /busy=true/, `manual compact enters busy state: ${ms}`)
     assert.equal(need('MANUAL_WINDOW'), 'MANUAL_WINDOW isCompacting=true pseudoVisible=true')
-    assert.equal(need('MANUAL_DONE'), 'MANUAL_DONE isCompacting=false chatSending=false receiptBubble=true')
+    assert.equal(need('MANUAL_DONE'), 'MANUAL_DONE isCompacting=false chatSending=false receiptBubble=true receiptAfterDone=1')
     const mf = need('MANUAL_FAIL')
     assert.match(mf, /isCompacting=false chatSending=false pseudoVisible=false/, `failed compact converges: ${mf}`)
     assert.match(mf, /errorToast=\["chat.compactNothingToDo"\]/, `localized too-small toast: ${mf}`)
+    // !! 回执驻留管线：无乐观气泡 → live 气泡 → done 重拉后重挂存活且仅一条 → reset 后不复活
+    assert.equal(need('BASH_RECEIPT'), 'BASH_RECEIPT noOptimistic=true liveBubble=true afterDoneCount=1')
+    assert.equal(need('BASH_RECEIPT_RESET'), 'BASH_RECEIPT_RESET gone=true')
     // 阈值自动压缩：与手动/在线压缩同一渲染路径（统一性验收）
     const aw = need('AUTO_WINDOW')
     assert.match(aw, /isCompacting=true/, `auto window active: ${aw}`)

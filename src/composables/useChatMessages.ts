@@ -402,6 +402,11 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
     return convertToBlocks
 }
 
+/** 命令回执类 customType：独立成泡（面板「并入前一条 assistant 气泡」语义不
+ *  适用于回执——它是命令执行的产出，不是 AI 回复的内嵌附件；也不吃
+ *  assistantMsgMerge）。服务端在 custom_message 里权威标注，客户端只认集合 */
+const RECEIPT_CUSTOM_TYPES = new Set(['bash-receipt', 'command-response'])
+
 export function useChatMessages(state: ChatStateShape) {
 
     // 转换原始消息为显示格式，并合并工具调用结果
@@ -484,6 +489,18 @@ export function useChatMessages(state: ChatStateShape) {
             if (msg.type === 'custom_message' || msg.role === 'custom') {
                 const panelBlocks = convertToBlocks(msg.content)
                 if (panelBlocks.length === 0) continue
+                // 命令回执（bash-receipt/command-response）：独立成 assistant 文本气泡
+                if (msg.customType && RECEIPT_CUSTOM_TYPES.has(msg.customType)) {
+                    displayMessages.push({
+                        id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                        role: 'assistant',
+                        blocks: panelBlocks,
+                        timestamp: msg.timestamp,
+                        entryId: msg.entryId,
+                        parentEntryId: msg.parentEntryId,
+                    })
+                    continue
+                }
                 const lastMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null
                 if (lastMsg && lastMsg.role === 'assistant') {
                     // 与工具卡同语义：无条件并入（不受 assistantMsgMerge 开关控制）
