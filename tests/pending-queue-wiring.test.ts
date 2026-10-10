@@ -37,6 +37,51 @@ test('useChatState: message_start user 回显命中队头时立即出队转正�
     // WS 删除快照恒先于 SSE 回显：consume miss 时凭快照移除缓存补齐正式气泡
     //（否则长 run 期间 steer 消息在聊天区隐身，直到 done 全量刷新才出现）
     assert.match(handler, /consumeRemovedEcho\(sessionData, echoText\)/)
+    // 在途发送判别先于队头转正：sendMessage / retry / edit 登记的文本命中时整个跳过
+    //（乐观气泡/乐观分支已覆盖；否则 retry/edit 的历史消息与排队条目同文本时，
+    // 队头误吃本回显并重复 append；删除排队消息后同文本发送则 removedEcho 误补双气泡）。
+    // 先验存在再比顺序：否则行文本漂移时 indexOf 返回 -1、-1 < 任意位置恒真（vacuous-pass）
+    const inFlightPos = handler.indexOf('const inFlightEcho = echoText ? consumeInFlightSend(sessionData, echoText) : false')
+    const queueHeadPos = handler.indexOf('consumeQueueHead(sessionData.pendingQueue, echoText)')
+    assert.ok(inFlightPos >= 0, 'in-flight judgment missing')
+    assert.ok(queueHeadPos > inFlightPos, 'in-flight judgment must precede queue-head promotion')
+    // 转正与补齐两分支都必须过 inFlightEcho 门禁
+    assert.match(handler, /echoText && !inFlightEcho \? consumeQueueHead/)
+    assert.match(handler, /!inFlightEcho && consumeRemovedEcho/)
+})
+
+test('useChatState: retry/edit 经 beginBranchRewriteSSE 登记回显守卫文本', () => {
+    const skeletonStart = chatStateSource.indexOf('function beginBranchRewriteSSE')
+    assert.ok(skeletonStart >= 0, 'beginBranchRewriteSSE 骨架应存在')
+    const skeletonEnd = chatStateSource.indexOf('\nconst retryMessage', skeletonStart)
+    assert.ok(skeletonEnd > skeletonStart, '骨架切片终点应有效（indexOf 不得返回 -1）')
+    const skeleton = chatStateSource.slice(skeletonStart, skeletonEnd)
+    // 登记：retry = 目标 user 消息原文，edit = 新文本；必须在 startSSE 之前（回显随流首事件到达）
+    assert.match(skeleton, /inFlightEchoText\?: string \| null/)
+    assert.match(skeleton, /sessionData\.inFlightSendTexts = \[opts\.inFlightEchoText\]/)
+    assert.ok(
+        skeleton.indexOf('sessionData.inFlightSendTexts = [opts.inFlightEchoText]') < skeleton.indexOf('opts.startSSE('),
+        'registration must happen before startSSE',
+    )
+    // retry：守卫文本 = 目标 user 消息原文（assistant 条目上溯最近 user 消息）
+    const retryFn = extractFn(chatStateSource, 'retryMessage')
+    assert.match(retryFn, /inFlightEchoText/)
+    // edit：守卫文本 = 新文本
+    const editFn = extractFn(chatStateSource, 'editMessage')
+    assert.match(editFn, /inFlightEchoText: newText/)
+})
+
+test('useChatState: sendMessage 登记在途发送文本，run 生命周期兑底清零', () => {
+    // 正常 sendMessage 启动即登记：本 run 的 user 回显凭乐观气泡覆盖，
+    // 不得走 removedEcho 补齐（否则删除排队消息后同文本发送双气泡）
+    const sendFn = extractFn(chatStateSource, 'sendMessage')
+    assert.match(sendFn, /sessionData\.inFlightSendTexts = \[text\]/)
+    // run 生命周期兑底清零（done/error/abort 后残留会压制后续同文本 drain 的合法补齐）。
+    // resetStreamState 是 function 声明，extractFn 只识别 const 声明，手动截取
+    const resetStart = chatStateSource.indexOf('function resetStreamState')
+    assert.ok(resetStart >= 0, 'resetStreamState not found')
+    const resetFn = chatStateSource.slice(resetStart, chatStateSource.indexOf('\nfunction ', resetStart + 1))
+    assert.match(resetFn, /sd\.inFlightSendTexts = \[\]/)
 })
 
 test('useChatState: steerMessage/followMessage 捕获服务端 entryId + queueRev 后才入队', () => {

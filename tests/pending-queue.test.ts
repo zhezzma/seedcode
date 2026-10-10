@@ -5,9 +5,11 @@ import {
     extractUserText,
     consumeQueueHead,
     consumeRemovedEcho,
+    consumeInFlightSend,
     toPendingItems,
     applyQueueSnapshot,
     type PendingItem,
+    type QueueSnapshotTarget,
 } from '../src/utils/pending-queue.ts'
 
 const item = (over: Partial<PendingItem> = {}): PendingItem => ({
@@ -212,4 +214,41 @@ test('applyQueueSnapshot prunes expired echoes and caps the buffer', () => {
     applyQueueSnapshot(sd, 3, [])
     assert.ok(sd.queueRemovedEchoes.length <= 32)
     assert.ok(sd.queueRemovedEchoes.every((e: any) => e.text !== 'stale'))
+})
+
+// ==================== 在途本地发送判别（removedEcho 误补双气泡回归） ====================
+// 根因：applyQueueSnapshot 把手动 DELETE / abort 清账的条目也记入 queueRemovedEchoes，
+// 但这些条目永不投递、永无回显。残留文本（TTL 内）与后续正常 sendMessage 回显
+// 同文本时 consumeRemovedEcho 误命中 → 回显处理器在乐观气泡之外补了第二个正式气泡。
+// 判别凭据：正常 sendMessage 启动时登记在途文本，回显命中在途登记即跳过补齐。
+
+test('删除排队消息后发送同文本新消息：回显凭在途登记跳过 removedEcho 补齐（不双气泡）', () => {
+    // 复现时序：busy 排队 X → 删除 X（快照移除 → removedEchoes 记入 X）→
+    // 中止 → idle 发送同文本 X（正常 sendMessage：乐观气泡 + 在途登记）→ 回显 X
+    const target: QueueSnapshotTarget & { inFlightSendTexts?: string[] } = { pendingQueue: [] }
+    target.pendingQueue = [item({ id: 'e1', text: 'X' })]
+    applyQueueSnapshot(target, 2, [])
+    assert.deepEqual(target.queueRemovedEchoes?.map(e => e.text), ['X'])
+
+    // 正常 sendMessage 启动：登记在途发送文本（整体替换）
+    target.inFlightSendTexts = ['X']
+
+    // 回显到达：队列已空，consumeQueueHead miss
+    assert.equal(consumeQueueHead(target.pendingQueue, 'X'), null)
+    // 在途登记命中 → 调用方必须跳过 removedEcho 补齐（乐观气泡已覆盖）
+    assert.equal(consumeInFlightSend(target, 'X'), true)
+    // 登记一次性消费：同文本的第二条回显不再被在途登记误判
+    assert.equal(consumeInFlightSend(target, 'X'), false)
+})
+
+test('在途登记不影响非本地发起的 drain 回显（removedEcho 补齐保持）', () => {
+    // 排队 X 在途 → drain（WS 快照先移除）→ removedEchoes 记入 X；
+    // 本窗口没有为 X 发起过 sendMessage（drain 是服务端行为，无在途登记）
+    const target: QueueSnapshotTarget & { inFlightSendTexts?: string[] } = { pendingQueue: [] }
+    target.pendingQueue = [item({ id: 'e1', text: 'X' })]
+    applyQueueSnapshot(target, 2, [])
+
+    assert.equal(consumeInFlightSend(target, 'X'), false)
+    // removedEcho 补齐照常命中（长 run 隐身窗口的补齐链路不受影响）
+    assert.equal(consumeRemovedEcho(target, 'X'), true)
 })

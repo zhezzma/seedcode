@@ -11,10 +11,13 @@
  *   queue_state 快照，多窗口收敛；
  * - DELETE 响应：单条删除后返回删除后的权威快照。
  *
- * 本模块仅保留两件本地职责：
+ * 本模块仅保留三件本地职责：
  * - consumeQueueHead：message_start(role=user) 回显命中队头时立即出队转正
  *   （无 RTT 的即时反馈；随后到达的 queue_state 快照是权威修正）；
- * - toPendingItems：服务端快照载荷 → 本地展示模型（mode 归一 + 展示时间戳）。
+ * - consumeRemovedEcho：回显 miss 时检查该文本是否刚被权威快照移除，命中则补齐
+ *   正式气泡（乐观气泡不存在的 drain 场景专用）；
+ * - consumeInFlightSend / toPendingItems：在途本地发送判别（removedEcho 误补
+ *   双气泡的隔离凭据，见下方函数注释）+ 服务端快照载荷 → 本地展示模型。
  *
  * 注意：回显文本是服务端展开后的文本，模板/skill 展开改写时 consumeQueueHead
  * 精确匹配失效——条目残留由下一个 queue_state 快照权威修正，无害。
@@ -106,6 +109,35 @@ export function consumeRemovedEcho(target: QueueSnapshotTarget, text: string): b
     const idx = buffer.findIndex(e => e.text === text && now - e.at < REMOVED_ECHO_TTL_MS)
     if (idx < 0) return false
     target.queueRemovedEchoes = [...buffer.slice(0, idx), ...buffer.slice(idx + 1)]
+    return true
+}
+
+// ==================== 在途本地发送判别 ====================
+
+/** 在途本地发送登记目标（ChatSessionData 的结构子集） */
+export interface InFlightSendTarget {
+    /** 当前 run 的本地发送文本（sendMessage 启动时登记，resetStreamState 兑底清零） */
+    inFlightSendTexts?: string[]
+}
+
+/**
+ * 在途发送命中：该文本的 user 回显是否已被本地乐观气泡覆盖。
+ *
+ * removedEcho 缓存与排队队头都无法区分「被 drain 的排队条目（回显随后必到，需转正/补齐）」
+ * 与「被手动删除/abort 清账的条目（永不投递、永无回显）」及「本地发起的 sendMessage /
+ * retry / edit（乐观气泡/乐观分支已覆盖）」——后者残留文本会误命中同文本回显，在乐观
+ * 气泡/乐观分支之外补第二个气泡（双气泡）。
+ * 判别凭据：sendMessage / retry / edit 启动时登记文本；回显命中在途登记即证明这是
+ * 本地发送自己的回显 → 消费一条登记并返回 true，调用方跳过转正与补齐（队头条目留在
+ * 队内，服务端仍排队，自身 drain 回显照常转正）。
+ * 一次性消费：登记只覆盖一个回显，消费后同文本 drain 回显照常走队头/removedEcho。
+ */
+export function consumeInFlightSend(target: InFlightSendTarget, text: string): boolean {
+    const list = target.inFlightSendTexts
+    if (!list || list.length === 0 || !text) return false
+    const idx = list.indexOf(text)
+    if (idx < 0) return false
+    target.inFlightSendTexts = [...list.slice(0, idx), ...list.slice(idx + 1)]
     return true
 }
 

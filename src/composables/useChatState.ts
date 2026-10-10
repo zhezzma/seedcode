@@ -18,6 +18,7 @@ import {
     applyQueueSnapshot,
     consumeQueueHead,
     consumeRemovedEcho,
+    consumeInFlightSend,
     extractUserText,
     type PendingItem,
     type PendingSendMode,
@@ -83,6 +84,11 @@ export interface ChatSessionData {
     queueRev?: number
     /** 近期被快照移除的条目（WS 快照先于 SSE 回显时补齐正式气泡的比对缓存） */
     queueRemovedEchoes?: RemovedEcho[]
+    /** 当前 run 的在途本地发送文本（sendMessage / retry / edit 启动时登记）：user 回显与
+     * removedEcho 缓存或排队条目同文本时凭此跳过回显处理（否则删除排队消息后发送同文本
+     * 新消息、或 retry/edit 历史消息与排队同文本时，会误补第二个气泡）。
+     * 随 run 生命周期在 resetStreamState 兑底清零 */
+    inFlightSendTexts?: string[]
     /** 会话内本地回执（!! bash-receipt：服务端不存档）：chatMessages 被服务端
      * 权威数据整体替换后由 remountLocalReceipts 重挂（见 utils/chat-attach.ts） */
     localReceipts?: LocalReceipt[]
@@ -134,6 +140,9 @@ function resetStreamState(sd: ChatSessionData) {
     // 压缩状态跟随 SSE 生命周期兑底清理：正常由 compaction_end 驱动，
     // 连接收尾/中断时事件可能缺失，残留会让压缩指示器永久亮着
     sd.compacting = false
+    // 在途发送登记随 run 生命周期兑底清零：done/error/abort 后其回显要么已处理
+    // 要么永不到来，残留会压制后续同文本 drain 回显的合法补齐（消息隐身至 done）
+    sd.inFlightSendTexts = []
 }
 
 /** 绑定 SSE 连接的生命周期清理：done / catch 时统一重置状态并移除连接。
@@ -345,6 +354,12 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
         }]
     }
 
+    // 在途本地发送登记：本 run 的 user 回显凭乐观气泡覆盖，不走 removedEcho 补齐
+    //（否则删除排队消息后发送同文本新消息会被残留缓存误补成双气泡，done 全量
+    // 刷新才自愈）。整体替换：新 run 起旧 run 的在途文本已死（其回显要么已处理
+    // 要么永不到来）
+    sessionData.inFlightSendTexts = [text]
+
     const runId = generateUUID()
     sessionData.chatSending = true
     sessionData.chatRunId = runId
@@ -496,8 +511,14 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             const echoMsg = data?.message
             if (echoMsg?.role === 'user') {
                 const echoText = extractUserText(echoMsg.content)
+                // 在途本地发送（sendMessage / retry / edit 登记）的回显：乐观气泡 / 乐观分支
+                // 已覆盖，整个跳过——不得转正排队条目，也不得走 removedEcho 补齐。
+                // 判别必须先于队头：否则 retry/edit 的历史消息与排队条目同文本时，队头误吃
+                // 本回显并重复 append；sendMessage 的 busy 命令文本与排队同文本时同理误吃。
+                // 条目未被消费时留在队内（服务端仍排队，自身 drain 回显照常转正）
+                const inFlightEcho = echoText ? consumeInFlightSend(sessionData, echoText) : false
                 // 即时出队（无 RTT）；模板展开改写导致未命中时，由服务端 queue_state 快照权威修正
-                const consumed = echoText ? consumeQueueHead(sessionData.pendingQueue, echoText) : null
+                const consumed = echoText && !inFlightEcho ? consumeQueueHead(sessionData.pendingQueue, echoText) : null
                 if (consumed) {
                     sessionData.pendingQueue = consumed.rest
                     sessionData.chatMessages = [...sessionData.chatMessages, {
@@ -506,10 +527,14 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                         timestamp: typeof echoMsg.timestamp === 'number' ? echoMsg.timestamp : consumed.item.timestamp,
                         id: generateUUID(),
                     }]
-                } else if (echoText && consumeRemovedEcho(sessionData, echoText)) {
+                } else if (echoText && !inFlightEcho && consumeRemovedEcho(sessionData, echoText)) {
                     // 服务端 WS 删除快照恒先于本回显到达（账本监听器先注册，广播早于 SSE 转发），
                     // 条目已被权威快照出队；回显即证明消息已实际投递 → 照常补齐正式气泡，
-                    // 避免长 run 期间消息在聊天区隐身（直到 done 全量刷新才出现）
+                    // 避免长 run 期间消息在聊天区隐身（直到 done 全量刷新才出现）。
+                    // 补齐必须过在途发送判别（inFlightEcho）：正常 sendMessage 启动时已登记文本，
+                    // 回显命中在途登记即证明这是本地发送自己的回显（乐观气泡已覆盖）——否则手动
+                    // 删除排队消息后发送同文本新消息，残留缓存误命中，在乐观气泡之外补第二个
+                    // 气泡（双气泡，done 全量刷新才自愈）
                     sessionData.chatMessages = [...sessionData.chatMessages, {
                         role: 'user',
                         content: echoMsg.content,
@@ -1123,6 +1148,10 @@ function beginBranchRewriteSSE(
         snapshot: { messages: ChatMessage[]; toolMessages: ChatMessage[] }
         /** 乐观更新（只动 chatMessages；流式临时条目由骨架统一作废） */
         beginOptimistic: (sd: ChatSessionData) => void
+        /** 在途回显守卫文本（retry = 目标 user 消息原文；edit = 新文本）：乐观分支已
+         * 覆盖该 user 消息的回显，命中排队条目/removedEcho 残留同文本时整个跳过回显处理，
+         * 防止在乐观分支之外补第二个气泡 */
+        inFlightEchoText?: string | null
         /** 差异化流入口：用传入的回调启动具体 SSE 端点；onOpen = response.ok（首字节前），
          * 对 /retry /edit 即导航已提交的确认信号 */
         startSSE: (onEvent: SSEEventHandler, onError: (error: Error) => void, onOpen?: () => void) => SSEConnection
@@ -1146,6 +1175,13 @@ function beginBranchRewriteSSE(
     sessionData.chatRunId = runId
     sessionData.chatStreamStartedAt = Date.now()
     sessionData.chatStream = []
+
+    // 在途回显守卫登记：本 run 的 user 回显凭乐观分支已覆盖的 user 消息兜底，整个跳过
+    // 回显处理（见 message_start 分支）。整体替换：旧 run 的在途文本已死（其回显要么
+    // 已处理要么永不到来）。必须在 startSSE 之前：回显最早随流首事件到达
+    if (opts.inFlightEchoText) {
+        sessionData.inFlightSendTexts = [opts.inFlightEchoText]
+    }
 
     // Abort any existing SSE for this session
     const existingSSE = sseConnections.get(targetKey)
@@ -1191,8 +1227,21 @@ const retryMessage = async (entryId: string, sessionKey?: string) => {
     const sessionData = getSessionData(targetKey)
     const snapshot = { messages: sessionData.chatMessages, toolMessages: sessionData.chatToolMessages }
 
+    // 回显守卫文本：/retry 重发目标 user 消息的原文（服务端 navigate 后重新 prompt，
+    // 回显即该文本）。乐观分支已保留该 user 消息，其回显若与排队条目/残留缓存同文本，
+    // 凭此登记整个跳过回显处理（否则在乐观分支之外补第二个气泡）。
+    // 定位与 beginOptimistic 同源：user 条目即目标，assistant/toolResult 条目上溯最近 user 消息
+    const entryIndex = sessionData.chatMessages.findIndex(m => m.entryId === entryId)
+    let echoGuardText: string | null = null
+    if (entryIndex >= 0) {
+        let idx = entryIndex
+        while (idx >= 0 && sessionData.chatMessages[idx].role !== 'user') idx--
+        if (idx >= 0) echoGuardText = extractUserText(sessionData.chatMessages[idx].content)
+    }
+
     beginBranchRewriteSSE(targetKey, {
         snapshot,
+        inFlightEchoText: echoGuardText,
         beginOptimistic: (sd) => {
             // Remove the assistant message being retried from local state
             // (the server navigates back and re-prompts, creating a new branch)
@@ -1227,6 +1276,8 @@ const editMessage = async (entryId: string, newText: string, sessionKey?: string
 
     beginBranchRewriteSSE(targetKey, {
         snapshot,
+        // 回显守卫文本：/edit 以新文本重发（回显即 newText），同文本撞车时凭此跳过回显处理
+        inFlightEchoText: newText,
         beginOptimistic: (sd) => {
             // Keep the user message but update its text, remove everything after it
             const entryIndex = sd.chatMessages.findIndex(m => m.entryId === entryId)
