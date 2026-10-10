@@ -557,6 +557,17 @@ const retryMessage = async (msg: DisplayMessage) => {
     if (!msg.entryId) return
     await chatState.retryMessage(msg.entryId)
     // retry 逻辑同上，chatState 会接管
+
+    // 自动命名补触发：retry 同样把 user 消息重发给模型，titleSet 未置位的会话
+    // 补一次命名机会。标题源由 triggerSessionRename 直取占位标题（retry 不改变
+    // 首条消息），内部自带 titleSet/空占位守卫与在途去重
+    if (chatState.sessionKey) {
+        sessionsState
+            .triggerSessionRename(chatState.sessionKey)
+            .catch(err => {
+                console.error('Auto-rename failed', err)
+            })
+    }
 }
 
 const forkMessage = async (msg: DisplayMessage) => {
@@ -571,6 +582,17 @@ const forkMessage = async (msg: DisplayMessage) => {
 const editMessage = async (msg: DisplayMessage, newText: string) => {
     if (!msg.entryId) return
     await chatState.editMessage(msg.entryId, newText)
+
+    // 自动命名补触发：编辑以新文本重发 user 消息，titleSet 未置位的会话补一次
+    // 命名机会；新文本是命令则跳过（与 handleSend 的命令守卫一致）。标题源仍由
+    // triggerSessionRename 直取占位标题，不传触发文本
+    if (chatState.sessionKey && newText && !isCommandInvocation(newText.trimStart(), knownCommandNames)) {
+        sessionsState
+            .triggerSessionRename(chatState.sessionKey)
+            .catch(err => {
+                console.error('Auto-rename failed', err)
+            })
+    }
 }
 
 const navigateBranch = async (msg: DisplayMessage, direction: 'prev' | 'next') => {

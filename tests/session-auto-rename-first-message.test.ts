@@ -187,3 +187,24 @@ test('HomeView wires the auto-rename call without a text argument', async () => 
     const chatState = await readFile(srcPath('src/composables/useChatState.ts'), 'utf8')
     assert.doesNotMatch(chatState, /getFirstUserText/, 'the transcript-scan helper must be removed')
 })
+
+test('HomeView wires retry/edit to the same single-arg auto-rename', async () => {
+    const home = await readFile(srcPath('src/views/HomeView.vue'), 'utf8')
+    const retryFn = home.match(/const retryMessage = async \(msg: DisplayMessage\) => \{[\s\S]*?\n\}/)?.[0] ?? ''
+    const editFn = home.match(/const editMessage = async \(msg: DisplayMessage, newText: string\) => \{[\s\S]*?\n\}/)?.[0] ?? ''
+    assert.ok(retryFn, 'retryMessage source must be found')
+    assert.ok(editFn, 'editMessage source must be found')
+
+    // retry：派发后补触发（单参，占位标题为标题源）；无新文本，不做命令判断
+    assert.match(retryFn, /triggerSessionRename\(chatState\.sessionKey\)/,
+        'retryMessage must trigger the single-arg auto-rename after dispatching')
+    assert.doesNotMatch(retryFn, /triggerSessionRename\([^)]*,/, 'retry must not pass a text argument')
+
+    // edit：新文本是命令则跳过；非命令以单参触发
+    assert.match(editFn, /!isCommandInvocation\(newText/,
+        'editMessage must skip command invocations like handleSend does')
+    assert.match(editFn, /triggerSessionRename\(chatState\.sessionKey\)/,
+        'editMessage must trigger the single-arg auto-rename after dispatching')
+    assert.doesNotMatch(editFn, /triggerSessionRename\([^)]*newText/,
+        'edit must not pass the edited text as title source')
+})
