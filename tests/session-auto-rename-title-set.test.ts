@@ -101,19 +101,19 @@ await sessions.loadSessions()
 
 // 场景C（RENAME_FAIL=1）：失败回滚 + 失败后下一条消息重试仍发出
 if (RENAME_FAIL) {
-    await sessions.triggerSessionRename('S1', '消息一')
-    await sessions.triggerSessionRename('S1', '消息二')
+    await sessions.triggerSessionRename('S1')
+    await sessions.triggerSessionRename('S1')
     console.log('C posts=' + calls.filter((c) => c.includes('/generate-title')).length + ' titleSet=' + sessions.findSessionLocal('S1')?.titleSet)
 } else {
     // 场景A：成功回执置位——守卫就此闭合，后续消息不再触发自动命名
-    await sessions.triggerSessionRename('S1', '第一条消息')
+    await sessions.triggerSessionRename('S1')
     console.log('A titleSet=' + sessions.findSessionLocal('S1')?.titleSet + ' name=' + sessions.findSessionLocal('S1')?.name)
 
     // 场景B：rename 在途（HARNESS_RENAME_DELAY_MS 延迟返回）时并发双触发（用户连发两条消息）——只发一次 POST
     const postsBeforeB = calls.filter((c) => c.includes('/generate-title')).length
     await Promise.all([
-        sessions.triggerSessionRename('S2', '消息一'),
-        sessions.triggerSessionRename('S2', '消息二'),
+        sessions.triggerSessionRename('S2'),
+        sessions.triggerSessionRename('S2'),
     ])
     console.log('B posts=' + (calls.filter((c) => c.includes('/generate-title')).length - postsBeforeB) + ' titleSet=' + sessions.findSessionLocal('S2')?.titleSet)
 

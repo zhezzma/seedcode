@@ -313,7 +313,8 @@ const trySendDeliveryCommand = async (inputText: string, rawAttachments: ChatAtt
 // Send message handler
 const handleSend = async () => {
     let inputText = chatInputRef.value?.inputText?.trim() || ''
-    // 用户原始输入快照（不含后续追加的附件文本），用于自动命名判断与生成
+    // 用户原始输入快照（不含后续追加的附件文本），用于自动命名触发判断
+    //（标题源固定为会话第一条消息，见下方 triggerSessionRename）
     const originalUserText = inputText
     // Check if there are any attachments
     const rawAttachments = chatInputRef.value?.attachments ?? []
@@ -503,7 +504,9 @@ const handleSend = async () => {
     const currentSession = targetSessionKey ? sessionsState.findSessionLocal(targetSessionKey) : undefined
     if (targetSessionKey && originalUserText && !isCommand && !currentSession?.titleSet) {
         sessionsState
-            .triggerSessionRename(targetSessionKey, originalUserText)
+            // 单参：标题源在 triggerSessionRename 内直取占位标题（titleSet=false 时
+            // 即会话第一条消息，创建时由 firstMessage 播种），不再传触发时消息
+            .triggerSessionRename(targetSessionKey)
             .catch(err => {
                 console.error('Auto-rename failed', err)
             })
