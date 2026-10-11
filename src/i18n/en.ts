@@ -567,6 +567,12 @@ export default {
             steerBadge: 'Injecting',
             removeHint: 'Remove from the server queue; the message will not be sent',
         },
+        busySend: {
+            steer: 'Steer',
+            follow: 'Queue',
+            steerTitle: 'Steer: inject into the current reply immediately',
+            followTitle: 'Follow-up: queue and send after the current reply finishes',
+        },
         todo: {
             countLabel: 'Todos ({done}/{total})',
             allDone: 'All done ({done}/{total})',
@@ -801,7 +807,7 @@ export default {
         silenceDuration: 'Voice Send Wait (ms)',
         silenceDurationDesc: 'Auto-send after silence for milliseconds',
         busySendBehavior: 'Busy Send Behavior',
-        busySendBehaviorDesc: 'When the AI is already replying, choose whether plain text should be injected into the current run or queued as a follow-up message.',
+        busySendBehaviorDesc: 'When the AI is already replying, choose what plain text does by default (Ctrl+Enter): inject into the current run or queue as a follow-up. The buttons next to the input let you choose per message.',
         busySendBehaviorSteer: 'Steer: inject into current reply',
         busySendBehaviorFollow: 'Follow: queue as follow-up',
         asrEngine: 'ASR Engine',

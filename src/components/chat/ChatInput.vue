@@ -13,13 +13,15 @@ import {
     CommandLineIcon,
     CpuChipIcon,
     LightBulbIcon,
+    BoltIcon,
+    InboxArrowDownIcon,
     XMarkIcon
 } from '@heroicons/vue/24/outline'
 import { useChatInput, COMMANDS, type CommandItem } from '../../composables/useChatInput'
 import { useModelsState } from '../../composables/useModelsState'
 import { useChatState, type ChatSendOverrides } from '../../composables/useChatState'
 import type { CommandInfo } from '../../composables/useCommandState'
-import { useUiSettingsStore } from '../../stores/setting'
+import { useUiSettingsStore, type BusySendBehavior } from '../../stores/setting'
 import { computed } from 'vue'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
@@ -40,8 +42,11 @@ const { t } = useI18n()
 // props.isBusy 来自 HomeView（同一 chatState 推导）；再 OR 上本地直读，任一来源为 busy 都生效
 const isBusy = computed(() => props.isBusy || chatState.chatSending || Boolean(chatState.chatRunId))
 const emit = defineEmits<{
-    (e: 'send'): void
+    (e: 'send', mode?: BusySendBehavior): void
 }>()
+// busy 双通道主色高亮跟随设置：'steer' → 「插入」主色；默认 'follow' → 「排队」主色。
+// 设置同时决定发送键（Ctrl+Enter）的默认通道（HomeView 无 mode 时回落 busySendBehavior），此处仅管视觉
+const busySteerEmphasized = computed(() => settingsStore.busySendBehavior === 'steer')
 
 const {
     inputText,
@@ -239,9 +244,9 @@ const handleFileChange = (e: Event) => {
     }
 }
 
-const onSend = () => {
+const onSend = (mode?: BusySendBehavior) => {
     stopRecording();
-    emit('send')
+    emit('send', mode)
 }
 
 const handleCommandSelect = (cmd: CommandItem) => {
@@ -508,8 +513,28 @@ defineExpose({
                         <MicrophoneIcon class="h-5 w-5 relative z-10" />
                         <span v-if="isRecording" class="absolute inset-0 bg-white/20 animate-ping rounded-full"></span>
                     </button>
-                    <!-- Send -->
-                    <button @click="onSend"
+                    <!-- Send / Stop / busy 双通道 -->
+                    <!-- busy + 输入框有文字：显式双选——「插入」立即注入当前回复(steer) /
+                         「排队」作为后续追问(follow-up)。主色跟随 busySendBehavior 设置；
+                         小屏（<sm）退化为纯图标。发送键（Ctrl+Enter）不携带 mode，默认通道由设置决定 -->
+                    <template v-if="isBusy && inputText.trim()">
+                        <button @click="onSend('steer')"
+                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95"
+                            :class="busySteerEmphasized ? 'btn-warning shadow-md hover:shadow-lg' : 'btn-ghost border border-base-content/20 hover:border-base-content/40 hover:bg-base-300'"
+                            :disabled="disabled" :title="$t('chat.busySend.steerTitle')" :aria-label="$t('chat.busySend.steerTitle')">
+                            <BoltIcon class="h-4 w-4" />
+                            <span class="hidden sm:inline">{{ $t('chat.busySend.steer') }}</span>
+                        </button>
+                        <button @click="onSend('follow')"
+                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95"
+                            :class="!busySteerEmphasized ? 'btn-primary shadow-md hover:shadow-lg' : 'btn-ghost border border-base-content/20 hover:border-base-content/40 hover:bg-base-300'"
+                            :disabled="disabled" :title="$t('chat.busySend.followTitle')" :aria-label="$t('chat.busySend.followTitle')">
+                            <InboxArrowDownIcon class="h-4 w-4" />
+                            <span class="hidden sm:inline">{{ $t('chat.busySend.follow') }}</span>
+                        </button>
+                    </template>
+                    <!-- idle 发送 / busy+空输入停止：保持原单按钮（v-else 分支） -->
+                    <button v-else @click="onSend()"
                         class="btn btn-circle btn-sm btn-primary shadow-md hover:shadow-lg transition-all hover:scale-105 active:scale-95"
                         :disabled="disabled || ((!inputText.trim() && attachments.length === 0) && !isBusy)">
                         <StopIcon v-if="isBusy && !inputText.trim()" class="h-5 w-5" />

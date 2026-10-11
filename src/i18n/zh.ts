@@ -567,6 +567,12 @@ export default {
             steerBadge: '插入中',
             removeHint: '从服务端队列移除，该消息将不再发送',
         },
+        busySend: {
+            steer: '插入',
+            follow: '排队',
+            steerTitle: 'Steer：立即注入当前回复，影响正在生成的回答',
+            followTitle: 'Follow-up：排队，当前回复完成后自动发送',
+        },
         todo: {
             countLabel: '任务清单 ({done}/{total})',
             allDone: '全部完成 ({done}/{total})',
@@ -802,7 +808,7 @@ export default {
         silenceDuration: '语音发送等待 (毫秒)',
         silenceDurationDesc: '说话停顿多少毫秒后自动发送',
         busySendBehavior: '回复中发送行为',
-        busySendBehaviorDesc: '当 AI 正在回复时，新消息是追问,还是排队。',
+        busySendBehaviorDesc: '当 AI 正在回复时，按 Ctrl+Enter 发送的新消息默认是插入还是排队；输入框旁的「插入/排队」按钮可逐条选择。',
         busySendBehaviorSteer: 'Steer：插入当前回复',
         busySendBehaviorFollow: 'Follow：排队为后续追问',
         asrEngine: 'ASR 引擎',

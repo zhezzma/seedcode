@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, onActivated, watch, reactive, to
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { useUiSettingsStore } from '../stores/setting'
+import { useUiSettingsStore, type BusySendBehavior } from '../stores/setting'
 import { ChevronDoubleDownIcon, ChevronDownIcon, CheckIcon, FolderIcon, FolderOpenIcon } from '@heroicons/vue/24/outline'
 
 import { useChatMessages, type DisplayMessage } from '../composables/useChatMessages'
@@ -311,7 +311,7 @@ const trySendDeliveryCommand = async (inputText: string, rawAttachments: ChatAtt
 
 // Send message handler
 // Send message handler
-const handleSend = async () => {
+const handleSend = async (mode?: BusySendBehavior) => {
     let inputText = chatInputRef.value?.inputText?.trim() || ''
     // 用户原始输入快照（不含后续追加的附件文本），用于自动命名触发判断
     //（标题源固定为会话第一条消息，见下方 triggerSessionRename）
@@ -396,8 +396,10 @@ const handleSend = async () => {
             }
             return
         }
-        // 非命令文本：根据设置决定 busy 时是 steer 还是 follow-up
-        const sent = settingsStore.busySendBehavior === 'follow'
+        // 非命令文本：显式 mode（busy 双通道按钮：插入/排队）优先；
+        // Enter 等无 mode 入口回落 busySendBehavior 设置默认
+        const sendMode = mode === 'steer' || mode === 'follow' ? mode : settingsStore.busySendBehavior
+        const sent = sendMode === 'follow'
             ? await chatState.followMessage(inputText)
             : await chatState.steerMessage(inputText)
         if (!sent) {
