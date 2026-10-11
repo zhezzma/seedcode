@@ -47,6 +47,19 @@ test('session tree modal emits jump-to-entry on message node click', () => {
     assert.doesNotMatch(source, /rewriteFromHere/)
 })
 
+test('/tree 为纯 UI 客户端命令，busy 时放行（同 /todos，跳转守卫在 handleJumpToTreeEntry）', () => {
+    const source = src('views/HomeView.vue')
+
+    // 截取 isTreeCommand 拦截分支（到 4 空格缩进的收括号为止），分支内不得出现 busy 拦截
+    const treeBranch = source.match(/const isTreeCommand = inputText\.trim\(\) === '\/tree'[\s\S]*?^    \}$/m)?.[0]
+    assert.ok(treeBranch, '/tree 拦截分支应存在')
+    assert.doesNotMatch(treeBranch, /isBusy\.value/, '/tree 打开树弹窗是只读 UI 操作，busy 时应放行')
+    assert.doesNotMatch(treeBranch, /commandNotAvailableWhileBusy/, '/tree 分支不得弹「运行中不可用」toast')
+    // 打开动作仍在：清空输入 + openSessionTree
+    assert.match(treeBranch, /chatInputRef\.value\.inputText = ''/)
+    assert.match(treeBranch, /await openSessionTree\(\)/)
+})
+
 test('home view opens tree from button or /tree and scrolls selected nodes', () => {
     const source = src('views/HomeView.vue')
 

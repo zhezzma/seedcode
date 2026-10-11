@@ -322,12 +322,11 @@ const handleSend = async (mode?: BusySendBehavior) => {
 
     if (!inputText && !hasAttachments && !isBusy.value) return
 
+    // /tree：客户端命令——打开会话树弹窗，不经服务端。
+    // 纯 UI（只读）操作在 busy 时也放行（同 /todos）；若要跳转节点，
+    // handleJumpToTreeEntry 内部已有独立的 busy/分支守卫，不会误切运行中的会话。
     const isTreeCommand = inputText.trim() === '/tree'
     if (isTreeCommand && !hasAttachments) {
-        if (isBusy.value) {
-            useToast().warning(t('home.commandNotAvailableWhileBusy'))
-            return
-        }
         if (chatInputRef.value) {
             chatInputRef.value.inputText = ''
         }
