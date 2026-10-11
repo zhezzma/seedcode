@@ -586,6 +586,8 @@ const editMessage = async (msg: DisplayMessage, newText: string) => {
     // 自动命名补触发：编辑以新文本重发 user 消息，titleSet 未置位的会话补一次
     // 命名机会；新文本是命令则跳过（与 handleSend 的命令守卫一致）。标题源仍由
     // triggerSessionRename 直取占位标题，不传触发文本
+    // 命令表命令名（与 handleSend 相同）：null 表示未加载，isCommandInvocation 保守回退
+    const knownCommandNames = isLoaded.value ? allCommands.value.map(cmd => cmd.name) : null
     if (chatState.sessionKey && newText && !isCommandInvocation(newText.trimStart(), knownCommandNames)) {
         sessionsState
             .triggerSessionRename(chatState.sessionKey)
