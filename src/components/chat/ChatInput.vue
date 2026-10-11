@@ -22,6 +22,9 @@ import { useModelsState } from '../../composables/useModelsState'
 import { useChatState, type ChatSendOverrides } from '../../composables/useChatState'
 import type { CommandInfo } from '../../composables/useCommandState'
 import { useUiSettingsStore, type BusySendBehavior } from '../../stores/setting'
+import { useCommandState } from '../../composables/useCommandState'
+import { isCommandInvocation } from '../../utils/command-invocation'
+import { isClientInterceptedCommand } from '../../composables/clientCommands'
 import { computed } from 'vue'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
@@ -39,14 +42,17 @@ const chatState = useChatState()
 const settingsStore = useUiSettingsStore()
 const { availableModels } = useModelsState()
 const { t } = useI18n()
-// props.isBusy 来自 HomeView（同一 chatState 推导）；再 OR 上本地直读，任一来源为 busy 都生效
-const isBusy = computed(() => props.isBusy || chatState.chatSending || Boolean(chatState.chatRunId))
+// busy 单源：useChatMessages.ts 的 isBusy（发送中/运行中信号）经 HomeView props 传入。
+// 不在此本地重推——busy 语义变更（如纳入 compacting）只改 useChatMessages 一处
+const isBusy = computed(() => props.isBusy)
 const emit = defineEmits<{
     (e: 'send', mode?: BusySendBehavior): void
 }>()
 // busy 双通道主色高亮跟随设置：'steer' → 「插入」主色；默认 'follow' → 「排队」主色。
 // 设置同时决定发送键（Ctrl+Enter）的默认通道（HomeView 无 mode 时回落 busySendBehavior），此处仅管视觉
 const busySteerEmphasized = computed(() => settingsStore.busySendBehavior === 'steer')
+
+const { allCommands, isLoaded: commandsLoaded } = useCommandState()
 
 const {
     inputText,
@@ -70,6 +76,23 @@ const {
     closeSuggestions,
     clientCommands,
 } = useChatInput()
+
+// busy 时输入的是命令调用 → 显示原发送按钮而非双胶囊：命令在 HomeView Case 2
+// 先于 mode 分流被拦截（命令语义优先），胶囊标签会与实际行为矛盾。
+// 谓词覆盖 HomeView.handleSend 的全部「mode 不消费」拦截点，与之同源：
+// - HomeView 顶部对输入 trim() 后才路由，此处同样取整段修剪文本（前导空白粘贴不漂移）；
+// - 服务端命令：startsWith('/') 门禁（! 前缀不算，仍走 mode）+ 命令表精确匹配
+//   首 token（isCommandInvocation，表未加载时保守回退为「是命令」）；
+// - 客户端命令：从 clientCommands 注册表派生（isClientInterceptedCommand，
+//   按 intercept 标注匹配 exact/prefix），新增命令只改注册表，UI 自动跟随。
+//   isCommandInvocation 镜像后端语义、另有调用方（自动命名守卫等），
+//   客户端命令只在 UI 谓词合并，不写入 util。
+const busyCommandText = computed(() => {
+    const text = inputText.value.trim()
+    if (!text.startsWith('/')) return false
+    return isCommandInvocation(text, commandsLoaded.value ? allCommands.value.map(cmd => cmd.name) : null)
+        || isClientInterceptedCommand(text)
+})
 
 // 本地指令分区条目：注册表（ClientCommand）→ 下拉 CommandItem，供「命令」按钮下拉渲染；
 // 新增客户端命令只改 clientCommands.ts 注册表，这里与 / 补全自动跟随
@@ -514,19 +537,20 @@ defineExpose({
                         <span v-if="isRecording" class="absolute inset-0 bg-white/20 animate-ping rounded-full"></span>
                     </button>
                     <!-- Send / Stop / busy 双通道 -->
-                    <!-- busy + 输入框有文字：显式双选——「插入」立即注入当前回复(steer) /
+                    <!-- busy + 输入框有文字 + 非命令文本：显式双选——「插入」立即注入当前回复(steer) /
                          「排队」作为后续追问(follow-up)。主色跟随 busySendBehavior 设置；
-                         小屏（<sm）退化为纯图标。发送键（Ctrl+Enter）不携带 mode，默认通道由设置决定 -->
-                    <template v-if="isBusy && inputText.trim()">
+                         小屏（<sm）退化为纯图标。发送键（Ctrl+Enter）不携带 mode，默认通道由设置决定。
+                         命令文本（/xxx）走既有命令分支，mode 不被消费 → 回退下方原发送按钮 -->
+                    <template v-if="isBusy && inputText.trim() && !busyCommandText">
                         <button @click="onSend('steer')"
-                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95"
+                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95 w-8 p-0 sm:w-auto sm:px-3"
                             :class="busySteerEmphasized ? 'btn-warning shadow-md hover:shadow-lg' : 'btn-ghost border border-base-content/20 hover:border-base-content/40 hover:bg-base-300'"
                             :disabled="disabled" :title="$t('chat.busySend.steerTitle')" :aria-label="$t('chat.busySend.steerTitle')">
                             <BoltIcon class="h-4 w-4" />
                             <span class="hidden sm:inline">{{ $t('chat.busySend.steer') }}</span>
                         </button>
                         <button @click="onSend('follow')"
-                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95"
+                            class="btn btn-sm rounded-full gap-1 font-normal transition-all hover:scale-105 active:scale-95 w-8 p-0 sm:w-auto sm:px-3"
                             :class="!busySteerEmphasized ? 'btn-primary shadow-md hover:shadow-lg' : 'btn-ghost border border-base-content/20 hover:border-base-content/40 hover:bg-base-300'"
                             :disabled="disabled" :title="$t('chat.busySend.followTitle')" :aria-label="$t('chat.busySend.followTitle')">
                             <InboxArrowDownIcon class="h-4 w-4" />

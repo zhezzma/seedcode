@@ -42,7 +42,7 @@ import { truncateText } from '../utils/format'
 import { collectSessionImageSources } from '../utils/session-image-gallery'
 import { buildBranchIndexes, findLeafId as findBranchLeafId, getBranchInfo as resolveBranchInfo } from '../utils/chatBranchNavigation'
 import { buildSessionTreeItems } from '../utils/sessionTreeItems'
-import { isCommandInvocation } from '../utils/command-invocation'
+import { isCommandInvocation, DELIVERY_COMMANDS, BUSY_ALLOWED_COMMANDS } from '../utils/command-invocation'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,12 +61,13 @@ const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState
 const wsPanel = useWorkspacePanel()
 const wsViewer = useWorkspaceViewer()
 
-// busy 时仍允许走 /chat 的命令（goal 等）。/steer /follow-up /abort 走控制 API，不在此列。
-const busyAllowedCommands = ['goal']
-const busyAllowedCommandPattern = new RegExp(`^\\/(${busyAllowedCommands
+// busy 时仍允许走 /chat 的命令（BUSY_ALLOWED_COMMANDS）。投递类命令（DELIVERY_COMMANDS：
+// /steer /follow-up /abort）走控制 API，不在此列——两份清单均收口在 utils/command-invocation.ts，
+// 服务端命令表为权威，新增/改名只改常量（tests/busy-send-pills.test.ts 锚定）。
+const busyAllowedCommandPattern = new RegExp(`^\/(${BUSY_ALLOWED_COMMANDS
     .map(command => command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')})(?=\\s|$)`)
-const deliveryCommandPattern = /^\/(follow-up|steer|abort)(?:\s+([\s\S]*))?$/i
+const deliveryCommandPattern = new RegExp(`^\\/(${DELIVERY_COMMANDS.join('|')})(?:\\s+([\\s\\S]*))?$`, 'i')
 
 // Refs
 const messagesContainerRef = ref<HTMLDivElement | null>(null)

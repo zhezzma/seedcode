@@ -802,6 +802,7 @@ export default {
         clearDataConfirm: '确定要清空所有数据并退出吗？这将清除本地缓存。',
         confirmLogout: '确认退出',
         gatewayUrl: '网关地址',
+        gatewayUrlHint: 'WebSocket 地址，例如: ws://192.168.1.100:18789',
         token: '访问令牌 (Token)',
         baseUrl: 'Base URL',
         engineToken: 'Token',
@@ -863,6 +864,7 @@ export default {
         useLocalServer: '使用本地服务',
         noOpenClaw: '还没有 OpenClaw？',
         learnMore: '了解更多',
+        gatewayUrlHint: 'WebSocket 地址，例如: ws://192.168.1.100:18789',
         steps: {
             connect: '连接',
             model: '模型',

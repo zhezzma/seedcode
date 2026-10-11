@@ -1,4 +1,17 @@
 /**
+ * 「投递类」命令：走控制 API（POST /steer|/follow-up|/abort）而非 /chat。
+ * 服务端命令表为权威；新增/改名须同步此处（HomeView 的 deliveryCommandPattern
+ * 由它派生，tests/busy-send-pills.test.ts 锚定）。
+ */
+export const DELIVERY_COMMANDS = ['follow-up', 'steer', 'abort'] as const
+
+/**
+ * busy 时仍放行走 /chat 的命令白名单（其余已知命令 busy 不可用）。
+ * 投递类命令不在此列（见 DELIVERY_COMMANDS）。
+ */
+export const BUSY_ALLOWED_COMMANDS = ['goal'] as const
+
+/**
  * 判断一条用户消息是否会被后端按「命令」处理（而非作为普通 prompt 发给模型）。
  *
  * 后端（seedagent CommandHandler）的真实语义：
