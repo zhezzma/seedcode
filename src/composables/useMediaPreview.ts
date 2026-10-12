@@ -102,6 +102,64 @@ const closeLightbox = () => {
     resetZoomState()
 }
 
+// ==================== Image Share (Web Share API) ====================
+
+/** 能力检测：环境支持 Web Share API 才显示分享按钮（不支持的 WebView 自动隐藏）。 */
+const canShareImage = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+/** 从图片 src 提取底部展示与分享共用的文件名：http(s) 取 URL 路径末段；
+ *  data URL 按 MIME 推扩展名，命名沿用 downloadImage 的 image-{timestamp} 规则。
+ *  两处共用本函数，保证分享出去的名字与界面显示一致。纯函数，便于测试。 */
+export const getLightboxImageName = (src: string): string => {
+    if (/^https?:/i.test(src)) {
+        try {
+            const { pathname } = new URL(src)
+            // 以 / 结尾指向目录而非文件，直接走兜底命名
+            if (!pathname.endsWith('/')) {
+                const lastSegment = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '')
+                if (lastSegment) return lastSegment
+            }
+        } catch {
+            // 非法 URL 落入下方兜底命名
+        }
+    }
+    const mime = /^data:([^;,]+)/.exec(src)?.[1]
+    const extension = mime && mime.startsWith('image/') ? getImageExtension(mime) : 'png'
+    return `image-${Date.now()}.${extension}`
+}
+
+const lightboxImageName = computed(() => getLightboxImageName(lightboxSrc.value))
+
+const shareImage = async (src: string) => {
+    const toast = useToast()
+    // 注意需带 index.ts：本函数会被 node 单测直接执行，node ESM 不支持目录导入（Vite 两者皆可）
+    const { i18n } = await import('../i18n/index.ts')
+    const _t = (key: string) => i18n.global.t(key)
+
+    try {
+        if (/^https?:/i.test(src)) {
+            await navigator.share({ url: src })
+            return
+        }
+
+        const response = await fetch(src)
+        const blob = await response.blob()
+        // 展示名（computed 随 src 缓存）与分享名共用，避免兜底命名两次 Date.now() 不一致
+        const fileName = src === lightboxSrc.value ? lightboxImageName.value : getLightboxImageName(src)
+        const file = new File([blob], fileName, { type: blob.type })
+        // canShare({ files }) 复检：部分 WebView 只支持 share() 文本/链接，不支持文件分享
+        if (!navigator.canShare?.({ files: [file] })) {
+            throw new Error('File sharing is not supported in this context')
+        }
+        await navigator.share({ files: [file] })
+    } catch (error) {
+        // 用户在系统分享面板主动取消不算失败，不打错误 toast
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        console.error('Share image failed:', error)
+        toast.error(_t('chat.shareImageFailed'))
+    }
+}
+
 const getDistance = (touches: TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX
     const dy = touches[0].clientY - touches[1].clientY
@@ -346,6 +404,10 @@ const _mediaPreviewState = {
     handleMouseUp,
     downloadImage,
     copyImageToClipboard,
+    // Image share
+    canShareImage,
+    lightboxImageName,
+    shareImage,
     // File viewer
     fileViewerOpen,
     fileViewerName,

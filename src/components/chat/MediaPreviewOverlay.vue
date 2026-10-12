@@ -29,6 +29,9 @@ const {
     handleMouseUp,
     downloadImage,
     copyImageToClipboard,
+    canShareImage,
+    lightboxImageName,
+    shareImage,
     fileViewerOpen,
     fileViewerName,
     fileViewerContent,
@@ -85,6 +88,16 @@ onBeforeUnmount(() => {
 
                 <!-- Tools -->
                 <div class="fixed top-4 right-4 flex items-center gap-2 z-[60]">
+                    <!-- Share -->
+                    <button v-if="canShareImage" @click.stop="shareImage(lightboxSrc)"
+                        class="btn btn-ghost btn-circle bg-white/10 text-white hover:bg-white/20 backdrop-blur-md"
+                        :title="t('chat.shareImage')">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
+                            stroke="currentColor" class="w-6 h-6">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                        </svg>
+                    </button>
                     <!-- Copy -->
                     <button v-if="!isMobileDevice" @click.stop="copyImageToClipboard(lightboxSrc)"
                         class="btn btn-ghost btn-circle bg-white/10 text-white hover:bg-white/20 backdrop-blur-md"
@@ -116,10 +129,11 @@ onBeforeUnmount(() => {
                     </button>
                 </div>
 
-                <!-- Hint string at bottom -->
-                <div v-if="imgScale === 1"
-                    class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white/90 px-4 py-1.5 rounded-full text-xs backdrop-blur-md pointer-events-none z-[60]">
-                    {{ t('chat.zoomHint') }}
+                <!-- Name & zoom hint at bottom -->
+                <div
+                    class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white/90 px-4 py-1.5 rounded-full text-xs backdrop-blur-md pointer-events-none z-[60] flex items-center gap-2 max-w-[90vw]">
+                    <span class="truncate">{{ lightboxImageName }}</span>
+                    <span v-if="imgScale === 1" class="shrink-0 opacity-60">{{ t('chat.zoomHint') }}</span>
                 </div>
             </div>
         </Transition>

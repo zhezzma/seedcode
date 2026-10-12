@@ -641,6 +641,8 @@ export default {
         previousImage: 'Previous image',
         nextImage: 'Next image',
         zoomHint: 'Double tap to zoom | Pinch to zoom',
+        shareImage: 'Share Image',
+        shareImageFailed: 'Failed to share image',
     },
     voice: {
         listening: 'Listening...',
