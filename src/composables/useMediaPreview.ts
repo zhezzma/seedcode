@@ -136,32 +136,50 @@ export const getLightboxImageName = (src: string): string => {
 
 const lightboxImageName = computed(() => getLightboxImageName(lightboxSrc.value))
 
-/** Tauri 移动端原生分享：Android WebView 无 navigator.share，落盘缓存目录后
- *  走 sharekit 系统分享面板（Android Sharesheet / iOS Share Pane）。
- *  插件 Android 侧会把文件拷入 app cacheDir 并经 FileProvider 转 content://
- *  （gen/android 模板的 file_paths.xml 已声明 cache-path），传规范 file:// URL
- *  兼容 iOS URL(string:) 与 Android Uri.parse 两种解析。 */
+/** Tauri 移动端原生分享：Android WebView 无 navigator.share。落盘走自家命令
+ *  write_share_cache_file（app_cache_dir 的 share/ 子目录）：fs 插件 scope 的 $CACHE
+ *  在 Android 解析到外部缓存（getExternalCacheDir），与 app_cache_dir（内部
+ *  getCacheDir）是两个目录，写必 forbidden path，自家命令不经插件权限面；且必须写
+ *  子目录——sharekit 会把源文件拷到 cacheDir 根同名临时文件，同名同目录先 truncate
+ *  源再自拷贝，分享 0 字节空图。base64 直传：data URL 本就是 base64 零转换；
+ *  http 图 fetch 后 FileReader 转。返回的绝对路径拼规范 file:// URL，
+ *  兼容 iOS URL(string:) 与 Android Uri.parse。 */
 const shareImageNative = async (src: string) => {
-    const [{ shareFile }, { writeFile }, { appCacheDir, join }] = await Promise.all([
-        import('@choochmeque/tauri-plugin-sharekit-api'),
-        import('@tauri-apps/plugin-fs'),
-        import('@tauri-apps/api/path'),
-    ])
+    const { shareFile } = await import('@choochmeque/tauri-plugin-sharekit-api')
+    const { invoke } = await import('@tauri-apps/api/core')
 
-    const response = await fetch(src)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const blob = await response.blob()
-    // 展示名与分享名共用同一来源（见 getLightboxImageName）；落盘名剥离分隔符，
-    // 防 URL 末段解码后含 / 或 .. 造成路径穿越（join 是 PathBuf::push 语义，不规范化 ..）
+    let mimeType: string
+    let base64Data: string
+    if (src.startsWith('data:')) {
+        // (?:;[^;,]*)* 兼容中间参数（如 data:image/png;charset=utf-8;base64,...）
+        const match = /^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s.exec(src)
+        if (!match) throw new Error('Non-base64 data URL is not supported')
+        mimeType = match[1] || 'image/png'
+        base64Data = match[2]
+    } else {
+        const response = await fetch(src)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const blob = await response.blob()
+        mimeType = blob.type || 'image/png'
+        base64Data = await blobToBase64(blob)
+    }
+
+    // 展示名与分享名共用同一来源（见 getLightboxImageName）；落盘名剥离分隔符防路径穿越
     const displayName = src === lightboxSrc.value ? lightboxImageName.value : getLightboxImageName(src)
     const fileName = displayName.replace(/[\\/]+/g, '_')
-    const filePath = await join(await appCacheDir(), fileName)
-    await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()))
-    // file:// URL 按段百分号编码：裸空格/# 会截断 iOS URL(string:) 与 Android Uri.parse 的路径；
-    // 平台端解析后解码回原名，与落盘文件严格一致
+    const filePath = await invoke<string>('write_share_cache_file', { fileName, base64Data })
+    // file:// URL 按段百分号编码：裸空格/# 会截断 iOS URL(string:) 与 Android Uri.parse 的路径
     const fileUrl = 'file://' + filePath.split('/').map(encodeURIComponent).join('/')
-    await shareFile(fileUrl, { mimeType: blob.type || 'image/png', title: fileName })
+    await shareFile(fileUrl, { mimeType, title: fileName })
 }
+
+const blobToBase64 = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
+        reader.onerror = () => reject(reader.error ?? new Error('readAsDataURL failed'))
+        reader.readAsDataURL(blob)
+    })
 
 const shareImage = async (src: string) => {
     const toast = useToast()

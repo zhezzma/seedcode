@@ -73,6 +73,57 @@ fn write_clipboard_html(text: String, html: String) -> Result<(), String> {
     }
 }
 
+// 把分享用图片落盘到 app 缓存的 share/ 子目录，返回绝对路径（供 sharekit shareFile 的 file:// URL）。
+// 不走 fs 插件：其 scope 的 $CACHE 在 Android 解析到外部缓存（getExternalCacheDir），与
+// app_cache_dir（内部 getCacheDir）是两个目录，写必 forbidden path；自家命令不经插件权限面。
+// 必须写 share/ 子目录而非缓存根：sharekit Android 侧会把源文件拷到 cacheDir 根下的同名
+// 临时文件再转 content://，同名同目录会先 truncate 源文件再自拷贝，分享出去的是 0 字节空图。
+// base64 而非字节数组走 IPC：JSON 数组每字节膨胀 3-4 倍，base64 串更省（data URL 本就是 base64）。
+#[tauri::command]
+fn write_share_cache_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    base64_data: String,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    // JS 层已消毒，这里再兜底一次防路径穿越（join 不规范化 ..）
+    let safe_name: String = file_name.replace(['/', '\\'], "_");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|err| err.to_string())?;
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| err.to_string())?
+        .join("share");
+    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    cleanup_stale_share_files(&dir);
+    let path = dir.join(safe_name);
+    std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// 清理 share/ 子目录下超过 7 天的旧分享文件：data URL 图按时间戳命名，每次重开 lightbox
+// 都会落新文件，跨会话无限累积且 Android 系统清理不可靠。失败静默跳过，不阻断分享。
+fn cleanup_stale_share_files(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let is_stale = entry
+            .metadata()
+            .ok()
+            .filter(|meta| meta.is_file())
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(7 * 24 * 60 * 60));
+        if is_stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -166,6 +217,7 @@ pub fn run() {
             write_clipboard_text,
             write_clipboard_image,
             write_clipboard_html,
+            write_share_cache_file,
             notify::notify_connect,
             notify::notify_disconnect,
             notify::notify_send,

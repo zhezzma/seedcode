@@ -158,6 +158,27 @@ test('mobile Tauri path falls back to sharekit native share', () => {
     assert.ok(composableSource.includes("displayName.replace(/[\\\\/]+/g, '_')"), '落盘名需剥离 / 与 \\ 防路径穿越')
     assert.match(composableSource, /filePath\.split\('\/'\)\.map\(encodeURIComponent\)\.join\('\/'\)/)
     assert.match(composableSource, /blob\.type \|\| 'image\/png'/)
+    // 落盘走自家命令绕开 fs 插件 scope（$CACHE 在 Android 与 app 缓存目录字符串不一致，forbidden path）
+    assert.match(composableSource, /invoke<string>\('write_share_cache_file', \{ fileName, base64Data \}\)/)
+    // data URL 直接取 base64 段（聊天图片主源，零转换）；非 base64 data URL 显式报错
+    assert.ok(composableSource.includes('^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s'), 'data URL 直接取 base64 段，兼容中间参数')
+    assert.match(composableSource, /Non-base64 data URL is not supported/)
+    assert.match(composableSource, /blobToBase64\(blob\)/)
+
+    // Rust 侧命令注册 + base64 解码与兜底消毒；必须写 share/ 子目录（隔离 sharekit 自拷贝目标，
+    // 同名同目录会先 truncate 源再自拷贝 → 0 字节空图）+ 按龄清理
+    const librs = readFileSync(path.join(repoRoot, 'src-tauri/src/lib.rs'), 'utf8')
+    assert.match(librs, /fn write_share_cache_file\(/)
+    assert.match(librs, /write_share_cache_file,/, 'invoke_handler 必须注册 write_share_cache_file')
+    assert.match(librs, /general_purpose::STANDARD/)
+    assert.match(librs, /\.join\("share"\)/, '必须写缓存子目录，隔离 sharekit 自拷贝目标')
+    assert.match(librs, /create_dir_all/)
+    assert.match(librs, /cleanup_stale_share_files/)
+
+    // capabilities 撤销 $CACHE（forbidden path 根因），fs 写 scope 仅剩下载目录
+    const capabilities = readFileSync(path.join(repoRoot, 'src-tauri/capabilities/default.json'), 'utf8')
+    assert.doesNotMatch(capabilities, /\$CACHE/)
+
     // Cargo 版本锚定：crates.io 0.4 线仅预发布，裸 "0.4" 会构建期依赖求解失败
     const cargoToml = readFileSync(path.join(repoRoot, 'src-tauri/Cargo.toml'), 'utf8')
     assert.match(cargoToml, /tauri-plugin-sharekit = "0\.4\.0-rc\.7"/)
