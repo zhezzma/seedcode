@@ -152,18 +152,19 @@ test('mobile Tauri path falls back to sharekit native share', () => {
 
     // 显隐条件：Web Share API 或移动 Tauri（Android WebView 不实现 navigator.share）
     assert.match(composableSource, /typeof navigator\.share === 'function'\) \|\|\n    \(isTauri\(\) && isMobileDevice\)/)
-    // 原生分支：response.ok 检查、落盘名消毒防路径穿越、file:// 按段百分号编码、mimeType 兜底
+    // 原生分支：http 图直接 shareText(src) 分享 URL 链接（零 IO 零等待，浏览器可开）；
+    // 仅 base64 嵌入图（无 URL 可言）才落盘走文件分享；file:// 按段百分号编码
     assert.match(composableSource, /import\('@choochmeque\/tauri-plugin-sharekit-api'\)/)
-    assert.match(composableSource, /if \(!response\.ok\) throw new Error\(`HTTP \$\{response\.status\}`\)/)
+    // 锁定分流位置：shareText 必须在 isTauri && isMobileDevice 分支内的 http 判定后、shareImageNative 之前
+    assert.match(composableSource, /if \(isTauri\(\) && isMobileDevice\) \{\n            \/\/ http 图直接分享 URL 链接[\s\S]*?if \(\/\^https\?:\/i\.test\(src\)\) \{[\s\S]*?shareText\(src\)[\s\S]*?shareImageNative\(src\)/)
+    assert.ok(composableSource.includes("const { shareText } = await import('@choochmeque/tauri-plugin-sharekit-api')"), 'http 图必须 shareText 分享链接而非下载转文件')
     assert.ok(composableSource.includes("displayName.replace(/[\\\\/]+/g, '_')"), '落盘名需剥离 / 与 \\ 防路径穿越')
     assert.match(composableSource, /filePath\.split\('\/'\)\.map\(encodeURIComponent\)\.join\('\/'\)/)
-    assert.match(composableSource, /blob\.type \|\| 'image\/png'/)
-    // 落盘走自家命令绕开 fs 插件 scope（$CACHE 在 Android 与 app 缓存目录字符串不一致，forbidden path）
+    // 落盘走自家命令绕开 fs 插件 scope（$CACHE 在 Android 指向外部缓存，forbidden path）
     assert.match(composableSource, /invoke<string>\('write_share_cache_file', \{ fileName, base64Data \}\)/)
-    // data URL 直接取 base64 段（聊天图片主源，零转换）；非 base64 data URL 显式报错
+    // data URL 直接取 base64 段（兼容中间参数）；仅 base64 图进 native 分支
     assert.ok(composableSource.includes('^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s'), 'data URL 直接取 base64 段，兼容中间参数')
     assert.match(composableSource, /Non-base64 data URL is not supported/)
-    assert.match(composableSource, /blobToBase64\(blob\)/)
 
     // Rust 侧命令注册 + base64 解码与兜底消毒；必须写 share/ 子目录（隔离 sharekit 自拷贝目标，
     // 同名同目录会先 truncate 源再自拷贝 → 0 字节空图）+ 按龄清理

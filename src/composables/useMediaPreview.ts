@@ -136,33 +136,23 @@ export const getLightboxImageName = (src: string): string => {
 
 const lightboxImageName = computed(() => getLightboxImageName(lightboxSrc.value))
 
-/** Tauri 移动端原生分享：Android WebView 无 navigator.share。落盘走自家命令
- *  write_share_cache_file（app_cache_dir 的 share/ 子目录）：fs 插件 scope 的 $CACHE
- *  在 Android 解析到外部缓存（getExternalCacheDir），与 app_cache_dir（内部
+/** Tauri 移动端原生分享：仅处理 data URL（base64 嵌入图，没有 URL 可分享，只能发文件）。
+ *  落盘走自家命令 write_share_cache_file（app_cache_dir 的 share/ 子目录）：fs 插件 scope 的
+ *  $CACHE 在 Android 解析到外部缓存（getExternalCacheDir），与 app_cache_dir（内部
  *  getCacheDir）是两个目录，写必 forbidden path，自家命令不经插件权限面；且必须写
  *  子目录——sharekit 会把源文件拷到 cacheDir 根同名临时文件，同名同目录先 truncate
- *  源再自拷贝，分享 0 字节空图。base64 直传：data URL 本就是 base64 零转换；
- *  http 图 fetch 后 FileReader 转。返回的绝对路径拼规范 file:// URL，
+ *  源再自拷贝，分享 0 字节空图。http 图不走这里：上层直接 shareText(src) 分享链接，
+ *  零 IO 零等待，浏览器/聊天目标拿到的都是 URL。返回的绝对路径拼规范 file:// URL，
  *  兼容 iOS URL(string:) 与 Android Uri.parse。 */
 const shareImageNative = async (src: string) => {
     const { shareFile } = await import('@choochmeque/tauri-plugin-sharekit-api')
     const { invoke } = await import('@tauri-apps/api/core')
 
-    let mimeType: string
-    let base64Data: string
-    if (src.startsWith('data:')) {
-        // (?:;[^;,]*)* 兼容中间参数（如 data:image/png;charset=utf-8;base64,...）
-        const match = /^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s.exec(src)
-        if (!match) throw new Error('Non-base64 data URL is not supported')
-        mimeType = match[1] || 'image/png'
-        base64Data = match[2]
-    } else {
-        const response = await fetch(src)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const blob = await response.blob()
-        mimeType = blob.type || 'image/png'
-        base64Data = await blobToBase64(blob)
-    }
+    // (?:;[^;,]*)* 兼容中间参数（如 data:image/png;charset=utf-8;base64,...）
+    const match = /^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s.exec(src)
+    if (!match) throw new Error('Non-base64 data URL is not supported')
+    const mimeType = match[1] || 'image/png'
+    const base64Data = match[2]
 
     // 展示名与分享名共用同一来源（见 getLightboxImageName）；落盘名剥离分隔符防路径穿越
     const displayName = src === lightboxSrc.value ? lightboxImageName.value : getLightboxImageName(src)
@@ -173,14 +163,6 @@ const shareImageNative = async (src: string) => {
     await shareFile(fileUrl, { mimeType, title: fileName })
 }
 
-const blobToBase64 = (blob: Blob) =>
-    new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
-        reader.onerror = () => reject(reader.error ?? new Error('readAsDataURL failed'))
-        reader.readAsDataURL(blob)
-    })
-
 const shareImage = async (src: string) => {
     const toast = useToast()
     // 注意需带 index.ts：本函数会被 node 单测直接执行，node ESM 不支持目录导入（Vite 两者皆可）
@@ -189,6 +171,13 @@ const shareImage = async (src: string) => {
 
     try {
         if (isTauri() && isMobileDevice) {
+            // http 图直接分享 URL 链接：零 IO 零等待，浏览器/聊天目标拿到的都是链接；
+            // 仅 base64 嵌入图（没有 URL 可言）才落盘走文件分享
+            if (/^https?:/i.test(src)) {
+                const { shareText } = await import('@choochmeque/tauri-plugin-sharekit-api')
+                await shareText(src)
+                return
+            }
             await shareImageNative(src)
             return
         }
