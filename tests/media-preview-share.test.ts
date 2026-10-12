@@ -171,6 +171,11 @@ test('zh/en locales both define the share strings', () => {
 
     for (const source of [zh, en]) {
         assert.match(source, /shareImage: '/)
-        assert.match(source, /shareImageFailed: '/)
+        // 失败详情随 toast 透出（{detail}），原生链路任一环失败都靠它定位
+        assert.match(source, /shareImageFailed: '.+\{detail\}'/)
     }
+
+    // 安卓 WebView console 不进 logcat，失败需走 plugin-log 落系统日志
+    assert.match(readFileSync(path.join(repoRoot, 'src/composables/useMediaPreview.ts'), 'utf8'),
+        /import\('@tauri-apps\/plugin-log'\)/)
 })

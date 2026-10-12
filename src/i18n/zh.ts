@@ -643,7 +643,7 @@ export default {
         nextImage: '下一张',
         zoomHint: '双击放大 | 双指缩放',
         shareImage: '分享图片',
-        shareImageFailed: '分享图片失败',
+        shareImageFailed: '分享图片失败: {detail}',
     },
     voice: {
         listening: '我在听...',

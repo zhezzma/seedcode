@@ -167,7 +167,7 @@ const shareImage = async (src: string) => {
     const toast = useToast()
     // 注意需带 index.ts：本函数会被 node 单测直接执行，node ESM 不支持目录导入（Vite 两者皆可）
     const { i18n } = await import('../i18n/index.ts')
-    const _t = (key: string) => i18n.global.t(key)
+    const _t = (key: string, named?: Record<string, unknown>) => named ? i18n.global.t(key, named) : i18n.global.t(key)
 
     try {
         if (isTauri() && isMobileDevice) {
@@ -200,7 +200,13 @@ const shareImage = async (src: string) => {
             return
         }
         console.error('Share image failed:', error)
-        toast.error(_t('chat.shareImageFailed'))
+        // 安卓 WebView 的 console 不进 logcat，走 plugin-log 落系统日志便于真机排查
+        try {
+            const { error: logError } = await import('@tauri-apps/plugin-log')
+            await logError(`[lightbox] share failed: ${message}`)
+        } catch { /* log 插件不可用时忽略（纯 Web 环境） */ }
+        // 失败详情随 toast 透出：原生链路（fetch/写盘/插件 invoke）任一环失败都靠它定位
+        toast.error(_t('chat.shareImageFailed', { detail: message }))
     }
 }
 
