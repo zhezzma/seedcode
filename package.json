@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@choochmeque/tauri-plugin-notifications-api": "^0.5.0-rc.13",
+    "@choochmeque/tauri-plugin-sharekit-api": "^0.4.0-rc.7",
     "@heroicons/vue": "^2.2.0",
     "@noble/ed25519": "^3.0.0",
     "@tailwindcss/vite": "^4.1.18",

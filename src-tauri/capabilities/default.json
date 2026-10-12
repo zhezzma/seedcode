@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "sharekit:default",
     {
       "identifier": "opener:allow-open-path",
       "allow": [
@@ -35,6 +36,9 @@
         },
         {
           "path": "$HOME/Download/*"
+        },
+        {
+          "path": "$CACHE/*"
         }
       ]
     },

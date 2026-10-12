@@ -9,7 +9,9 @@ const repoRoot = path.resolve(testDir, '..')
 const source = readFileSync(path.join(repoRoot, 'src/components/chat/MediaPreviewOverlay.vue'), 'utf8')
 
 test('overlay still keeps the download button visible while gating copy only', () => {
-  assert.match(source, /const isMobileDevice = \/Android\|iPhone\|iPad\|iPod\/i\.test\(navigator\.userAgent\)/)
+  // isMobileDevice 由 useMediaPreview 提供（composable 侧定义），组件只消费
+  assert.match(source, /^    isMobileDevice,$/m)
+  assert.match(source, /= useMediaPreview\(\)/)
   assert.match(source, /<button v-if="!isMobileDevice" @click\.stop="copyImageToClipboard\(lightboxSrc\)"/)
 
   const toolsSectionMatch = source.match(/<!-- Tools -->\s*<div([^>]*)>[\s\S]*?<!-- Close -->/)

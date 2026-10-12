@@ -147,6 +147,24 @@ test('bottom pill always shows the file name alongside the zoom hint', () => {
     assert.match(overlaySource, /<span v-if="imgScale === 1"[^>]*>\{\{\s*t\('chat\.zoomHint'\)\s*\}\}<\/span>/)
 })
 
+test('mobile Tauri path falls back to sharekit native share', () => {
+    const composableSource = readFileSync(path.join(repoRoot, 'src/composables/useMediaPreview.ts'), 'utf8')
+
+    // 显隐条件：Web Share API 或移动 Tauri（Android WebView 不实现 navigator.share）
+    assert.match(composableSource, /typeof navigator\.share === 'function'\) \|\|\n    \(isTauri\(\) && isMobileDevice\)/)
+    // 原生分支：response.ok 检查、落盘名消毒防路径穿越、file:// 按段百分号编码、mimeType 兜底
+    assert.match(composableSource, /import\('@choochmeque\/tauri-plugin-sharekit-api'\)/)
+    assert.match(composableSource, /if \(!response\.ok\) throw new Error\(`HTTP \$\{response\.status\}`\)/)
+    assert.ok(composableSource.includes("displayName.replace(/[\\\\/]+/g, '_')"), '落盘名需剥离 / 与 \\ 防路径穿越')
+    assert.match(composableSource, /filePath\.split\('\/'\)\.map\(encodeURIComponent\)\.join\('\/'\)/)
+    assert.match(composableSource, /blob\.type \|\| 'image\/png'/)
+    // Cargo 版本锚定：crates.io 0.4 线仅预发布，裸 "0.4" 会构建期依赖求解失败
+    const cargoToml = readFileSync(path.join(repoRoot, 'src-tauri/Cargo.toml'), 'utf8')
+    assert.match(cargoToml, /tauri-plugin-sharekit = "0\.4\.0-rc\.7"/)
+    // 原生端取消（Android/iOS 均 reject "Share cancelled"）静默，不弹失败 toast
+    assert.match(composableSource, /\/share cancelled\/i\.test\(message\)/)
+})
+
 test('zh/en locales both define the share strings', () => {
     const zh = readFileSync(path.join(repoRoot, 'src/i18n/zh.ts'), 'utf8')
     const en = readFileSync(path.join(repoRoot, 'src/i18n/en.ts'), 'utf8')

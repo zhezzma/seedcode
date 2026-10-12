@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 
 const { t } = useI18n()
-const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
 const {
     lightboxOpen,
@@ -30,6 +29,7 @@ const {
     downloadImage,
     copyImageToClipboard,
     canShareImage,
+    isMobileDevice,
     lightboxImageName,
     shareImage,
     fileViewerOpen,

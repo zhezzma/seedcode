@@ -36,6 +36,9 @@ url = "2.5"
 # 注意：macOS 原生后端要求从 .app bundle 运行，tauri dev 直接跑裸二进制会初始化失败
 # （fork 报错信息亦建议 dev 场景改用 notify-rust feature）。
 tauri-plugin-notifications = { version = "0.5.0-rc.13", default-features = false }
+# 原生分享面板插件：Android/iOS WebView 不实现 navigator.share，lightbox 图片分享
+# 统一走 sharekit（Android Sharesheet / iOS Share Pane / macOS / Windows）
+tauri-plugin-sharekit = "0.4.0-rc.7" # crates.io 0.4 线仅预发布，裸 "0.4" 按 semver 不匹配，必须显式指定
 tauri-plugin-log = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
