@@ -42,6 +42,20 @@ test('OAuth 授权链接走 openExternalLink，不用 window.open', () => {
     assert.doesNotMatch(view, /window\.open\(/)
 })
 
+test('授权启动等待态：/oauth/start 立即返回 + authStarting 指示 + 新 URL 就绪自动打开', () => {
+    // 等待态单飞（任一启动中全局禁用两处按钮）+ spinner/文案切换
+    assert.match(view, /const authStarting = ref<string \| null>\(null\)/)
+    assert.ok(view.split(':disabled="authStarting !== null"').length >= 3, 'both authorize buttons must disable while any starting')
+    assert.match(view, /authStarting === item\.id \? t\('mcp\.authStarting'\) : t\('mcp\.openAuth'\)/)
+    // 只开本轮新 URL（旧 URL 在新流程 resetOauth 前的快照里仍可见）；超时软提示而非报错
+    assert.match(view, /const previousUrl = servers\.value\.find\(\(s\) => s\.id === item\.id\)\?\.authorizationUrl/)
+    assert.match(view, /if \(url && url !== previousUrl\)/)
+    assert.match(view, /const deadline = Date\.now\(\) \+ 30_000/)
+    assert.match(view, /toast\.info\(t\('mcp\.authOpenSlow'\)\)/)
+    // POST 失败即收场，不空转轮询
+    assert.match(view, /api-client 已弹真实原因 toast，直接收场不空转/)
+})
+
 test('OAuth 回调手动补投：调 /oauth/complete 提交粘贴 URL，并展示应到的回调地址', () => {
     // 端点拼接过 encodeURIComponent，body 形状 { url }
     assert.match(
@@ -189,6 +203,8 @@ test('mcp.* i18n 键 zh/en 双侧齐全', () => {
             'allAgents:',
             'authRequired:',
             'openAuth:',
+            'authStarting:',
+            'authOpenSlow:',
             'confirmDelete:',
             'loadFailed:',
             'authOpenFailed:',

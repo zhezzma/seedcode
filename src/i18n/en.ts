@@ -1121,6 +1121,8 @@ export default {
         enabledHint: 'When enabled, tools are visible to the assigned agents',
         authRequired: 'This server needs OAuth authorization before it can connect.',
         openAuth: 'Open authorization page',
+        authStarting: 'Opening authorization page…',
+        authOpenSlow: 'Authorization is still being prepared in the background (discovery/registration takes a few seconds); reopen from the card later',
         logs: 'Server logs',
         logsHint: 'Diagnostic output of the MCP server process (stderr channel). Normal startup messages such as token refresh also appear here and do not indicate a failure. Real connection errors are shown separately above.',
         authorize: 'Open authorization page',

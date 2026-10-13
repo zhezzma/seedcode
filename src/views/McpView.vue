@@ -274,22 +274,47 @@ function startPolling(serverId: string) {
 
 // ─── OAuth 授权引导 ──────────────────────────────────────────────
 
+/** 正在拉起授权页的服务器 id：发现+动态注册需数秒公网往返，按钮转等待态，URL 就绪即自动打开。 */
+const authStarting = ref<string | null>(null)
+
 async function openAuthorization(item: McpServerItem) {
+    if (authStarting.value !== null) return
+    authStarting.value = item.id
+    // 记录点击前的旧授权 URL：旧 URL 在新流程 resetOauth 完成前的快照里仍可见，
+    // 须等「出现且不同于旧值」才开浏览器（旧链接的 state/端口已死，打开必败）
+    const previousUrl = servers.value.find((s) => s.id === item.id)?.authorizationUrl
     try {
+        // 服务端立即返回（授权流程后台推进，不再同步等待整个流程）
         await apiPost(`/api/mcp/servers/${encodeURIComponent(item.id)}/oauth/start`)
         await loadServers(true)
     } catch {
-        // ignore（可能已有授权 URL 在飞）
-    }
-    const latest = servers.value.find((s) => s.id === item.id)
-    const url = latest?.authorizationUrl
-    if (!url) {
-        toast.error(t('mcp.authOpenFailed'))
+        // POST 失败（404/校验等）：api-client 已弹真实原因 toast，直接收场不空转
+        authStarting.value = null
         return
     }
-    // Tauri WebView 内 window.open 不可靠——用仓内统一的 openExternalLink
-    if (!openExternalLink(url)) toast.error(t('mcp.authOpenFailed'))
-    startPolling(item.id)
+    // 轮询等本轮新授权 URL（发现+动态注册是串行公网请求，给足 30s）：出现即自动打开；
+    // connected 说明免浏览器自动完成（如 token 刷新直接授权成功），提前收场；
+    // 超时按「仍在后台准备」软提示（流程失败本身会投影到卡片错误区）
+    const deadline = Date.now() + 30_000
+    while (alive && Date.now() < deadline) {
+        const latest = servers.value.find((s) => s.id === item.id)
+        const url = latest?.authorizationUrl
+        if (url && url !== previousUrl) {
+            // Tauri WebView 内 window.open 不可靠——用仓内统一的 openExternalLink
+            if (!openExternalLink(url)) toast.error(t('mcp.authOpenFailed'))
+            startPolling(item.id)
+            authStarting.value = null
+            return
+        }
+        if (latest?.state === 'connected') {
+            authStarting.value = null
+            return
+        }
+        await pollServerOnce(item.id)
+        await new Promise((resolve) => setTimeout(resolve, 800))
+    }
+    authStarting.value = null
+    if (alive) toast.info(t('mcp.authOpenSlow'))
 }
 
 // ─── OAuth 回调手动补投（远程浏览器授权）────────────────────
@@ -429,10 +454,11 @@ onUnmounted(() => {
                                 :title="t('mcp.connect')" @click="connect(item)">
                                 <LinkIcon class="w-4 h-4" />
                             </button>
-                            <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现） -->
+                            <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
                             <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs" :title="t('mcp.authorize')"
-                                data-testid="mcp-authorize" @click="openAuthorization(item)">
-                                <KeyIcon class="w-4 h-4" />
+                                data-testid="mcp-authorize" :disabled="authStarting !== null" @click="openAuthorization(item)">
+                                <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
+                                <KeyIcon v-else class="w-4 h-4" />
                             </button>
                             <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected'"
                                 :title="t('mcp.disconnect')" @click="disconnect(item)">
@@ -477,21 +503,23 @@ onUnmounted(() => {
                             <KeyIcon class="w-4 h-4" />
                             <span>{{ t('mcp.authRequired') }}</span>
                             <button class="btn btn-warning btn-xs" data-testid="mcp-oauth-open"
-                                @click="openAuthorization(item)">
-                                {{ t('mcp.openAuth') }}
+                                :disabled="authStarting !== null" @click="openAuthorization(item)">
+                                <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
+                                {{ authStarting === item.id ? t('mcp.authStarting') : t('mcp.openAuth') }}
                             </button>
                         </div>
                         <!-- 远程浏览器场景：127.0.0.1 回调在用户设备打不开——展示应到的回调地址，
-                             粘贴浏览器最终跳转 URL 由后端代为重放 -->
-                        <div v-if="item.oauthRedirectUrl" class="alert alert-warning py-2 text-xs flex-col items-stretch gap-1.5"
+                             粘贴浏览器最终跳转 URL 由后端代为重放。
+                             注意不能用 daisyUI alert：它是 grid-auto-flow:column，多块内容会被排成竖排列 -->
+                        <div v-if="item.oauthRedirectUrl" class="rounded-lg border border-warning/40 bg-warning/10 p-3 space-y-2 text-xs"
                             data-testid="mcp-oauth-paste">
-                            <div class="opacity-70 break-all">
+                            <div class="break-all opacity-80">
                                 {{ t('mcp.authRedirectHint') }} <span class="font-mono">{{ item.oauthRedirectUrl }}</span>
                             </div>
-                            <div class="opacity-60">{{ t('mcp.authPasteHint') }}</div>
+                            <div class="opacity-70">{{ t('mcp.authPasteHint') }}</div>
                             <div class="flex gap-2">
                                 <input v-model="callbackInputs[item.id]" type="text"
-                                    class="input input-bordered input-sm flex-1 font-mono text-xs"
+                                    class="input input-bordered input-sm flex-1 min-w-0 font-mono text-xs"
                                     :placeholder="t('mcp.authPastePlaceholder')" data-testid="mcp-oauth-paste-input"
                                     @keyup.enter="submitCallbackUrl(item)" />
                                 <button class="btn btn-warning btn-sm shrink-0" data-testid="mcp-oauth-paste-submit"
@@ -682,19 +710,19 @@ onUnmounted(() => {
                             </div>
                         </template>
 
-                        <div v-else-if="form.authMode === 'oauth'" class="space-y-3">
+                        <div v-else-if="form.authMode === 'oauth'" class="space-y-3 [&_.label]:whitespace-normal">
                             <div class="alert py-2 text-xs opacity-80">
                                 <span>{{ t('mcp.form.oauthHint') }}</span>
                             </div>
 
-                            <div class="flex gap-2 items-start">
-                                <div class="form-control flex-1">
+                            <div class="flex flex-col sm:flex-row gap-2 items-start">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.oauthClientId')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.oauthClientId" type="text"
                                         class="input input-bordered w-full font-mono" data-testid="mcp-form-oauth-client-id" />
                                 </div>
-                                <div class="form-control flex-1">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.oauthClientSecret')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.oauthClientSecret" type="text"
@@ -710,8 +738,8 @@ onUnmounted(() => {
                                 </div>
                             </div>
 
-                            <div class="flex gap-2 items-start">
-                                <div class="form-control w-40">
+                            <div class="flex flex-col sm:flex-row gap-2 items-start">
+                                <div class="form-control w-full sm:w-40 sm:shrink-0">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.callbackPort')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.callbackPort" type="text" inputmode="numeric"
@@ -720,7 +748,7 @@ onUnmounted(() => {
                                         <span class="label-text-alt text-error">{{ t('mcp.form.callbackPortInvalid') }}</span>
                                     </label>
                                 </div>
-                                <div class="form-control flex-1">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.callbackTimeoutMs')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.callbackTimeoutMs" type="text" inputmode="numeric"
@@ -761,8 +789,8 @@ onUnmounted(() => {
                                     }}</span></label>
                             </div>
 
-                            <div class="flex gap-2 items-start">
-                                <div class="form-control flex-1">
+                            <div class="flex flex-col sm:flex-row gap-2 items-start">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.clientName')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.clientName" type="text" class="input input-bordered w-full"
@@ -770,7 +798,7 @@ onUnmounted(() => {
                                     <label class="label"><span class="label-text-alt opacity-50">{{ t('mcp.form.clientNameHint')
                                         }}</span></label>
                                 </div>
-                                <div class="form-control flex-1">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.clientRegistration')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <div class="join w-full">

@@ -1123,6 +1123,8 @@ export default {
         enabledHint: '启用后该服务器的工具对其可见智能体生效',
         authRequired: '该服务器需要 OAuth 授权后才能连接。',
         openAuth: '打开授权页',
+        authStarting: '正在打开授权页…',
+        authOpenSlow: '授权准备仍在后台进行（发现/注册需数秒），稍后可从卡片重新打开授权页',
         logs: '运行日志',
         logsHint: 'MCP 服务器进程的诊断输出（stderr 通道）。正常启动、读取 token 等信息也会写到这里，不代表出错；真正的连接错误会单独显示在上方的错误区域。',
         authorize: '打开授权页',
