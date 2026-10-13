@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
     emptyForm,
+    errorsForAuthMode,
     errorsForTransportKind,
     formFromItem,
     formToPayload,
@@ -15,7 +16,7 @@ import {
     stateTone,
     validateForm,
 } from '../src/utils/mcp.ts'
-import type { McpServerItem } from '../src/utils/mcp.ts'
+import type { McpFormErrorKey, McpServerItem } from '../src/utils/mcp.ts'
 
 test('splitArgs: 空格/tab/换行切分，引号保留空格', () => {
     assert.deepEqual(splitArgs('npx -y server-fs /ws'), ['npx', '-y', 'server-fs', '/ws'])
@@ -92,6 +93,123 @@ test('formToPayload: http + oauth 模式 → auth 字段且不写 headers', () =
     }
     const payload = formToPayload(form) as any
     assert.deepEqual(payload.transport, { type: 'http', url: 'https://a.b/mcp', auth: { type: 'oauth' } })
+})
+
+test('formToPayload: oauth 细化字段全量序列化（空值省略、dcr 省略、掩码原样回传）', () => {
+    const full = {
+        ...emptyForm(),
+        id: 'r',
+        transportKind: 'http' as const,
+        url: 'https://a.b/mcp',
+        authMode: 'oauth' as const,
+        oauthClientId: ' cid ',
+        oauthClientSecret: '***',
+        callbackPort: '18099',
+        callbackTimeoutMs: '900000',
+        callbackUrl: 'http://127.0.0.1:18099/callback',
+        oauthScope: ' read write ',
+        clientName: 'seed',
+        clientRegistration: 'cimd' as const,
+        authServerMetadataUrl: 'https://idp.example.com/.well-known/oauth',
+    }
+    const payload = formToPayload(full) as any
+    assert.deepEqual(payload.transport.auth, {
+        type: 'oauth',
+        clientId: 'cid',
+        clientSecret: '***', // 掩码原样回传，服务端按同键回退真值
+        callbackPort: 18099,
+        callbackTimeoutMs: 900000,
+        callbackUrl: 'http://127.0.0.1:18099/callback',
+        scope: 'read write',
+        clientName: 'seed',
+        clientRegistration: 'cimd',
+        authServerMetadataUrl: 'https://idp.example.com/.well-known/oauth',
+    })
+})
+
+test('formFromItem: oauth 细化字段回填（数字→字符串、缺省 dcr、掩码回显）', () => {
+    const item: McpServerItem = {
+        id: 'remote',
+        displayName: 'Remote',
+        enabled: true,
+        state: 'disabled',
+        toolCount: 0,
+        toolNames: [],
+        agents: '*',
+        transport: {
+            type: 'http',
+            url: 'https://a.b/mcp',
+            auth: {
+                type: 'oauth',
+                clientId: 'cid',
+                clientSecret: '***',
+                callbackPort: 18099,
+                callbackTimeoutMs: 900000,
+                scope: 'read write',
+                authServerMetadataUrl: 'https://idp.example.com/m',
+            },
+        },
+        updatedAt: '2026-01-01T00:00:00Z',
+    }
+    const form = formFromItem(item)
+    assert.equal(form.authMode, 'oauth')
+    assert.equal(form.oauthClientId, 'cid')
+    assert.equal(form.oauthClientSecret, '***')
+    assert.equal(form.callbackPort, '18099')
+    assert.equal(form.callbackTimeoutMs, '900000')
+    assert.equal(form.oauthScope, 'read write')
+    assert.equal(form.clientRegistration, 'dcr')
+    assert.equal(form.authServerMetadataUrl, 'https://idp.example.com/m')
+})
+
+test('validateForm: oauth 细化字段镜像服务端规则（端口/超时/回调地址/成对/cimd/元数据 URL）', () => {
+    const base = { ...emptyForm(), id: 'r', transportKind: 'http' as const, url: 'https://a.b/mcp', authMode: 'oauth' as const }
+    // 合法全量通过
+    assert.deepEqual(validateForm({
+        ...base,
+        oauthClientId: 'cid',
+        oauthClientSecret: 'sec',
+        callbackPort: '18099',
+        callbackTimeoutMs: '900000',
+        callbackUrl: 'http://127.0.0.1:18099/callback',
+        authServerMetadataUrl: 'https://idp.example.com/m',
+    }), [])
+    // 端口/超时越界
+    assert.ok(validateForm({ ...base, callbackPort: '99999' }).includes('callbackPortInvalid'))
+    assert.ok(validateForm({ ...base, callbackTimeoutMs: '500' }).includes('callbackTimeoutInvalid'))
+    // secret 无 clientId
+    assert.ok(validateForm({ ...base, oauthClientSecret: 's' }).includes('oauthSecretNeedsId'))
+    // 回调地址：https / 外部主机 / 带 query 全拒
+    assert.ok(validateForm({ ...base, callbackUrl: 'https://127.0.0.1:1/callback' }).includes('callbackUrlInvalid'))
+    assert.ok(validateForm({ ...base, callbackUrl: 'http://example.com/callback' }).includes('callbackUrlInvalid'))
+    assert.ok(validateForm({ ...base, callbackUrl: 'http://127.0.0.1:1/callback?x=1' }).includes('callbackUrlInvalid'))
+    // 地址带端口与回调端口字段不一致
+    assert.ok(validateForm({ ...base, callbackUrl: 'http://127.0.0.1:18099/callback', callbackPort: '18100' }).includes('callbackPortMismatch'))
+    // cimd 与 clientId/clientName 冲突；cimd 回调 path 不是 /callback
+    assert.ok(validateForm({ ...base, clientRegistration: 'cimd', oauthClientId: 'cid' }).includes('cimdConflict'))
+    assert.ok(validateForm({ ...base, clientRegistration: 'cimd', clientName: 'seed' }).includes('cimdConflict'))
+    assert.ok(validateForm({ ...base, clientRegistration: 'cimd', callbackUrl: 'http://127.0.0.1:1/cb' }).includes('cimdCallbackUrl'))
+    // 元数据 URL：外部 http 拒、loopback http 过、https 过
+    assert.ok(validateForm({ ...base, authServerMetadataUrl: 'http://idp.example.com/m' }).includes('authMetadataUrlInvalid'))
+    assert.ok(!validateForm({ ...base, authServerMetadataUrl: 'http://127.0.0.1:9/m' }).includes('authMetadataUrlInvalid'))
+    assert.ok(!validateForm({ ...base, authServerMetadataUrl: 'https://idp.example.com/m' }).includes('authMetadataUrlInvalid'))
+})
+
+test('errorsForAuthMode: 切换鉴权方式清理旧模式专属错误键', () => {
+    const keys: McpFormErrorKey[] = ['apiKeyRequired', 'callbackPortInvalid', 'cimdConflict', 'agentsRequired']
+    // → oauth：清 apiKey 错误，保留 oauth 错误
+    assert.deepEqual(errorsForAuthMode({ ...emptyForm(), authMode: 'oauth' }, keys), [
+        'callbackPortInvalid',
+        'cimdConflict',
+        'agentsRequired',
+    ])
+    // → apiKey：清 oauth 错误，保留 apiKey 错误
+    assert.deepEqual(errorsForAuthMode({ ...emptyForm(), authMode: 'apiKey' }, keys), [
+        'apiKeyRequired',
+        'agentsRequired',
+    ])
+    // → none：两侧都清
+    assert.deepEqual(errorsForAuthMode({ ...emptyForm(), authMode: 'none' }, keys), ['agentsRequired'])
 })
 
 test('formToPayload: apiKey 模式 → Authorization header（默认头名可覆盖）', () => {

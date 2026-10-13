@@ -676,8 +676,126 @@ onUnmounted(() => {
                             </div>
                         </template>
 
-                        <div v-else-if="form.authMode === 'oauth'" class="alert text-xs opacity-80">
-                            <span>{{ t('mcp.form.oauthHint') }}</span>
+                        <div v-else-if="form.authMode === 'oauth'" class="space-y-3">
+                            <div class="alert py-2 text-xs opacity-80">
+                                <span>{{ t('mcp.form.oauthHint') }}</span>
+                            </div>
+
+                            <div class="flex gap-2 items-start">
+                                <div class="form-control flex-1">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.oauthClientId')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <input v-model="form.oauthClientId" type="text"
+                                        class="input input-bordered w-full font-mono" data-testid="mcp-form-oauth-client-id" />
+                                </div>
+                                <div class="form-control flex-1">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.oauthClientSecret')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <input v-model="form.oauthClientSecret" type="text"
+                                        class="input input-bordered w-full font-mono"
+                                        data-testid="mcp-form-oauth-client-secret" />
+                                    <label v-if="form.oauthClientSecret === SECRET_MASK" class="label">
+                                        <span class="label-text-alt text-base-content/60">{{ t('mcp.form.oauthSecretMaskedHint')
+                                            }}</span>
+                                    </label>
+                                    <label v-if="formErrors.includes('oauthSecretNeedsId')" class="label">
+                                        <span class="label-text-alt text-error">{{ t('mcp.form.oauthSecretNeedsId') }}</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="flex gap-2 items-start">
+                                <div class="form-control w-40">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.callbackPort')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <input v-model="form.callbackPort" type="text" inputmode="numeric"
+                                        class="input input-bordered w-full font-mono" data-testid="mcp-form-callback-port" />
+                                    <label v-if="formErrors.includes('callbackPortInvalid')" class="label">
+                                        <span class="label-text-alt text-error">{{ t('mcp.form.callbackPortInvalid') }}</span>
+                                    </label>
+                                </div>
+                                <div class="form-control flex-1">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.callbackTimeoutMs')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <input v-model="form.callbackTimeoutMs" type="text" inputmode="numeric"
+                                        class="input input-bordered w-full font-mono" placeholder="900000"
+                                        data-testid="mcp-form-callback-timeout" />
+                                    <label v-if="formErrors.includes('callbackTimeoutInvalid')" class="label">
+                                        <span class="label-text-alt text-error">{{ t('mcp.form.callbackTimeoutInvalid') }}</span>
+                                    </label>
+                                    <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                        t('mcp.form.callbackTimeoutMsHint') }}</span></label>
+                                </div>
+                            </div>
+
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.callbackUrl')
+                                    }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <input v-model="form.callbackUrl" type="text" class="input input-bordered w-full font-mono"
+                                    placeholder="http://127.0.0.1:18099/callback" data-testid="mcp-form-callback-url" />
+                                <label v-if="formErrors.includes('callbackUrlInvalid')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.callbackUrlInvalid') }}</span>
+                                </label>
+                                <label v-else-if="formErrors.includes('callbackPortMismatch')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.callbackPortMismatch') }}</span>
+                                </label>
+                                <label v-else-if="formErrors.includes('cimdCallbackUrl')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.cimdCallbackUrl') }}</span>
+                                </label>
+                                <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                    t('mcp.form.callbackUrlHint') }}</span></label>
+                            </div>
+
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.oauthScope')
+                                    }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <input v-model="form.oauthScope" type="text" class="input input-bordered w-full font-mono"
+                                    placeholder="read write" data-testid="mcp-form-oauth-scope" />
+                                <label class="label"><span class="label-text-alt opacity-50">{{ t('mcp.form.oauthScopeHint')
+                                    }}</span></label>
+                            </div>
+
+                            <div class="flex gap-2 items-start">
+                                <div class="form-control flex-1">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.clientName')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <input v-model="form.clientName" type="text" class="input input-bordered w-full"
+                                        data-testid="mcp-form-client-name" />
+                                    <label class="label"><span class="label-text-alt opacity-50">{{ t('mcp.form.clientNameHint')
+                                        }}</span></label>
+                                </div>
+                                <div class="form-control flex-1">
+                                    <label class="label"><span class="label-text">{{ t('mcp.form.clientRegistration')
+                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                    <div class="join w-full">
+                                        <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
+                                            :aria-label="t('mcp.form.clientRegistrationDcr')"
+                                            :checked="form.clientRegistration === 'dcr'"
+                                            @click="form.clientRegistration = 'dcr'" />
+                                        <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
+                                            :aria-label="t('mcp.form.clientRegistrationCimd')"
+                                            :checked="form.clientRegistration === 'cimd'"
+                                            @click="form.clientRegistration = 'cimd'" />
+                                    </div>
+                                    <label v-if="formErrors.includes('cimdConflict')" class="label">
+                                        <span class="label-text-alt text-error">{{ t('mcp.form.cimdConflict') }}</span>
+                                    </label>
+                                    <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                        t('mcp.form.cimdHint') }}</span></label>
+                                </div>
+                            </div>
+
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.authServerMetadataUrl')
+                                    }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <input v-model="form.authServerMetadataUrl" type="text"
+                                    class="input input-bordered w-full font-mono" data-testid="mcp-form-auth-metadata-url" />
+                                <label v-if="formErrors.includes('authMetadataUrlInvalid')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.authMetadataUrlInvalid') }}</span>
+                                </label>
+                                <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                    t('mcp.form.authServerMetadataUrlHint') }}</span></label>
+                            </div>
                         </div>
                     </template>
 

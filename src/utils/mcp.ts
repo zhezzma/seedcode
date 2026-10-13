@@ -31,11 +31,25 @@ export interface McpStdioTransport {
     inheritEnv?: boolean
 }
 
+/** 与服务端 McpOAuthSettings 同形（auth 细化字段全可选）。 */
+export interface McpOAuthSettingsWire {
+    type: 'oauth'
+    clientId?: string
+    clientSecret?: string
+    callbackPort?: number
+    callbackUrl?: string
+    callbackTimeoutMs?: number
+    scope?: string
+    clientName?: string
+    clientRegistration?: 'dcr' | 'cimd'
+    authServerMetadataUrl?: string
+}
+
 export interface McpHttpTransport {
     type: 'http'
     url: string
     headers?: Record<string, string>
-    auth?: { type: 'oauth' }
+    auth?: McpOAuthSettingsWire
 }
 
 export type McpTransportConfig = McpStdioTransport | McpHttpTransport
@@ -81,6 +95,16 @@ export interface McpServerForm {
     apiKeyHeader: string
     apiKeyValue: string
     extraHeaders: McpHeaderPair[]
+    /** OAuth 细化字段（覆盖服务端 McpOAuthSettings 全部可选项；空 = 不下发，用服务端缺省）。 */
+    oauthClientId: string
+    oauthClientSecret: string
+    callbackPort: string
+    callbackTimeoutMs: string
+    callbackUrl: string
+    oauthScope: string
+    clientName: string
+    clientRegistration: 'dcr' | 'cimd'
+    authServerMetadataUrl: string
     agentsAll: boolean
     agents: string[]
     extraTransport: Record<string, unknown>
@@ -102,6 +126,12 @@ export function mcpToolName(serverId: string, toolName: string): string {
 const KNOWN_STDIO_KEYS = new Set(['type', 'command', 'args', 'cwd'])
 const KNOWN_HTTP_KEYS = new Set(['type', 'url', 'headers', 'auth'])
 
+/** URL.hostname 对 IPv6 返回带方括号形态（[::1]）——归一后判定 loopback（与服务端 isLoopbackHostname 同规）。 */
+function isLoopbackHostname(hostname: string): boolean {
+    const host = hostname.replace(/^\[|\]$/g, '')
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
 /** OAuth 型 http 服务器（卡片常驻「授权」按钮的判定）。 */
 export function isOAuthServer(item: McpServerItem): boolean {
     return item.transport.type === 'http' && item.transport.auth?.type === 'oauth'
@@ -121,6 +151,15 @@ export function emptyForm(): McpServerForm {
         apiKeyHeader: 'Authorization',
         apiKeyValue: '',
         extraHeaders: [],
+        oauthClientId: '',
+        oauthClientSecret: '',
+        callbackPort: '',
+        callbackTimeoutMs: '',
+        callbackUrl: '',
+        oauthScope: '',
+        clientName: '',
+        clientRegistration: 'dcr',
+        authServerMetadataUrl: '',
         agentsAll: true,
         agents: [],
         extraTransport: {},
@@ -164,6 +203,8 @@ export function formFromItem(item: McpServerItem): McpServerForm {
         : entries.length > 0 ? 'apiKey' : 'none'
     const [firstKey, firstValue] = entries[0] ?? ['Authorization', '']
     const extraHeaders: McpHeaderPair[] = entries.slice(1).map(([key, value]) => ({ key, value }))
+    // auth 细化字段回填（clientSecret 回显服务端脱敏的 ***，不修改则原样回传、服务端按同键回退真值）
+    const auth = item.transport.auth
     return {
         ...base,
         ...common,
@@ -173,6 +214,15 @@ export function formFromItem(item: McpServerItem): McpServerForm {
         apiKeyHeader: firstKey,
         apiKeyValue: firstValue,
         extraHeaders,
+        oauthClientId: auth?.clientId ?? '',
+        oauthClientSecret: auth?.clientSecret ?? '',
+        callbackPort: auth?.callbackPort !== undefined ? String(auth.callbackPort) : '',
+        callbackTimeoutMs: auth?.callbackTimeoutMs !== undefined ? String(auth.callbackTimeoutMs) : '',
+        callbackUrl: auth?.callbackUrl ?? '',
+        oauthScope: auth?.scope ?? '',
+        clientName: auth?.clientName ?? '',
+        clientRegistration: auth?.clientRegistration ?? 'dcr',
+        authServerMetadataUrl: auth?.authServerMetadataUrl ?? '',
         extraTransport: extra,
     }
 }
@@ -188,8 +238,28 @@ export function formToPayload(form: McpServerForm): Record<string, unknown> {
             ...(form.cwd.trim() !== '' ? { cwd: form.cwd.trim() } : {}),
         }
     } else if (form.authMode === 'oauth') {
-        // OAuth 与静态 headers 互斥（服务端校验同样拒绝双写）
-        transport = { type: 'http', url: form.url.trim(), auth: { type: 'oauth' as const } }
+        // OAuth 与静态 headers 互斥（服务端校验同样拒绝双写）；细化字段空值不下发（= 用服务端缺省），
+        // dcr 是服务端缺省不下发；clientSecret 的 *** 掩码原样回传，服务端按同键回退真值
+        const callbackPort = form.callbackPort.trim()
+        const callbackTimeoutMs = form.callbackTimeoutMs.trim()
+        const callbackUrl = form.callbackUrl.trim()
+        const metadataUrl = form.authServerMetadataUrl.trim()
+        transport = {
+            type: 'http',
+            url: form.url.trim(),
+            auth: {
+                type: 'oauth' as const,
+                ...(form.oauthClientId.trim() !== '' ? { clientId: form.oauthClientId.trim() } : {}),
+                ...(form.oauthClientSecret.trim() !== '' ? { clientSecret: form.oauthClientSecret.trim() } : {}),
+                ...(callbackPort !== '' ? { callbackPort: Number(callbackPort) } : {}),
+                ...(callbackTimeoutMs !== '' ? { callbackTimeoutMs: Number(callbackTimeoutMs) } : {}),
+                ...(callbackUrl !== '' ? { callbackUrl } : {}),
+                ...(form.oauthScope.trim() !== '' ? { scope: form.oauthScope.trim() } : {}),
+                ...(form.clientName.trim() !== '' ? { clientName: form.clientName.trim() } : {}),
+                ...(form.clientRegistration === 'cimd' ? { clientRegistration: 'cimd' as const } : {}),
+                ...(metadataUrl !== '' ? { authServerMetadataUrl: metadataUrl } : {}),
+            },
+        }
     } else {
         const headers: Record<string, string> = {}
         if (form.authMode === 'apiKey' && form.apiKeyValue.trim() !== '') {
@@ -257,6 +327,14 @@ export type McpFormErrorKey =
     | 'urlRequired'
     | 'urlInvalid'
     | 'apiKeyRequired'
+    | 'callbackPortInvalid'
+    | 'callbackTimeoutInvalid'
+    | 'callbackUrlInvalid'
+    | 'callbackPortMismatch'
+    | 'oauthSecretNeedsId'
+    | 'cimdConflict'
+    | 'cimdCallbackUrl'
+    | 'authMetadataUrlInvalid'
     | 'agentsRequired'
 
 /** 表单校验：返回全部错误 key（空数组 = 通过）。 */
@@ -272,6 +350,50 @@ export function validateForm(form: McpServerForm): McpFormErrorKey[] {
         if (url === '') errors.push('urlRequired')
         else if (!URL.canParse(url)) errors.push('urlInvalid')
         if (form.authMode === 'apiKey' && form.apiKeyValue.trim() === '') errors.push('apiKeyRequired')
+        if (form.authMode === 'oauth') {
+            // 数值/URL 字段与后端 validateOAuthSettings 同界，前端提前拦（服务端仍是最终裁判）
+            const port = form.callbackPort.trim()
+            if (port !== '' && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) {
+                errors.push('callbackPortInvalid')
+            }
+            const timeout = form.callbackTimeoutMs.trim()
+            if (timeout !== '' && (!/^\d+$/.test(timeout) || Number(timeout) < 1000 || Number(timeout) > 3_600_000)) {
+                errors.push('callbackTimeoutInvalid')
+            }
+            if (form.oauthClientSecret.trim() !== '' && form.oauthClientId.trim() === '') errors.push('oauthSecretNeedsId')
+            const callbackUrl = form.callbackUrl.trim()
+            if (callbackUrl !== '') {
+                const parsed = URL.canParse(callbackUrl) ? new URL(callbackUrl) : undefined
+                const host = parsed?.hostname ?? ''
+                if (!parsed || parsed.protocol !== 'http:' || !isLoopbackHostname(host) || parsed.search || parsed.hash) {
+                    errors.push('callbackUrlInvalid')
+                } else {
+                    if (parsed.port && port !== '' && parsed.port !== port) errors.push('callbackPortMismatch')
+                    if (
+                        form.clientRegistration === 'cimd' &&
+                        (host.replace(/^\[|\]$/g, '') === '::1' || parsed.pathname !== '/callback')
+                    ) {
+                        errors.push('cimdCallbackUrl')
+                    }
+                }
+            }
+            if (
+                form.clientRegistration === 'cimd' &&
+                (form.oauthClientId.trim() !== '' || form.clientName.trim() !== '')
+            ) {
+                errors.push('cimdConflict')
+            }
+            const metadataUrl = form.authServerMetadataUrl.trim()
+            if (metadataUrl !== '') {
+                const meta = URL.canParse(metadataUrl) ? new URL(metadataUrl) : undefined
+                if (
+                    !meta ||
+                    !(meta.protocol === 'https:' || (meta.protocol === 'http:' && isLoopbackHostname(meta.hostname)))
+                ) {
+                    errors.push('authMetadataUrlInvalid')
+                }
+            }
+        }
     }
     if (!form.agentsAll && form.agents.length === 0) errors.push('agentsRequired')
     return errors
@@ -284,9 +406,23 @@ export function errorsForTransportKind(form: McpServerForm, previous: McpFormErr
     return previous.filter((key) => !stale.includes(key))
 }
 
-/** 切换鉴权方式后重算表单错误（离开 apiKey 时清掉其专属错误键）。 */
+/** OAuth 模式专属错误键（切到其他鉴权方式时清理）。 */
+const OAUTH_ERROR_KEYS = new Set<McpFormErrorKey>([
+    'callbackPortInvalid',
+    'callbackTimeoutInvalid',
+    'callbackUrlInvalid',
+    'callbackPortMismatch',
+    'oauthSecretNeedsId',
+    'cimdConflict',
+    'cimdCallbackUrl',
+    'authMetadataUrlInvalid',
+])
+
+/** 切换鉴权方式后重算表单错误（离开旧模式时清掉其专属错误键）。 */
 export function errorsForAuthMode(form: McpServerForm, previous: McpFormErrorKey[]): McpFormErrorKey[] {
-    return form.authMode === 'apiKey' ? previous : previous.filter((key) => key !== 'apiKeyRequired')
+    if (form.authMode === 'apiKey') return previous.filter((key) => !OAUTH_ERROR_KEYS.has(key))
+    if (form.authMode === 'oauth') return previous.filter((key) => key !== 'apiKeyRequired')
+    return previous.filter((key) => key !== 'apiKeyRequired' && !OAUTH_ERROR_KEYS.has(key))
 }
 
 /** 状态点颜色（UI 直接查表）。 */

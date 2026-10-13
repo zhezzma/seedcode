@@ -60,6 +60,62 @@ test('OAuth 回调手动补投：调 /oauth/complete 提交粘贴 URL，并展�
     assert.match(view, /startPolling\(item\.id\)/)
 })
 
+test('MCP 编辑表单覆盖全部 OAuth 细化字段（McpOAuthSettings 全选项表单化）', () => {
+    for (const testid of [
+        'mcp-form-oauth-client-id',
+        'mcp-form-oauth-client-secret',
+        'mcp-form-callback-port',
+        'mcp-form-callback-timeout',
+        'mcp-form-callback-url',
+        'mcp-form-oauth-scope',
+        'mcp-form-client-name',
+        'mcp-form-auth-metadata-url',
+    ]) {
+        assert.ok(view.includes(`data-testid="${testid}"`), `missing ${testid}`)
+    }
+    // dcr/cimd 单选在位
+    assert.match(view, /form\.clientRegistration = 'cimd'/)
+    assert.match(view, /form\.clientRegistration = 'dcr'/)
+    // 序列化覆盖全部字段（不再是裸 { type: 'oauth' }，也不再依赖 extraAuth 透传）
+    assert.match(utils, /clientRegistration: 'cimd' as const/)
+    assert.match(utils, /\{ callbackUrl \}/)
+    assert.doesNotMatch(utils, /extraAuth/)
+})
+
+test('OAuth 表单 i18n 键 zh/en 双侧齐全（细化字段与错误文案）', () => {
+    for (const source of [zh, en]) {
+        for (const key of [
+            'oauthClientId:',
+            'oauthClientSecret:',
+            'oauthSecretMaskedHint:',
+            'callbackPort:',
+            'callbackPortInvalid:',
+            'callbackTimeoutMs:',
+            'callbackTimeoutInvalid:',
+            'callbackTimeoutMsHint:',
+            'callbackUrl:',
+            'callbackUrlInvalid:',
+            'callbackPortMismatch:',
+            'callbackUrlHint:',
+            'oauthScope:',
+            'oauthScopeHint:',
+            'clientName:',
+            'clientNameHint:',
+            'clientRegistration:',
+            'clientRegistrationDcr:',
+            'clientRegistrationCimd:',
+            'cimdConflict:',
+            'cimdCallbackUrl:',
+            'cimdHint:',
+            'authServerMetadataUrl:',
+            'authMetadataUrlInvalid:',
+            'authServerMetadataUrlHint:',
+        ]) {
+            assert.ok(source.includes(key), `missing mcp.form.${key}`)
+        }
+    }
+})
+
 test('手动补投 i18n 键 zh/en 双侧齐全', () => {
     for (const source of [zh, en]) {
         for (const key of [
