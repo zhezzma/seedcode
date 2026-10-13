@@ -53,11 +53,12 @@ test('OAuth 回调手动补投：调 /oauth/complete 提交粘贴 URL，并展�
     assert.match(view, /v-if="item\.oauthRedirectUrl"/)
     assert.match(view, /data-testid="mcp-oauth-paste-input"/)
     assert.match(view, /data-testid="mcp-oauth-paste-submit"/)
-    // 提交按服务器隔离 + 在飞防重；成功后停止轮询，未收敛继续轮询
+    // 提交按服务器隔离 + 全局单飞防重；成功后停止轮询，未收敛继续轮询（锚定 else 分支，
+    // openAuthorization 里同款 startPolling 调用不应满足此断言）
     assert.match(view, /const callbackInputs = ref<Record<string, string>>\(\{\}\)/)
     assert.match(view, /const submittingCallback = ref<string \| null>\(null\)/)
-    assert.match(view, /server\?\.state === 'connected'[\s\S]{0,200}stopPolling\(item\.id\)/)
-    assert.match(view, /startPolling\(item\.id\)/)
+    assert.match(view, /startPolling\(item\.id\)\s*\n\s*toast\.info\(t\('mcp\.authSubmitted'\)\)/)
+    assert.match(view, /:disabled="submittingCallback !== null \|\|/)
 })
 
 test('MCP 编辑表单覆盖全部 OAuth 细化字段（McpOAuthSettings 全选项表单化）', () => {

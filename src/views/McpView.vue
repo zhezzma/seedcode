@@ -183,6 +183,8 @@ async function removeServer(item: McpServerItem) {
     try {
         await apiDelete(`/api/mcp/servers/${encodeURIComponent(item.id)}`)
         stopPolling(item.id)
+        // 残留的粘贴输入可能含授权 code：随服务器一并清理
+        delete callbackInputs.value[item.id]
         toast.success(t('mcp.toast.deleted'))
         await loadServers(true)
     } catch {
@@ -256,6 +258,9 @@ async function pollServerOnce(serverId: string) {
         const index = servers.value.findIndex((s) => s.id === serverId)
         if (index >= 0) servers.value[index] = item
         if (!needsAuthPolling(item) && !needsConvergePolling(item)) stopPolling(serverId)
+        // 非收敛快照但定时器已被并发停掉（如补投成功后 stopPolling 与本在飞请求的竞态）：
+        // 重启轮询自愈，否则卡片滞留假 auth_required 且无人再拉新状态
+        else startPolling(serverId)
     } catch {
         stopPolling(serverId)
     }
@@ -481,15 +486,16 @@ onUnmounted(() => {
                         <div v-if="item.oauthRedirectUrl" class="alert alert-warning py-2 text-xs flex-col items-stretch gap-1.5"
                             data-testid="mcp-oauth-paste">
                             <div class="opacity-70 break-all">
-                                {{ t('mcp.authRedirectHint') }}：<span class="font-mono">{{ item.oauthRedirectUrl }}</span>
+                                {{ t('mcp.authRedirectHint') }} <span class="font-mono">{{ item.oauthRedirectUrl }}</span>
                             </div>
                             <div class="opacity-60">{{ t('mcp.authPasteHint') }}</div>
                             <div class="flex gap-2">
                                 <input v-model="callbackInputs[item.id]" type="text"
                                     class="input input-bordered input-sm flex-1 font-mono text-xs"
-                                    :placeholder="t('mcp.authPastePlaceholder')" data-testid="mcp-oauth-paste-input" />
+                                    :placeholder="t('mcp.authPastePlaceholder')" data-testid="mcp-oauth-paste-input"
+                                    @keyup.enter="submitCallbackUrl(item)" />
                                 <button class="btn btn-warning btn-sm shrink-0" data-testid="mcp-oauth-paste-submit"
-                                    :disabled="submittingCallback === item.id || (callbackInputs[item.id] ?? '').trim() === ''"
+                                    :disabled="submittingCallback !== null || (callbackInputs[item.id] ?? '').trim() === ''"
                                     @click="submitCallbackUrl(item)">
                                     <span v-if="submittingCallback === item.id" class="loading loading-spinner loading-xs"></span>
                                     {{ t('mcp.authPasteSubmit') }}

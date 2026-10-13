@@ -183,8 +183,9 @@ test('validateForm: oauth 细化字段镜像服务端规则（端口/超时/回�
     assert.ok(validateForm({ ...base, callbackUrl: 'https://127.0.0.1:1/callback' }).includes('callbackUrlInvalid'))
     assert.ok(validateForm({ ...base, callbackUrl: 'http://example.com/callback' }).includes('callbackUrlInvalid'))
     assert.ok(validateForm({ ...base, callbackUrl: 'http://127.0.0.1:1/callback?x=1' }).includes('callbackUrlInvalid'))
-    // 地址带端口与回调端口字段不一致
+    // 地址带端口与回调端口字段不一致（数值比较镜像服务端，前导零不误报）
     assert.ok(validateForm({ ...base, callbackUrl: 'http://127.0.0.1:18099/callback', callbackPort: '18100' }).includes('callbackPortMismatch'))
+    assert.ok(!validateForm({ ...base, callbackUrl: 'http://127.0.0.1:18099/callback', callbackPort: '018099' }).includes('callbackPortMismatch'))
     // cimd 与 clientId/clientName 冲突；cimd 回调 path 不是 /callback
     assert.ok(validateForm({ ...base, clientRegistration: 'cimd', oauthClientId: 'cid' }).includes('cimdConflict'))
     assert.ok(validateForm({ ...base, clientRegistration: 'cimd', clientName: 'seed' }).includes('cimdConflict'))

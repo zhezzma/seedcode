@@ -368,7 +368,8 @@ export function validateForm(form: McpServerForm): McpFormErrorKey[] {
                 if (!parsed || parsed.protocol !== 'http:' || !isLoopbackHostname(host) || parsed.search || parsed.hash) {
                     errors.push('callbackUrlInvalid')
                 } else {
-                    if (parsed.port && port !== '' && parsed.port !== port) errors.push('callbackPortMismatch')
+                    // 数值比较镜像服务端（Number(url.port) !== callbackPort），前导零不误报
+                    if (parsed.port && port !== '' && Number(parsed.port) !== Number(port)) errors.push('callbackPortMismatch')
                     if (
                         form.clientRegistration === 'cimd' &&
                         (host.replace(/^\[|\]$/g, '') === '::1' || parsed.pathname !== '/callback')

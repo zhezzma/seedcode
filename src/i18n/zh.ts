@@ -1128,7 +1128,7 @@ export default {
         authorize: '打开授权页',
         loadFailed: 'MCP 服务器列表加载失败',
         authOpenFailed: '授权链接不可用，请稍后重试或重新连接服务器',
-        authRedirectHint: '回调地址（浏览器完成登录后应最终跳转到这里）',
+        authRedirectHint: '回调地址（浏览器完成登录后应最终跳转到这里）：',
         authPasteHint: '在手机等远程设备上完成登录时，这个 127.0.0.1 回调页打不开：把浏览器地址栏的完整跳转地址粘到下面，由服务端代为完成授权。',
         authPastePlaceholder: 'http://127.0.0.1:…/callback?code=…&state=…',
         authPasteSubmit: '补投回调',
