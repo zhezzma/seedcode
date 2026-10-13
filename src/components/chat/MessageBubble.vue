@@ -459,7 +459,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
         <!-- 极简风：AI 气泡用 primary(白)5% tint——比页面背景微亮一档的软气泡，
              避免用 chat-bubble 默认的 base-300 底色(亮灰大卡片，与内部思考块/工具行叠灰阶补丁)。
              用户消息 10% tint、AI 5%，主次分明；尾巴(::before)随 background-color:inherit 同色 -->
-        <div v-else class="max-w-full md:max-w-[90%] w-full relative px-2" :class="isLight ? 'chat-bubble' : ''">
+        <div v-else class="max-w-full md:max-w-[90%] w-full relative " :class="isLight ? 'chat-bubble px-2'  : 'pt-2'">
             <div class="whitespace-normal flex flex-col gap-2 ">
                 <!-- Loading indicator if empty or just waiting -->
                 <div v-if="isLoading && (!message.blocks.length || (message.blocks.length === 1 && message.blocks[0].type === 'text' && !message.blocks[0].text))"
