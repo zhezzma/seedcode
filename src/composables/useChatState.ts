@@ -5,7 +5,7 @@ import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
 import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, markLiveStreamBlock, replayPartialBlocks, remountLocalReceipts, shouldAttachSession, type LocalReceipt } from '../utils/chat-attach'
-import { blocksTextSignature, hasAssistantTextContent, solidifyAssistantContent } from '../utils/chat-solidify'
+import { blocksTextSignature, hasAssistantTextContent, hasAssistantToolCalls, solidifyAssistantContent } from '../utils/chat-solidify'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
 import { isAbortErrorMessage } from '../utils/chatMessageRender'
 import { type KnownApi } from './useModelsState'
@@ -750,7 +750,7 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             const aborted = isAbortErrorMessage(rawError)
             const hasError = !!rawError && !aborted
 
-            if (stream.length > 0 || hasError || hasAssistantTextContent(endMsg)) {
+            if (stream.length > 0 || hasError || hasAssistantTextContent(endMsg) || hasAssistantToolCalls(endMsg)) {
                 // 用服务端权威全文修补本地拼接流后再固化（补首/末批与跨块首批；
                 // 超短回复整条只在 message_end 落位的也经此上屏），详见 chat-solidify.ts。
                 // 仅 assistant 消息提供权威全文；user 回显 / 旧服务端路径原样固化。

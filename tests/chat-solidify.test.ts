@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
     blocksTextSignature,
     hasAssistantTextContent,
+    hasAssistantToolCalls,
     solidifyAssistantContent,
 } from '../src/utils/chat-solidify.ts'
 import { markContentIndex, replayPartialBlocks } from '../src/utils/chat-attach.ts'
@@ -309,4 +311,122 @@ test('replayPartialBlocks：非数组/空 content 返回空数组', () => {
     assert.deepEqual(replayPartialBlocks(undefined), [])
     assert.deepEqual(replayPartialBlocks('字符串 content'), [])
     assert.deepEqual(replayPartialBlocks([]), [])
+})
+
+// ── 未注册工具调用：无 tool_execution_start，卡只能经 message_end 全文上屏 ──
+
+test('hasAssistantToolCalls：assistant 携带 toolCall 块即真（固化门禁扩展）', () => {
+    assert.equal(hasAssistantToolCalls({ role: 'assistant', content: [{ type: 'toolCall', id: 'x', name: 'ghost_tool' }] }), true)
+    assert.equal(hasAssistantToolCalls({ role: 'assistant', content: [{ type: 'text', text: '我来试试' }] }), false)
+    assert.equal(hasAssistantToolCalls({ role: 'assistant', content: [] }), false)
+    assert.equal(hasAssistantToolCalls({ role: 'user', content: [{ type: 'toolCall', id: 'x' }] }), false)
+    assert.equal(hasAssistantToolCalls(undefined), false)
+})
+
+test('空流 + toolCall-only 消息：按内容下标采用权威 toolCall 块（live 可见，不等全量刷新）', () => {
+    const solidified = solidifyAssistantContent(
+        [],
+        [{ type: 'toolCall', id: 'call-1', name: 'ghost_tool', arguments: { q: 1 } }],
+        { isToolCallInHistory: neverInHistory },
+    )
+    assert.deepEqual(solidified, [{ type: 'toolCall', id: 'call-1', name: 'ghost_tool', arguments: { q: 1 } }])
+})
+
+test('流内已有同 id 卡：不重复采用权威 toolCall（正常工具路径不变）', () => {
+    const stream = [{ type: 'toolCall', id: 'call-1', name: 'bash', toolState: 'calling' }]
+    const solidified = solidifyAssistantContent(
+        stream,
+        [
+            { type: 'text', text: '查一下' },
+            { type: 'toolCall', id: 'call-1', name: 'bash', arguments: { cmd: 'ls' } },
+        ],
+        { isToolCallInHistory: neverInHistory },
+    )
+    // 流内卡保留（运行态），权威 toolCall 不再进入
+    const calls = solidified.filter((b: any) => b.type === 'toolCall')
+    assert.equal(calls.length, 1)
+    assert.equal((calls[0] as any).toolState, 'calling')
+})
+
+test('历史已有同 id 卡：权威 toolCall 不采用（防双卡）', () => {
+    const solidified = solidifyAssistantContent(
+        [],
+        [{ type: 'toolCall', id: 'call-1', name: 'ghost_tool', arguments: {} }],
+        { isToolCallInHistory: (id) => id === 'call-1' },
+    )
+    assert.deepEqual(solidified, [])
+})
+
+test('重放一致性：工具卡不参与签名——首固化与重放侧签名一致（防重放窗口命中）', () => {
+    // 首次：流内卡 + 权威文本 → [卡, text(权威)]（卡锚定流首）
+    const first = solidifyAssistantContent(
+        [{ type: 'toolCall', id: 'call-1', name: 'bash', toolState: 'calling' }],
+        [
+            { type: 'text', text: '查一下' },
+            { type: 'toolCall', id: 'call-1', name: 'bash', arguments: {} },
+        ],
+        { isToolCallInHistory: neverInHistory },
+    )
+    // 重放：同 id 卡已在历史 → 流内卡被滤、权威 toolCall 被拒采 → [text]
+    const replay = solidifyAssistantContent(
+        [],
+        [
+            { type: 'text', text: '查一下' },
+            { type: 'toolCall', id: 'call-1', name: 'bash', arguments: {} },
+        ],
+        { isToolCallInHistory: (id) => id === 'call-1' },
+    )
+    // 签名必须一致：useChatState 防重放窗口据此拦截重复固化（纳入 toolCall 会失配 → 重复气泡）
+    assert.equal(blocksTextSignature(first), blocksTextSignature(replay))
+    assert.equal(blocksTextSignature(first), 'text:\u0000查一下')
+})
+
+test('混合流排序：流内已知卡锚定流首，未知权威块按内容下标落位（交错作者序）', () => {
+    const solidified = solidifyAssistantContent(
+        [{ type: 'toolCall', id: 'k1', name: 'bash', toolState: 'calling' }],
+        [
+            { type: 'toolCall', id: 'g1', name: 'ghost', arguments: {} },
+            { type: 'text', text: '正文' },
+            { type: 'toolCall', id: 'k1', name: 'bash', arguments: {} },
+        ],
+        { isToolCallInHistory: neverInHistory },
+    )
+    // 流内卡无 _ci 锚 -1（既有语义：保持在文本前）；g1/text 按权威下标 0/1
+    assert.deepEqual(
+        solidified.map((b: any) => (b.type === 'toolCall' ? b.id : b.text)),
+        ['k1', 'g1', '正文'],
+    )
+})
+
+test('同一条消息多个未注册调用：按内容下标顺序落位', () => {
+    const solidified = solidifyAssistantContent(
+        [],
+        [
+            { type: 'toolCall', id: 'g1', name: 'ghost_a', arguments: {} },
+            { type: 'text', text: '中间文本' },
+            { type: 'toolCall', id: 'g2', name: 'ghost_b', arguments: {} },
+        ],
+        { isToolCallInHistory: neverInHistory },
+    )
+    assert.deepEqual(
+        solidified.map((b: any) => (b.type === 'toolCall' ? b.id : b.text)),
+        ['g1', '中间文本', 'g2'],
+    )
+})
+
+test('toolCall-only 消息重放：历史已有同 id 卡 → 固化产物为空（外层 length 门禁拦住不追加）', () => {
+    const content = [{ type: 'toolCall', id: 'g1', name: 'ghost', arguments: {} }]
+    const first = solidifyAssistantContent([], content, { isToolCallInHistory: neverInHistory })
+    assert.equal(first.length, 1)
+    const replay = solidifyAssistantContent([], content, { isToolCallInHistory: (id) => id === 'g1' })
+    assert.deepEqual(replay, [])
+})
+
+test('useChatState 固化门禁已接 hasAssistantToolCalls（源码接线；readFileSync 相对 CWD=仓根运行）', () => {
+    const source = readFileSync('src/composables/useChatState.ts', 'utf8')
+    assert.match(
+        source,
+        /stream\.length > 0 \|\| hasError \|\| hasAssistantTextContent\(endMsg\) \|\| hasAssistantToolCalls\(endMsg\)/,
+        'solidify gate must include hasAssistantToolCalls',
+    )
 })

@@ -1,7 +1,7 @@
 /**
  * assistant message_end 固化：用服务端权威全文修补本地 delta 拼接流。
  *
- * 背景（pi-durable 流式语义，与 seedagent channel-wechat monitor 的 observe 修法同构）：
+ * 背景（pi-durable 流式语义；message_end 权威全文修补与 seedagent channel-wechat monitor 的 observe 模式同构）：
  * - 首批文本只随 message_start 的 partial 消息落位；
  * - thinking→text 等跨块切换的首批随 message_update 的 text_start/thinking_start
  *   落位（服务端已投影为同 contentIndex 的首批 delta，seedagent 8c6f1b06）；
@@ -45,7 +45,17 @@ export function hasAssistantTextContent(message: { role?: string; content?: unkn
     })
 }
 
-/** 块序列的文本签名（类型前缀 + 分隔符拼接，防拼接歧义）：重复 message_end 防重放比对用 */
+/** assistant 消息是否携带 toolCall 块（无文本前导的工具调用消息的固化门禁：
+ *  未注册工具等「slot 直接以 done 创建」的调用没有 tool_execution_start，流内永远
+ *  没有它的卡，只能经 message_end 全文上屏，否则失败要等回合结束全量刷新才可见）。 */
+export function hasAssistantToolCalls(message: { role?: string; content?: unknown } | undefined | null): boolean {
+    if (message?.role !== 'assistant' || !Array.isArray(message.content)) return false
+    return message.content.some((block: any) => block?.type === 'toolCall' && (block.id || block.toolCallId))
+}
+
+/** 块序列的文本签名（类型前缀 + 分隔符拼接，防拼接歧义）：重复 message_end 防重放比对用。
+ *  仅文本/思考块：比对两侧（首固化 vs 重放）都经同一 solidify 管道，工具卡在重放侧
+ *  恒被历史过滤——纳入 toolCall 反而两侧失配（重放误放行 → 重复气泡，回归见测试）。 */
 export function blocksTextSignature(blocks: unknown): string {
     if (!Array.isArray(blocks)) return ''
     return blocks
@@ -75,13 +85,25 @@ export function solidifyAssistantContent(
         return !deps.isToolCallInHistory(block.id)
     })
 
+    // 流内工具卡 id 集合：权威 toolCall 与流内卡同 id 时以卡为准（带运行态字段），不重复采用
+    const streamCallIds = new Set<unknown>(
+        dedupedStream.filter((block: any) => block?.type === 'toolCall' && block.id).map((block: any) => block.id),
+    )
     const authByCi = new Map<number, any>()
     if (Array.isArray(messageContent)) {
         messageContent.forEach((block: any, index: number) => {
-            if (!isTextLike(block)) return
-            const text = block.type === 'text' ? block.text : block.thinking
-            if (typeof text !== 'string' || !text) return
-            authByCi.set(index, block) // 末尾统一深拷贝，此处存引用即可
+            if (isTextLike(block)) {
+                const text = block.type === 'text' ? block.text : block.thinking
+                if (typeof text !== 'string' || !text) return
+                authByCi.set(index, block) // 末尾统一深拷贝，此处存引用即可
+                return
+            }
+            // 权威 toolCall 块：流内无同 id 卡（无 tool_execution_start 的调用）且历史无
+            // 同 id 卡（防双卡）时按内容下标采用——否则该调用在 live 流中永远不可见
+            const callKey = block?.type === 'toolCall' ? (block.id || block.toolCallId) : undefined
+            if (callKey && !streamCallIds.has(block.id) && !deps.isToolCallInHistory(block.id)) {
+                authByCi.set(index, block)
+            }
         })
     }
     // 兼容门禁：混有无 _ci 本地文本块的流（旧服务端 delta 无 contentIndex；亦含
