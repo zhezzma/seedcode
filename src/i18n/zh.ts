@@ -1156,6 +1156,7 @@ export default {
             extraHeaders: '自定义 Header',
             addHeader: '添加 Header',
             apiKeyRequired: '请填写 Header 值',
+            apiKeyMaskedHint: '密钥已脱敏显示为 ***：不改直接保存则保留原值；要替换请输入新值（自定义 Header 同理）。',
             oauthHint: '保存并连接后，若服务器要求授权，点卡片上的钥匙图标打开授权页；在浏览器完成授权后自动重连，凭据已持久化，无需重复授权。',
             agentsError: '请至少选择一个智能体，或勾选“全部智能体”',
             enabled: '启用',

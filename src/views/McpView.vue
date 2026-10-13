@@ -40,6 +40,7 @@ import {
     needsAuthPolling,
     needsConvergePolling,
     POLL_INTERVAL_MS,
+    SECRET_MASK,
     stateTone,
     validateForm,
     type McpFormErrorKey,
@@ -372,7 +373,8 @@ onUnmounted(() => {
                             </div>
                         </div>
                         <div class="flex items-center gap-1">
-                            <span class="badge badge-ghost badge-sm mr-1">{{ stateLabel(item.state) }}</span>
+                            <!-- 状态文字徽标仅 sm+ 屏显示：移动端卡片头部空间不足会把中文挤成竖排；状态由左侧彩色圆点承载 -->
+                            <span class="badge badge-ghost badge-sm mr-1 hidden sm:inline-flex">{{ stateLabel(item.state) }}</span>
                             <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
                                 <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
                                     @change="toggleEnabled(item)" />
@@ -567,6 +569,10 @@ onUnmounted(() => {
                                         data-testid="mcp-form-api-key" />
                                 </div>
                             </div>
+                            <label v-if="form.apiKeyValue === SECRET_MASK || form.extraHeaders.some(h => h.value === SECRET_MASK)"
+                                class="label">
+                                <span class="label-text-alt text-base-content/60">{{ t('mcp.form.apiKeyMaskedHint') }}</span>
+                            </label>
                             <label v-if="formErrors.includes('apiKeyRequired')" class="label">
                                 <span class="label-text-alt text-error">{{ t('mcp.form.apiKeyRequired') }}</span>
                             </label>

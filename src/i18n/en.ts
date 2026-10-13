@@ -1154,6 +1154,7 @@ export default {
             extraHeaders: 'Custom headers',
             addHeader: 'Add header',
             apiKeyRequired: 'Header value is required',
+            apiKeyMaskedHint: 'Secrets are masked as ***: save as-is to keep the stored value, or type a new one to replace it (applies to custom headers too).',
             oauthHint: 'After saving and connecting, use the key icon on the card to open the authorization page if the server requires it. It reconnects automatically once you authorize in the browser; credentials are persisted.',
             agentsError: 'Pick at least one agent, or check "All agents"',
             enabled: 'Enabled',

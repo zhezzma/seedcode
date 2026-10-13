@@ -79,6 +79,16 @@ test('编辑保存保留未知传输字段（env/inheritEnv/headers 不丢）', 
     assert.match(utils, /transport: \{ \.\.\.form\.extraTransport, \.\.\.transport \}/)
 })
 
+test('编辑表单掩码提示：SECRET_MASK 从 utils/mcp 契约导入，掩码态提示双 locale 有文案', () => {
+    // 掩码常量必须单点定义在 utils/mcp（wire 契约），视图内不得重复定义
+    assert.match(utils, /export const SECRET_MASK = '\*\*\*'/)
+    assert.match(view, /SECRET_MASK/)
+    assert.doesNotMatch(view, /const SECRET_MASK/)
+    assert.match(view, /v-if="form\.apiKeyValue === SECRET_MASK/)
+    assert.match(zh, /apiKeyMaskedHint: '[^']*\*\*\*/)
+    assert.match(en, /apiKeyMaskedHint: '[^']*\*\*\*/)
+})
+
 test('mcp.* i18n 键 zh/en 双侧齐全', () => {
     for (const rel of ['src/i18n/zh.ts', 'src/i18n/en.ts']) {
         const source = rel.endsWith('zh.ts') ? zh : en

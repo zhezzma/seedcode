@@ -8,6 +8,12 @@
 
 export type McpTransportKind = 'stdio' | 'http'
 
+/**
+ * 与服务端约定的 secret 脱敏掩码：列表/状态接口不回传真值（值为 ***），
+ * 编辑回传后服务端按同键回退既有真值；前端仅用于识别掩码态，不做业务判断。
+ */
+export const SECRET_MASK = '***'
+
 export type McpServerState =
     | 'disabled'
     | 'connecting'
