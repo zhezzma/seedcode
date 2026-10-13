@@ -42,6 +42,39 @@ test('OAuth 授权链接走 openExternalLink，不用 window.open', () => {
     assert.doesNotMatch(view, /window\.open\(/)
 })
 
+test('OAuth 回调手动补投：调 /oauth/complete 提交粘贴 URL，并展示应到的回调地址', () => {
+    // 端点拼接过 encodeURIComponent，body 形状 { url }
+    assert.match(
+        view,
+        /apiPost<\{ server\?: McpServerItem \}>\(\s*`\/api\/mcp\/servers\/\$\{encodeURIComponent\(item\.id\)\}\/oauth\/complete`,\s*\{ url \},/,
+        'must POST { url } to /oauth/complete with encoded id',
+    )
+    // 粘贴面仅在拿到回调地址投影时出现（用户据此核对应等什么样的跳转地址）
+    assert.match(view, /v-if="item\.oauthRedirectUrl"/)
+    assert.match(view, /data-testid="mcp-oauth-paste-input"/)
+    assert.match(view, /data-testid="mcp-oauth-paste-submit"/)
+    // 提交按服务器隔离 + 在飞防重；成功后停止轮询，未收敛继续轮询
+    assert.match(view, /const callbackInputs = ref<Record<string, string>>\(\{\}\)/)
+    assert.match(view, /const submittingCallback = ref<string \| null>\(null\)/)
+    assert.match(view, /server\?\.state === 'connected'[\s\S]{0,200}stopPolling\(item\.id\)/)
+    assert.match(view, /startPolling\(item\.id\)/)
+})
+
+test('手动补投 i18n 键 zh/en 双侧齐全', () => {
+    for (const source of [zh, en]) {
+        for (const key of [
+            'authRedirectHint:',
+            'authPasteHint:',
+            'authPastePlaceholder:',
+            'authPasteSubmit:',
+            'authCompleted:',
+            'authSubmitted:',
+        ]) {
+            assert.ok(source.includes(key), `missing mcp.${key}`)
+        }
+    }
+})
+
 test('删除确认走 useConfirm，不用原生 window.confirm', () => {
     assert.match(view, /import \{ useConfirm \} from '\.\.\/composables\/useConfirm'/)
     assert.match(view, /const \{ confirm \} = useConfirm\(\)/)

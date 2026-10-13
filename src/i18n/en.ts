@@ -1126,6 +1126,12 @@ export default {
         authorize: 'Open authorization page',
         loadFailed: 'Failed to load MCP servers',
         authOpenFailed: 'Authorization link unavailable. Retry or reconnect the server.',
+        authRedirectHint: 'Callback address (the browser should finally land here after sign-in)',
+        authPasteHint: 'Signed in on a remote device where 127.0.0.1 cannot open? Paste the full landing URL from the browser address bar below and the server will complete the authorization for you.',
+        authPastePlaceholder: 'http://127.0.0.1:…/callback?code=…&state=…',
+        authPasteSubmit: 'Submit callback',
+        authCompleted: 'OAuth authorization completed, connected',
+        authSubmitted: 'Callback accepted, waiting for the connection to settle…',
         confirmDelete: 'Delete MCP server "{name}"?',
         toast: {
             created: 'MCP server created',

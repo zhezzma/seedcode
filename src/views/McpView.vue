@@ -287,6 +287,44 @@ async function openAuthorization(item: McpServerItem) {
     startPolling(item.id)
 }
 
+// ─── OAuth 回调手动补投（远程浏览器授权）────────────────────
+
+/** 按服务器隔离的粘贴输入（同一页可能多台 auth_required）。 */
+const callbackInputs = ref<Record<string, string>>({})
+/** 提交中的服务器 id（同一时间只允许一次在飞，避免重复补投）。 */
+const submittingCallback = ref<string | null>(null)
+
+async function submitCallbackUrl(item: McpServerItem) {
+    const url = (callbackInputs.value[item.id] ?? '').trim()
+    if (url === '' || submittingCallback.value !== null) return
+    submittingCallback.value = item.id
+    try {
+        // 后端对本地 callback server 重放粘贴 URL；返回补投后的服务器状态快照
+        const res = await apiPost<{ server?: McpServerItem }>(
+            `/api/mcp/servers/${encodeURIComponent(item.id)}/oauth/complete`,
+            { url },
+        )
+        callbackInputs.value[item.id] = ''
+        const server = res?.server
+        if (server) {
+            const index = servers.value.findIndex((s) => s.id === item.id)
+            if (index >= 0) servers.value[index] = server
+        }
+        if (server?.state === 'connected') {
+            stopPolling(item.id)
+            toast.success(t('mcp.authCompleted'))
+        } else {
+            // token 交换/自动重连仍在途：轮询收敛
+            startPolling(item.id)
+            toast.info(t('mcp.authSubmitted'))
+        }
+    } catch {
+        // api-client 已弹 toast（服务端返回的拒绝原因可直接阅读）
+    } finally {
+        submittingCallback.value = null
+    }
+}
+
 // ─── 工具抽屉 ────────────────────────────────────────────────────
 
 async function openTools(item: McpServerItem) {
@@ -429,13 +467,35 @@ onUnmounted(() => {
                         </span>
                     </div>
 
-                    <div v-if="item.state === 'auth_required'" class="alert alert-warning py-2 text-xs">
-                        <KeyIcon class="w-4 h-4" />
-                        <span>{{ t('mcp.authRequired') }}</span>
-                        <button class="btn btn-warning btn-xs" data-testid="mcp-oauth-open"
-                            @click="openAuthorization(item)">
-                            {{ t('mcp.openAuth') }}
-                        </button>
+                    <div v-if="item.state === 'auth_required'" class="space-y-2">
+                        <div class="alert alert-warning py-2 text-xs">
+                            <KeyIcon class="w-4 h-4" />
+                            <span>{{ t('mcp.authRequired') }}</span>
+                            <button class="btn btn-warning btn-xs" data-testid="mcp-oauth-open"
+                                @click="openAuthorization(item)">
+                                {{ t('mcp.openAuth') }}
+                            </button>
+                        </div>
+                        <!-- 远程浏览器场景：127.0.0.1 回调在用户设备打不开——展示应到的回调地址，
+                             粘贴浏览器最终跳转 URL 由后端代为重放 -->
+                        <div v-if="item.oauthRedirectUrl" class="alert alert-warning py-2 text-xs flex-col items-stretch gap-1.5"
+                            data-testid="mcp-oauth-paste">
+                            <div class="opacity-70 break-all">
+                                {{ t('mcp.authRedirectHint') }}：<span class="font-mono">{{ item.oauthRedirectUrl }}</span>
+                            </div>
+                            <div class="opacity-60">{{ t('mcp.authPasteHint') }}</div>
+                            <div class="flex gap-2">
+                                <input v-model="callbackInputs[item.id]" type="text"
+                                    class="input input-bordered input-sm flex-1 font-mono text-xs"
+                                    :placeholder="t('mcp.authPastePlaceholder')" data-testid="mcp-oauth-paste-input" />
+                                <button class="btn btn-warning btn-sm shrink-0" data-testid="mcp-oauth-paste-submit"
+                                    :disabled="submittingCallback === item.id || (callbackInputs[item.id] ?? '').trim() === ''"
+                                    @click="submitCallbackUrl(item)">
+                                    <span v-if="submittingCallback === item.id" class="loading loading-spinner loading-xs"></span>
+                                    {{ t('mcp.authPasteSubmit') }}
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div v-if="item.lastError" class="alert alert-error py-2 text-xs" data-testid="mcp-last-error">
