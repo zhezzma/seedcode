@@ -317,3 +317,47 @@ export function needsConvergePolling(item: McpServerItem): boolean {
 }
 
 export const POLL_INTERVAL_MS = 1500
+
+/** stderr 日志行的分级结果（UI 据此着色）。 */
+export type McpLogLevel = 'error' | 'warn' | 'info'
+
+export interface McpLogLine {
+    text: string
+    level: McpLogLevel
+}
+
+// 关键词命中即分级；中文不受 \b 词边界影响，直接子串匹配。
+// 注意顺序：先 error 后 warn（"warning: ... error ..." 场景以更严重者计）。
+const LOG_LEVEL_PATTERNS: Array<{ level: McpLogLevel; re: RegExp }> = [
+    { level: 'error', re: /error|failed|failure|fatal|exception|失败|错误|异常/i },
+    { level: 'warn', re: /warn|警告/i },
+]
+
+/**
+ * 把 stderr 尾部原始文本按行分级。stderr 是进程的诊断通道，
+ * 正常启动信息（如 token 刷新）也会混在里面——只有命中关键字的行才值得用户注意。
+ */
+export function parseLogLines(tail: string): McpLogLine[] {
+    return tail.split('\n').map((text) => {
+        let level: McpLogLevel = 'info'
+        for (const { level: l, re } of LOG_LEVEL_PATTERNS) {
+            if (re.test(text)) {
+                level = l
+                break
+            }
+        }
+        return { text, level }
+    })
+}
+
+/** 行分级 → tailwind 类（UI 直接查表，与 stateTone 同风格）。 */
+export function logLineClass(level: McpLogLevel): string {
+    switch (level) {
+        case 'error':
+            return 'text-error'
+        case 'warn':
+            return 'text-warning'
+        default:
+            return 'opacity-70'
+    }
+}

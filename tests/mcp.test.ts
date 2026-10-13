@@ -6,9 +6,11 @@ import {
     errorsForTransportKind,
     formFromItem,
     formToPayload,
+    logLineClass,
     mcpToolName,
     needsAuthPolling,
     needsConvergePolling,
+    parseLogLines,
     splitArgs,
     stateTone,
     validateForm,
@@ -241,4 +243,34 @@ test('stateTone / needsAuthPolling / needsConvergePolling', () => {
     assert.equal(needsAuthPolling({ ...base, state: 'connected' }), false)
     assert.equal(needsConvergePolling({ ...base, state: 'connecting' }), true)
     assert.equal(needsConvergePolling({ ...base, state: 'connected' }), false)
+})
+
+test('parseLogLines: 正常启动/取 token 行为 info，命中关键字的行才升级', () => {
+    const tail = [
+        'Token file path: /root/.config/microsoft-todo-mcp/tokens.json',
+        'getAccessToken called',
+        'Successfully retrieved valid token',
+        'Token refresh failed: invalid_grant',
+        'warn: backoff retry scheduled',
+        '',
+    ].join('\n')
+
+    const lines = parseLogLines(tail)
+    assert.deepEqual(
+        lines.map((l) => l.level),
+        ['info', 'info', 'info', 'error', 'warn', 'info'],
+    )
+    assert.equal(lines[0].text, 'Token file path: /root/.config/microsoft-todo-mcp/tokens.json')
+})
+
+test('parseLogLines: 中文关键字与空输入', () => {
+    assert.equal(parseLogLines('连接失败：ECONNREFUSED')[0].level, 'error')
+    assert.equal(parseLogLines('收到警告信号')[0].level, 'warn')
+    assert.deepEqual(parseLogLines(''), [{ text: '', level: 'info' }])
+})
+
+test('logLineClass: error→text-error, warn→text-warning, info→弱化', () => {
+    assert.equal(logLineClass('error'), 'text-error')
+    assert.equal(logLineClass('warn'), 'text-warning')
+    assert.equal(logLineClass('info'), 'opacity-70')
 })

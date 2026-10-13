@@ -23,6 +23,7 @@ import {
     XMarkIcon,
     ExclamationTriangleIcon,
     KeyIcon,
+    InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 import ViewHeader from '../components/ViewHeader.vue'
 import { apiGet, apiPost, apiPut, apiDelete } from '../composables/api-client'
@@ -36,9 +37,11 @@ import {
     formFromItem,
     formToPayload,
     isOAuthServer,
+    logLineClass,
     mcpToolName,
     needsAuthPolling,
     needsConvergePolling,
+    parseLogLines,
     POLL_INTERVAL_MS,
     SECRET_MASK,
     stateTone,
@@ -440,9 +443,24 @@ onUnmounted(() => {
                         <span class="break-all">{{ item.lastError }}</span>
                     </div>
 
-                    <details v-if="item.stderrTail" class="text-xs opacity-60">
-                        <summary class="cursor-pointer">{{ t('mcp.stderr') }}</summary>
-                        <pre class="whitespace-pre-wrap break-all mt-1 max-h-40 overflow-auto">{{ item.stderrTail }}</pre>
+                    <details v-if="item.stderrTail" class="text-xs" data-testid="mcp-stderr">
+                        <summary
+                            class="cursor-pointer flex items-center gap-1 opacity-70 hover:opacity-100"
+                            :title="t('mcp.logsHint')"
+                        >
+                            <InformationCircleIcon class="w-4 h-4" />
+                            <span>{{ t('mcp.logs') }}</span>
+                            <span class="badge badge-ghost badge-xs">{{ parseLogLines(item.stderrTail).length }}</span>
+                        </summary>
+                        <div
+                            class="mt-1 max-h-40 overflow-auto rounded bg-base-200/60 p-2 font-mono leading-5 whitespace-pre-wrap break-all"
+                        >
+                            <div
+                                v-for="(line, i) in parseLogLines(item.stderrTail)"
+                                :key="i"
+                                :class="logLineClass(line.level)"
+                            >{{ line.text || ' ' }}</div>
+                        </div>
                     </details>
                 </div>
             </div>
