@@ -1190,34 +1190,32 @@ onUnmounted(() => {
                                     }}</span></label>
                             </div>
 
-                            <div class="flex flex-col sm:flex-row gap-2 items-start">
-                                <div class="form-control w-full sm:flex-1">
-                                    <label class="label"><span class="label-text">{{ t('mcp.form.clientName')
-                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
-                                    <input v-model="form.clientName" type="text" class="input input-bordered w-full"
-                                        data-testid="mcp-form-client-name" />
-                                    <label class="label"><span class="label-text-alt opacity-50">{{ t('mcp.form.clientNameHint')
-                                        }}</span></label>
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.clientName')
+                                    }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <input v-model="form.clientName" type="text" class="input input-bordered w-full"
+                                    data-testid="mcp-form-client-name" />
+                                <label class="label"><span class="label-text-alt opacity-50">{{ t('mcp.form.clientNameHint')
+                                    }}</span></label>
+                            </div>
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.clientRegistration')
+                                    }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <div class="join w-full">
+                                    <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
+                                        :aria-label="t('mcp.form.clientRegistrationDcr')"
+                                        :checked="form.clientRegistration === 'dcr'"
+                                        @click="form.clientRegistration = 'dcr'" />
+                                    <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
+                                        :aria-label="t('mcp.form.clientRegistrationCimd')"
+                                        :checked="form.clientRegistration === 'cimd'"
+                                        @click="form.clientRegistration = 'cimd'" />
                                 </div>
-                                <div class="form-control w-full sm:flex-1">
-                                    <label class="label"><span class="label-text">{{ t('mcp.form.clientRegistration')
-                                        }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
-                                    <div class="join w-full">
-                                        <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
-                                            :aria-label="t('mcp.form.clientRegistrationDcr')"
-                                            :checked="form.clientRegistration === 'dcr'"
-                                            @click="form.clientRegistration = 'dcr'" />
-                                        <input class="join-item btn flex-1" type="radio" name="mcp-oauth-reg"
-                                            :aria-label="t('mcp.form.clientRegistrationCimd')"
-                                            :checked="form.clientRegistration === 'cimd'"
-                                            @click="form.clientRegistration = 'cimd'" />
-                                    </div>
-                                    <label v-if="formErrors.includes('cimdConflict')" class="label">
-                                        <span class="label-text-alt text-error">{{ t('mcp.form.cimdConflict') }}</span>
-                                    </label>
-                                    <label v-else class="label"><span class="label-text-alt opacity-50">{{
-                                        t('mcp.form.cimdHint') }}</span></label>
-                                </div>
+                                <label v-if="formErrors.includes('cimdConflict')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.cimdConflict') }}</span>
+                                </label>
+                                <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                    t('mcp.form.cimdHint') }}</span></label>
                             </div>
 
                             <div class="form-control w-full">
