@@ -178,6 +178,13 @@ test('ViewHeader 传 wc-pad 与 is-main-page（悬浮窗键避让 + 移动端返
     assert.match(view, /<ViewHeader :title="t\('mcp\.title'\)" is-main-page wc-pad>/)
 })
 
+test('操作区按语义分组且以组为原子换行（移动端孤行居中，不出现单按钮吊右）', () => {
+    // 外层容器：移动端居中 + sm+ 右对齐；组间距（gap-x-3）大于组内间距（组内 gap-1）
+    assert.match(view, /flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:justify-end/)
+    // 恰好三个语义组（连接控制/内容浏览/管理），各为独立 flex 原子，换行不会从组中间断开
+    assert.equal(view.match(/<div class="flex items-center gap-1">/g)?.length, 3)
+})
+
 test('编辑保存保留未知传输字段（env/inheritEnv/headers 不丢）', () => {
     assert.match(utils, /extraTransport: Record<string, unknown>/)
     assert.match(utils, /transport: \{ \.\.\.form\.extraTransport, \.\.\.transport \}/)

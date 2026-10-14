@@ -710,7 +710,7 @@ onUnmounted(() => {
                 :data-testid="`mcp-server-${item.id}`">
                 <div class="card-body p-4 gap-3">
                     <!-- 卡片头：窄屏纵排（名称与按钮各自成行），sm+ 恢复左右布局——
-                         10+ 个操作按钮在手机上横排必然溢出，换行是最小侵入解 -->
+                         10+ 个操作按钮在手机上横排必然溢出，换行以组为单位（见操作区注释） -->
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="toneClass[stateTone(item.state)]"
@@ -721,60 +721,72 @@ onUnmounted(() => {
                                 <div class="text-xs opacity-50 font-mono truncate">{{ item.id }}</div>
                             </div>
                         </div>
-                        <div class="flex flex-wrap items-center gap-1 justify-end">
+                        <!-- 操作区按语义分三组：连接控制 / 内容浏览 / 管理。组是原子 flex 项，
+                             flex-wrap 只会整组换行不会从组中间断开；移动端居中让换行行像有意排版，
+                             而不是单个按钮孤零零吊在右下角；sm+ 恢复右对齐 -->
+                        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:justify-end">
                             <!-- 状态文字徽标仅 sm+ 屏显示：移动端卡片头部空间不足会把中文挤成竖排；状态由左侧彩色圆点承载 -->
                             <span class="badge badge-ghost badge-sm mr-1 hidden sm:inline-flex">{{ stateLabel(item.state) }}</span>
-                            <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
-                                <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
-                                    @change="toggleEnabled(item)" />
-                            </label>
-                            <button class="btn btn-ghost btn-xs" :disabled="item.state === 'connected'"
-                                :title="t('mcp.connect')" @click="connect(item)">
-                                <LinkIcon class="w-4 h-4" />
-                            </button>
-                            <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
-                            <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs" :title="t('mcp.authorize')"
-                                data-testid="mcp-authorize" :disabled="authStarting !== null" @click="openAuthorization(item)">
-                                <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
-                                <KeyIcon v-else class="w-4 h-4" />
-                            </button>
-                            <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected'"
-                                :title="t('mcp.disconnect')" @click="disconnect(item)">
-                                <LinkSlashIcon class="w-4 h-4" />
-                            </button>
-                            <!-- 协议层探活 -->
-                            <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected' || pinging !== null"
-                                :title="t('mcp.ping')" data-testid="mcp-ping" @click="pingServer(item)">
-                                <span v-if="pinging === item.id" class="loading loading-spinner loading-xs"></span>
-                                <SignalIcon v-else class="w-4 h-4" />
-                            </button>
-                            <!-- 资源浏览器（能力位门控） -->
-                            <button v-if="item.capabilities?.resources" class="btn btn-ghost btn-xs"
-                                :title="t('mcp.resources')" data-testid="mcp-resources" @click="openResources(item)">
-                                <DocumentDuplicateIcon class="w-4 h-4" />
-                            </button>
-                            <!-- 提示模板（能力位门控） -->
-                            <button v-if="item.capabilities?.prompts" class="btn btn-ghost btn-xs"
-                                :title="t('mcp.prompts')" data-testid="mcp-prompts" @click="openPrompts(item)">
-                                <ChatBubbleLeftRightIcon class="w-4 h-4" />
-                            </button>
-                            <!-- OAuth 凭据失效（仅 OAuth 型） -->
-                            <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs text-warning"
-                                :title="t('mcp.invalidate')" data-testid="mcp-invalidate"
-                                :disabled="invalidating !== null" @click="invalidateCredentials(item)">
-                                <span v-if="invalidating === item.id" class="loading loading-spinner loading-xs"></span>
-                                <ClipboardDocumentCheckIcon v-else class="w-4 h-4" />
-                            </button>
-                            <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
-                                <WrenchScrewdriverIcon class="w-4 h-4" />
-                            </button>
-                            <button class="btn btn-ghost btn-xs" :title="t('common.edit')" @click="openEdit(item)">
-                                <PencilSquareIcon class="w-4 h-4" />
-                            </button>
-                            <button class="btn btn-ghost btn-xs text-error" :title="t('common.delete')"
-                                @click="removeServer(item)">
-                                <TrashIcon class="w-4 h-4" />
-                            </button>
+                            <!-- 连接控制：启用开关 / 连接 / 授权 / 断开 / 探活 -->
+                            <div class="flex items-center gap-1">
+                                <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
+                                    <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
+                                        @change="toggleEnabled(item)" />
+                                </label>
+                                <button class="btn btn-ghost btn-xs" :disabled="item.state === 'connected'"
+                                    :title="t('mcp.connect')" @click="connect(item)">
+                                    <LinkIcon class="w-4 h-4" />
+                                </button>
+                                <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
+                                <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs" :title="t('mcp.authorize')"
+                                    data-testid="mcp-authorize" :disabled="authStarting !== null" @click="openAuthorization(item)">
+                                    <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
+                                    <KeyIcon v-else class="w-4 h-4" />
+                                </button>
+                                <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected'"
+                                    :title="t('mcp.disconnect')" @click="disconnect(item)">
+                                    <LinkSlashIcon class="w-4 h-4" />
+                                </button>
+                                <!-- 协议层探活 -->
+                                <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected' || pinging !== null"
+                                    :title="t('mcp.ping')" data-testid="mcp-ping" @click="pingServer(item)">
+                                    <span v-if="pinging === item.id" class="loading loading-spinner loading-xs"></span>
+                                    <SignalIcon v-else class="w-4 h-4" />
+                                </button>
+                            </div>
+                            <!-- 内容浏览：资源 / 提示（能力位门控）/ 工具 -->
+                            <div class="flex items-center gap-1">
+                                <!-- 资源浏览器（能力位门控） -->
+                                <button v-if="item.capabilities?.resources" class="btn btn-ghost btn-xs"
+                                    :title="t('mcp.resources')" data-testid="mcp-resources" @click="openResources(item)">
+                                    <DocumentDuplicateIcon class="w-4 h-4" />
+                                </button>
+                                <!-- 提示模板（能力位门控） -->
+                                <button v-if="item.capabilities?.prompts" class="btn btn-ghost btn-xs"
+                                    :title="t('mcp.prompts')" data-testid="mcp-prompts" @click="openPrompts(item)">
+                                    <ChatBubbleLeftRightIcon class="w-4 h-4" />
+                                </button>
+                                <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
+                                    <WrenchScrewdriverIcon class="w-4 h-4" />
+                                </button>
+                            </div>
+                            <!-- 管理：凭据失效（仅 OAuth 型）/ 编辑 / 删除 -->
+                            <div class="flex items-center gap-1">
+                                <!-- OAuth 凭据失效（仅 OAuth 型） -->
+                                <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs text-warning"
+                                    :title="t('mcp.invalidate')" data-testid="mcp-invalidate"
+                                    :disabled="invalidating !== null" @click="invalidateCredentials(item)">
+                                    <span v-if="invalidating === item.id" class="loading loading-spinner loading-xs"></span>
+                                    <ClipboardDocumentCheckIcon v-else class="w-4 h-4" />
+                                </button>
+                                <button class="btn btn-ghost btn-xs" :title="t('common.edit')" @click="openEdit(item)">
+                                    <PencilSquareIcon class="w-4 h-4" />
+                                </button>
+                                <button class="btn btn-ghost btn-xs text-error" :title="t('common.delete')"
+                                    @click="removeServer(item)">
+                                    <TrashIcon class="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
                     </div>
 
