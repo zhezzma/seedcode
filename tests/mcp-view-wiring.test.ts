@@ -206,6 +206,11 @@ test('菜单项按 enabled/state 门控（禁用不显示连接/授权，未连�
     assert.match(view, /v-if="item\.state === 'connected' && item\.capabilities\?\.prompts"/, 'prompts need connection')
 })
 
+test('启停切换后轮询收敛（后端 reconcile 异步，PUT 后快照可能仍旧状态）', () => {
+    assert.match(view, /await apiPut\(`\/api\/mcp\/servers\/\$\{encodeURIComponent\(item\.id\)\}`, \{ enabled: next \}\)/)
+    assert.match(view, /await pollServerOnce\(item\.id\)\s*\n\s*startPolling\(item\.id\)/, 'toggle must poll until state settles')
+})
+
 test('溢出菜单 i18n 键 zh/en 双侧齐全', () => {
     assert.ok(zh.includes("moreActions: '更多操作'"))
     assert.ok(en.includes("moreActions: 'More actions'"))

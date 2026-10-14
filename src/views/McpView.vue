@@ -270,6 +270,11 @@ async function toggleEnabled(item: McpServerItem) {
     try {
         await apiPut(`/api/mcp/servers/${encodeURIComponent(item.id)}`, { enabled: next })
         await loadServers(true)
+        // 后端对启停变更是异步 reconcile（断开/重连不阻塞 PUT 返回），PUT 后立刻拉到的
+        // 快照可能还是旧状态（如刚禁用仍显示 connected）：立即单查一次 + 起轮询跟到收敛
+        //（pollServerOnce 对非 converging/auth 状态会自行停表，不会多转）
+        await pollServerOnce(item.id)
+        startPolling(item.id)
     } catch {
         item.enabled = previous
     }
