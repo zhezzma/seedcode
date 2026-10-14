@@ -965,7 +965,7 @@ onUnmounted(() => {
         <!-- 新增/编辑弹窗 -->
         <dialog class="modal" :class="{ 'modal-open': editing !== null }" data-testid="mcp-editor"
             @keydown.esc.prevent="closeEdit">
-            <div class="modal-box w-full max-w-lg">
+            <div class="modal-box w-full max-w-lg sm:max-w-2xl">
                 <form method="dialog">
                     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" :title="t('common.close')"
                         @click="closeEdit">
@@ -1140,7 +1140,7 @@ onUnmounted(() => {
                             </div>
 
                             <div class="flex flex-col sm:flex-row gap-2 items-start">
-                                <div class="form-control w-full sm:w-40 sm:shrink-0">
+                                <div class="form-control w-full sm:flex-1">
                                     <label class="label"><span class="label-text">{{ t('mcp.form.callbackPort')
                                         }}<span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
                                     <input v-model="form.callbackPort" type="text" inputmode="numeric"
