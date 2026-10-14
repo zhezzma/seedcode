@@ -32,6 +32,7 @@ src-tauri\resources\seedagent\ 目录的过程。该目录会被 tauri 打进安
 【用法】
   powershell -File scripts/package-desktop.ps1               # 默认：①-④→⑥，只做便携版并部署（日常迭代用）
   powershell -File scripts/package-desktop.ps1 -Installers   # 额外打 MSI/NSIS 安装包 + 便携版 zip（分发给别人时用）
+  powershell -File scripts/package-desktop.ps1 -HostUpdateServer  # 热更新：①-③ 后跳过 tauri 编译，只镜像 seedagent 到部署目录并重启（改服务端代码时最快）
   powershell -File scripts/package-desktop.ps1 -StageOnly    # 只跑到 ③ 就停（只装配不打包），配合 npm run tauri dev 联调内置服务
   powershell -File scripts/package-desktop.ps1 -SkipStage    # 跳过 ①②③（复用已装配好的 resources），从 ④ 开始
   powershell -File scripts/package-desktop.ps1 -SkipDeploy   # 不执行 ⑥；默认模式下便携版目录保留在 dist-windows\portable
@@ -44,7 +45,11 @@ src-tauri\resources\seedagent\ 目录的过程。该目录会被 tauri 打进安
                  （或者直接 `nvm use 23.x` 后让脚本自动识别，无需此参数）
   -DeployDir     部署目录（默认 D:\Applications\seedcode）
   -NoLaunch      部署后不自动启动新实例（默认部署成功即拉起，见 ⑦）
-  注意：-StageOnly 与 -SkipStage 互斥，不要同时传（同时传等于什么也不做直接退出）。
+  -HostUpdateServer 热更新：跳过 ④⑤（tauri 编译/收集产物），只把装配好的 seedagent 镜像到
+                 部署目录 resources\seedagent 并重启。覆盖范围 = 服务端 + 移动端隧道 web\；
+                 桌面 webview 前端编译时嵌在 exe 内，改前端必须走全量打包。
+  注意：-StageOnly 与 -SkipStage 互斥，不要同时传（同时传等于什么也不做直接退出）；
+       -HostUpdateServer 与 -Installers / -SkipDeploy 互斥（脚本内显式校验）。
 #>
 param(
     [string]$SeedagentDir = $(if ($env:SEEDAGENT_DIR) { $env:SEEDAGENT_DIR } else { "D:\Workspace\seedagent" }),
@@ -55,9 +60,14 @@ param(
     [switch]$SkipStage,
     [switch]$SkipDeploy,
     [switch]$Installers,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    [switch]$HostUpdateServer
 )
 $ErrorActionPreference = 'Stop'
+
+if ($HostUpdateServer -and ($Installers -or $SkipDeploy)) {
+    throw "-HostUpdateServer 与 -Installers / -SkipDeploy 互斥：热更新本身就是一次部署，不走 tauri 产物"
+}
 
 $root = $PSScriptRoot | Split-Path
 $staging = Join-Path $root 'src-tauri\resources\seedagent'
@@ -84,6 +94,20 @@ function Remove-LongPath([string]$Dir) {
         throw "清除 ${Dir} 失败（robocopy exit $LASTEXITCODE）：目录内有文件被占用。\n最常见原因：seedcode/node 正在从该目录运行（窗口点 X 只是隐藏到托盘！）。\n请先在托盘图标右键 Quit 退出，或在任务管理器中结束对应 node.exe/seedcode.exe 后重试。"
     }
     Remove-Item -Recurse -Force $emptyDir
+}
+
+# 拉起部署目录内的 seedcode.exe（-NoLaunch 可关）。Start-Process 分离启动：
+# 新进程不挂在脚本进程树下，脚本退出/被杀都不影响它。
+function Start-DeployedApp {
+    if ($script:NoLaunch) { return }
+    $exe = Join-Path $script:DeployDir 'seedcode.exe'
+    if (Test-Path $exe) {
+        Start-Sleep -Milliseconds 500   # 给文件句柄释放留点余量
+        Start-Process -FilePath $exe -WorkingDirectory $script:DeployDir
+        Write-Host "==> launched: $exe"
+    } else {
+        Write-Warning "deploy OK but $exe not found — skip launch"
+    }
 }
 
 # 结束从指定目录内运行的 seedcode/node 进程（文件被锁定会导致 staging/部署目录无法重建）。
@@ -205,6 +229,20 @@ if ($StageOnly) {
     exit 0
 }
 
+# ③.9 热更新（-HostUpdateServer）：跳过 ④⑤，只把装配好的 seedagent 镜像到部署目录并重启。
+# 覆盖范围 = 服务端（seedserver.mjs/dist/node_modules）+ 移动端隧道 web\；
+# 桌面 webview 前端编译时嵌在 exe 内，不随热更新变化，改前端必须走全量打包。
+if ($HostUpdateServer) {
+    Write-Host "==> -HostUpdateServer: skip tauri build, hot-update server into $DeployDir"
+    $target = Join-Path $DeployDir 'resources\seedagent'
+    Stop-ProcessesUnder $DeployDir "热更新：结束部署目录内运行中的旧实例（释放文件锁）"
+    robocopy $staging $target /MIR /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "hot-update robocopy failed (exit $LASTEXITCODE)" }
+    Write-Host "==> hot-update OK: $target"
+    Start-DeployedApp
+    exit 0
+}
+
 # ④ tauri build：默认 --no-bundle 只出裸 exe（快）；-Installers 才打 MSI/NSIS 安装包
 # --config tauri.bundled.conf.json：本脚本产出"内置服务端"版（保持原 productName/
 # identifier）。服务端 resources glob 只存在于 overlay，不在基础配置——因此
@@ -269,19 +307,9 @@ if (-not $SkipDeploy) {
     Write-Host "==> deploy OK: $DeployDir"
     $deployed = $true
 
-    # ⑦ 自动启动新实例。分离启动（Start-Process）：新进程不挂在脚本进程树下，
-    # 脚本退出/被杀都不影响它。不检查前存实例：⑥ 刚清理过部署目录内的进程；
-    # 若有外部实例残留，seedcode 自身的单实例机制会处理。
-    if (-not $NoLaunch) {
-        $exe = Join-Path $DeployDir 'seedcode.exe'
-        if (Test-Path $exe) {
-            Start-Sleep -Milliseconds 500   # 给文件句柄释放留点余量
-            Start-Process -FilePath $exe -WorkingDirectory $DeployDir
-            Write-Host "==> launched: $exe"
-        } else {
-            Write-Warning "deploy OK but $exe not found — skip launch"
-        }
-    }
+    # ⑦ 自动启动新实例（Start-DeployedApp）。不检查前存实例：⑥ 刚清理过部署
+    # 目录内的进程；若有外部实例残留，seedcode 自身的单实例机制会处理。
+    Start-DeployedApp
 }
 # 部署成功或已压 zip 后清掉临时便携目录；-SkipDeploy 且默认模式（无 zip）时保留产物
 if ($deployed -or $Installers) { Remove-LongPath $portable }
