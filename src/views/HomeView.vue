@@ -335,7 +335,7 @@ const handleSend = async (mode?: BusySendBehavior) => {
         return
     }
 
-    // /tasklist：客户端命令——重现并展开会话清单面板，不经服务端。
+    // /tasklist：客户端命令——重现并展开会话工作步骤面板，不经服务端。
     // 服务端同名扩展命令在 rpc 宿主下是静默 no-op，
     // 纯 UI 操作在 busy 时也放行（恰恰是模型跑着、面板被关后最需要看的时刻）。
     // 注意：下方正则字面量与 "Case 1: Busy + no text" 注释均为

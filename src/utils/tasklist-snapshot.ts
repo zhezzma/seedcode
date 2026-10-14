@@ -1,10 +1,10 @@
 // src/utils/tasklist-snapshot.ts
-// 从会话消息流提取会话清单（tasklist）全量快照（服务端工具结果的 details 持久化格式）。
+// 从会话消息流提取会话工作步骤（tasklist）全量快照（服务端工具结果的 details 持久化格式）。
 // 纯函数、零 vue 依赖 —— node --test 回归基线直接可跑。
 // 历史（GET /messages）与流式（SSE）同一入口，天然覆盖刷新/重连/实时更新三场景。
 // 注意：工具名字面量 'tasklist' 与服务端唯一真相源同值——
 // seedagent/src/extensions/tasklist/tasklist.ts 的 export const TOOL_NAME；改名须两仓同步，否则面板静默消失。
-// 命名约定：本面板是「会话清单」（会话工作步骤）；「任务清单」一词留给外部待办类扩展，两者不混用。
+// 命名约定：本面板是「会话工作步骤」；「任务清单」一词留给外部待办类扩展，两者不混用。
 
 export type TasklistTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
 

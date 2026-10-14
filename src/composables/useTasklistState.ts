@@ -1,5 +1,5 @@
 // src/composables/useTasklistState.ts
-// TasklistBar 的数据源：从当前会话消息流 computed 出会话清单快照。
+// TasklistBar 的数据源：从当前会话消息流 computed 出会话工作步骤快照。
 // 流式 toolResult 到达 → 自动更新；刷新/重连 → 从历史自动恢复，无需任何额外请求。
 import { computed, ref, watch } from 'vue'
 import {

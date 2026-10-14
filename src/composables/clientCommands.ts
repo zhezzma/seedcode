@@ -1,7 +1,7 @@
 import type { CommandInfo } from './useCommandState'
 
 // ==================== 客户端命令统一注册表 ====================
-// 客户端命令 = 前端本地拦截处理、不经服务端的命令（如 /tasklist 重现会话清单面板、
+// 客户端命令 = 前端本地拦截处理、不经服务端的命令（如 /tasklist 重现会话工作步骤面板、
 // /tree 打开会话树；服务端命令表 /api/commands 不含它们，故 / 补全需前端合并）。
 // 本注册表是唯一事实来源，两处消费：
 //   1. `/` 补全浮层：useChatInput 的 watch 按前缀合并（按 name 去重，防服务端未来同名下发）
@@ -11,7 +11,7 @@ import type { CommandInfo } from './useCommandState'
 
 /** 客户端命令 = CommandInfo + 下拉条目元数据 */
 export interface ClientCommand extends CommandInfo {
-    /** 「命令」下拉显示文案（如 '/tasklist (会话清单)'）；缺省用 `/${name}` */
+    /** 「命令」下拉显示文案（如 '/tasklist (会话工作步骤)'）；缺省用 `/${name}` */
     dropdownLabel?: string
     /** 下拉选中后是否自动发送；缺省跟随全局 autoSendCommands 设置（与 CommandItem.autoSend 语义一致） */
     autoSend?: boolean
@@ -26,7 +26,7 @@ export interface ClientCommand extends CommandInfo {
 }
 
 export const CLIENT_COMMANDS: ClientCommand[] = [
-    { name: 'tasklist', description: '会话清单面板', source: 'client', dropdownLabel: '/tasklist (会话清单)', intercept: 'prefix' },
+    { name: 'tasklist', description: '会话工作步骤面板', source: 'client', dropdownLabel: '/tasklist (会话工作步骤)', intercept: 'prefix' },
     { name: 'tree', description: '会话树', source: 'client', dropdownLabel: '/tree (会话树)', intercept: 'exact' },
 ]
 
