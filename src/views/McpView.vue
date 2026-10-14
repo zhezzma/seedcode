@@ -739,8 +739,8 @@ onUnmounted(() => {
                                 <div class="text-xs opacity-50 font-mono truncate">{{ item.id }}</div>
                             </div>
                         </div>
-                        <!-- 操作行：高频操作（工具/编辑）带文字标签平铺，低频/状态相关/破坏性
-                             操作收进 ⋮ 溢出菜单（触屏上 icon-only 语义不可读）；整行放不下时随卡片头整体换行 -->
+                        <!-- 操作行：编辑是唯一常驻文字按钮，低频/状态相关/破坏性操作收进 ⋮ 溢出菜单；
+                             工具入口在下方「x 个工具」徽标上；整行放不下时随卡片头整体换行 -->
                         <div class="flex flex-wrap items-center gap-1 justify-end shrink-0">
                             <!-- 状态文字徽标仅 sm+ 屏显示：移动端卡片头部空间不足会把中文挤成竖排；状态由左侧彩色圆点承载 -->
                             <span class="badge badge-ghost badge-sm mr-1 hidden sm:inline-flex">{{ stateLabel(item.state) }}</span>
@@ -748,10 +748,6 @@ onUnmounted(() => {
                                 <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
                                     @change="toggleEnabled(item)" />
                             </label>
-                            <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
-                                <WrenchScrewdriverIcon class="w-4 h-4" />
-                                <span>{{ t('mcp.tools') }}</span>
-                            </button>
                             <button class="btn btn-ghost btn-xs" :title="t('common.edit')" @click="openEdit(item)">
                                 <PencilSquareIcon class="w-4 h-4" />
                                 <span>{{ t('common.edit') }}</span>
@@ -762,14 +758,14 @@ onUnmounted(() => {
                                     <EllipsisVerticalIcon class="w-4 h-4" />
                                 </summary>
                                 <ul class="dropdown-content menu z-20 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 p-2 shadow-lg">
-                                    <li v-if="item.state !== 'connected'">
+                                    <li v-if="item.enabled && item.state !== 'connected'">
                                         <button @click="withMenuClose($event, () => connect(item))">
                                             <LinkIcon class="w-4 h-4" />
                                             {{ t('mcp.connect') }}
                                         </button>
                                     </li>
-                                    <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
-                                    <li v-if="isOAuthServer(item)">
+                                    <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞）；禁用时隐藏 -->
+                                    <li v-if="item.enabled && isOAuthServer(item)">
                                         <button data-testid="mcp-authorize" :disabled="authStarting !== null"
                                             @click="withMenuClose($event, () => openAuthorization(item))">
                                             <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
@@ -791,15 +787,15 @@ onUnmounted(() => {
                                             {{ t('mcp.ping') }}
                                         </button>
                                     </li>
-                                    <!-- 资源浏览器（能力位门控） -->
-                                    <li v-if="item.capabilities?.resources">
+                                    <!-- 资源浏览器（已连接 + 能力位门控）：未连接时打开只会空手而归 -->
+                                    <li v-if="item.state === 'connected' && item.capabilities?.resources">
                                         <button data-testid="mcp-resources" @click="withMenuClose($event, () => openResources(item))">
                                             <DocumentDuplicateIcon class="w-4 h-4" />
                                             {{ t('mcp.resources') }}
                                         </button>
                                     </li>
-                                    <!-- 提示模板（能力位门控） -->
-                                    <li v-if="item.capabilities?.prompts">
+                                    <!-- 提示模板（已连接 + 能力位门控） -->
+                                    <li v-if="item.state === 'connected' && item.capabilities?.prompts">
                                         <button data-testid="mcp-prompts" @click="withMenuClose($event, () => openPrompts(item))">
                                             <ChatBubbleLeftRightIcon class="w-4 h-4" />
                                             {{ t('mcp.prompts') }}
@@ -842,9 +838,12 @@ onUnmounted(() => {
                         <span v-if="item.protocolVersion" class="badge badge-outline badge-sm">
                             MCP {{ item.protocolVersion }}
                         </span>
-                        <span class="badge badge-outline badge-sm">
+                        <!-- 工具入口：工具数徽标本身即按钮（扳手图标提示可点），点开工具抽屉 -->
+                        <button class="badge badge-outline badge-sm gap-1 cursor-pointer hover:bg-base-200"
+                            :title="t('mcp.tools')" data-testid="mcp-tools" @click="openTools(item)">
+                            <WrenchScrewdriverIcon class="w-3 h-3" />
                             {{ t('mcp.toolCount', { n: item.toolCount }) }}
-                        </span>
+                        </button>
                         <span v-if="item.resourceCount !== undefined" class="badge badge-ghost badge-sm">
                             {{ t('mcp.resourceCount', { n: item.resourceCount }) }}
                         </span>

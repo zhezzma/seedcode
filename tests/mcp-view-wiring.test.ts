@@ -178,14 +178,17 @@ test('ViewHeader 传 wc-pad 与 is-main-page（悬浮窗键避让 + 移动端返
     assert.match(view, /<ViewHeader :title="t\('mcp\.title'\)" is-main-page wc-pad>/)
 })
 
-test('操作区 = 主行（开关/工具/编辑）+ ⋮ 溢出菜单，卡片头单行排布可整体换行', () => {
+test('操作区 = 主行（开关/编辑）+ ⋮ 溢出菜单，工具入口在工具数徽标上', () => {
     // 卡片头：名称与操作同行（justify-between），放不下整行换行（不再窄屏强制纵排）
     assert.match(view, /flex flex-wrap items-center justify-between gap-x-2 gap-y-1/)
-    // 高频操作带文字标签平铺，其余收进溢出菜单（触屏上 icon-only 语义不可读）
+    // 其余收进溢出菜单（触屏上 icon-only 语义不可读）
     assert.match(view, /<EllipsisVerticalIcon class="w-4 h-4" \/>/)
     for (const key of ["t('mcp.connect')", "t('mcp.disconnect')", "t('mcp.ping')", "t('mcp.authorize')", "t('mcp.resources')", "t('mcp.prompts')", "t('mcp.invalidate')", "t('common.delete')"]) {
         assert.ok(view.includes(key), `溢出菜单缺少动作项：${key}`)
     }
+    // 工具入口：工具数徽标本身是按钮（不再在主行平铺工具按钮）
+    assert.match(view, /:title="t\('mcp\.tools'\)" data-testid="mcp-tools" @click="openTools\(item\)"/)
+    assert.match(view, /<WrenchScrewdriverIcon class="w-3 h-3" \/>/)
     // 菜单项点选后必须走 withMenuClose 收起 details 型 dropdown
     assert.match(view, /function withMenuClose\(event: Event, action: \(\) => void\)/)
     assert.ok(view.split('withMenuClose($event,').length >= 7, 'all menu items must close the dropdown')
@@ -194,6 +197,13 @@ test('操作区 = 主行（开关/工具/编辑）+ ⋮ 溢出菜单，卡片头
     assert.match(view, /document\.querySelectorAll\('details\.dropdown\[open\]'\)/)
     assert.match(view, /document\.addEventListener\('click', closeOpenDropdowns\)/)
     assert.match(view, /document\.removeEventListener\('click', closeOpenDropdowns\)/)
+})
+
+test('菜单项按 enabled/state 门控（禁用不显示连接/授权，未连接不显示断开/探活/资源/提示）', () => {
+    assert.match(view, /v-if="item\.enabled && item\.state !== 'connected'"/, 'connect hidden when disabled or connected')
+    assert.match(view, /v-if="item\.enabled && isOAuthServer\(item\)"/, 'authorize hidden when disabled')
+    assert.match(view, /v-if="item\.state === 'connected' && item\.capabilities\?\.resources"/, 'resources need connection')
+    assert.match(view, /v-if="item\.state === 'connected' && item\.capabilities\?\.prompts"/, 'prompts need connection')
 })
 
 test('溢出菜单 i18n 键 zh/en 双侧齐全', () => {
@@ -246,9 +256,9 @@ test('mcp.* i18n 键 zh/en 双侧齐全', () => {
     }
 })
 
-test('资源/提示入口按能力位门控，不依赖缓存内容', () => {
-    assert.match(view, /v-if="item\.capabilities\?\.resources"/, 'resources button gated by capability')
-    assert.match(view, /v-if="item\.capabilities\?\.prompts"/, 'prompts button gated by capability')
+test('资源/提示入口按能力位门控（且需已连接），不依赖缓存内容', () => {
+    assert.match(view, /v-if="item\.state === 'connected' && item\.capabilities\?\.resources"/, 'resources button gated by connection + capability')
+    assert.match(view, /v-if="item\.state === 'connected' && item\.capabilities\?\.prompts"/, 'prompts button gated by connection + capability')
 })
 
 test('新端点 wiring：resources/read、prompts/get、complete、logging/set-level、ping、oauth/invalidate', () => {
