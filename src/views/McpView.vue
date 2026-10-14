@@ -24,6 +24,10 @@ import {
     ExclamationTriangleIcon,
     KeyIcon,
     InformationCircleIcon,
+    SignalIcon,
+    DocumentDuplicateIcon,
+    ChatBubbleLeftRightIcon,
+    ClipboardDocumentCheckIcon,
 } from '@heroicons/vue/24/outline'
 import ViewHeader from '../components/ViewHeader.vue'
 import { apiGet, apiPost, apiPut, apiDelete } from '../composables/api-client'
@@ -39,14 +43,17 @@ import {
     isOAuthServer,
     logLineClass,
     mcpToolName,
+    MCP_LOG_LEVELS,
     needsAuthPolling,
     needsConvergePolling,
     parseLogLines,
     POLL_INTERVAL_MS,
     SECRET_MASK,
+    serverLogTone,
     stateTone,
     validateForm,
     type McpFormErrorKey,
+    type McpServerCapabilitiesWire,
     type McpServerForm,
     type McpServerItem,
     type McpServerState,
@@ -76,6 +83,69 @@ const toolsState = ref<McpServerState>('disabled')
 const toolsLoading = ref(false)
 /** 工具请求代次：后发者覆盖先到者。 */
 let toolsSeq = 0
+
+// ─── 资源抽屉 ────────────────────────────────────────────
+
+interface McpResourceWire {
+    uri: string
+    name?: string
+    description?: string
+    mimeType?: string
+}
+
+interface McpResourceTemplateWire {
+    uriTemplate: string
+    name?: string
+    description?: string
+    mimeType?: string
+}
+
+const resourcesTarget = ref<McpServerItem | null>(null)
+const resources = ref<McpResourceWire[]>([])
+const resourceTemplates = ref<McpResourceTemplateWire[]>([])
+const resourcesLoading = ref(false)
+let resourcesSeq = 0
+/** 已展开读取内容的资源（uri → 内容 JSON 文本）。 */
+const resourceContents = ref<Record<string, string>>({})
+/** 已订阅的资源 uri 集合（本地跟踪；不持久化）。 */
+const subscribedUris = ref<Set<string>>(new Set())
+
+// ─── 提示抽屉 ────────────────────────────────────────────
+
+interface McpPromptArgWire {
+    name: string
+    description?: string
+    required?: boolean
+}
+
+interface McpPromptWire {
+    name: string
+    description?: string
+    arguments?: McpPromptArgWire[]
+}
+
+const promptsTarget = ref<McpServerItem | null>(null)
+const prompts = ref<McpPromptWire[]>([])
+const promptsLoading = ref(false)
+let promptsSeq = 0
+/** 当前展开参数表单的 prompt 名与已渲染结果（name → messages JSON）。 */
+const promptArgInputs = ref<Record<string, Record<string, string>>>({})
+const promptResults = ref<Record<string, string>>({})
+/** 参数补全候选（`<promptName>/<argName>` → values）。 */
+const completionCache = new Map<string, string[]>()
+
+// ─── 服务器日志（notifications/message）─────────────────
+
+interface McpServerLogWire {
+    level: string
+    logger?: string
+    data: unknown
+    timestamp: string
+}
+
+const serverLogs = ref<Record<string, McpServerLogWire[]>>({})
+const pinging = ref<string | null>(null)
+const invalidating = ref<string | null>(null)
 
 // 按服务器 id 的轮询定时器（OAuth 授权中 / 连接收敛中）
 const pollTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -378,7 +448,213 @@ async function openTools(item: McpServerItem) {
     }
 }
 
+// ─── 资源抽屉 ────────────────────────────────────────────────────
+
+async function openResources(item: McpServerItem) {
+    resourcesTarget.value = item
+    const seq = ++resourcesSeq
+    resourcesLoading.value = true
+    resources.value = []
+    resourceTemplates.value = []
+    resourceContents.value = {}
+    try {
+        const res = await apiGet<{ resources?: McpResourceWire[]; resourceTemplates?: McpResourceTemplateWire[] }>(
+            `/api/mcp/servers/${encodeURIComponent(item.id)}/resources`,
+            true,
+        )
+        if (seq !== resourcesSeq) return
+        resources.value = res?.resources ?? []
+        resourceTemplates.value = res?.resourceTemplates ?? []
+    } catch {
+        if (seq === resourcesSeq) resources.value = []
+    } finally {
+        if (seq === resourcesSeq) resourcesLoading.value = false
+    }
+}
+
+/** 展开/折叠资源内容；折叠后再次点击可重读。 */
+async function toggleResourceContent(uri: string) {
+    if (resourceContents.value[uri] !== undefined) {
+        const next = { ...resourceContents.value }
+        delete next[uri]
+        resourceContents.value = next
+        return
+    }
+    const id = resourcesTarget.value?.id
+    if (!id) return
+    try {
+        const res = await apiPost<{ contents?: unknown[] }>(
+            `/api/mcp/servers/${encodeURIComponent(id)}/resources/read`,
+            { uri },
+        )
+        resourceContents.value = { ...resourceContents.value, [uri]: JSON.stringify(res?.contents ?? [], null, 2) }
+    } catch {
+        // api-client 已弹 toast
+    }
+}
+
+async function toggleSubscribe(uri: string) {
+    const id = resourcesTarget.value?.id
+    if (!id) return
+    const subscribing = !subscribedUris.value.has(uri)
+    try {
+        await apiPost(
+            `/api/mcp/servers/${encodeURIComponent(id)}/resources/${subscribing ? 'subscribe' : 'unsubscribe'}`,
+            { uri },
+        )
+        const next = new Set(subscribedUris.value)
+        if (subscribing) next.add(uri)
+        else next.delete(uri)
+        subscribedUris.value = next
+    } catch {
+        // api-client 已弹 toast
+    }
+}
+
+// ─── 提示抽屉 ────────────────────────────────────────────────────
+
+async function openPrompts(item: McpServerItem) {
+    promptsTarget.value = item
+    const seq = ++promptsSeq
+    promptsLoading.value = true
+    prompts.value = []
+    promptArgInputs.value = {}
+    promptResults.value = {}
+    completionValues.value = {}
+    completionCache.clear()
+    try {
+        const res = await apiGet<{ prompts?: McpPromptWire[] }>(
+            `/api/mcp/servers/${encodeURIComponent(item.id)}/prompts`,
+            true,
+        )
+        if (seq !== promptsSeq) return
+        prompts.value = res?.prompts ?? []
+        // 参数输入模型按 prompt 预建（嵌套 v-model 需要已存在的对象）
+        const inputs: Record<string, Record<string, string>> = {}
+        for (const prompt of prompts.value) {
+            if (prompt.arguments?.length) inputs[prompt.name] = {}
+        }
+        promptArgInputs.value = inputs
+    } catch {
+        if (seq === promptsSeq) prompts.value = []
+    } finally {
+        if (seq === promptsSeq) promptsLoading.value = false
+    }
+}
+
+async function getPromptInDrawer(prompt: McpPromptWire) {
+    const id = promptsTarget.value?.id
+    if (!id) return
+    const args = promptArgInputs.value[prompt.name] ?? {}
+    try {
+        const res = await apiPost<{ messages?: unknown[] }>(
+            `/api/mcp/servers/${encodeURIComponent(id)}/prompts/get`,
+            { name: prompt.name, arguments: args },
+        )
+        promptResults.value = { ...promptResults.value, [prompt.name]: JSON.stringify(res?.messages ?? [], null, 2) }
+    } catch {
+        // api-client 已弹 toast
+    }
+}
+
+/** 参数补全候选（`<promptName>/<argName>` → values）；模板经 on-input 事件异步填充，不能在模板里 await。 */
+const completionValues = ref<Record<string, string[]>>({})
+
+async function onPromptArgInput(prompt: McpPromptWire, argName: string) {
+    const key = `${prompt.name}/${argName}`
+    const cached = completionCache.get(key)
+    if (cached) {
+        completionValues.value = { ...completionValues.value, [key]: cached }
+        return
+    }
+    const id = promptsTarget.value?.id
+    if (!id) return
+    try {
+        const value = promptArgInputs.value[prompt.name]?.[argName] ?? ''
+        const res = await apiPost<{ values?: string[] }>(
+            `/api/mcp/servers/${encodeURIComponent(id)}/complete`,
+            { ref: { type: 'ref/prompt', name: prompt.name }, argument: { name: argName, value } },
+        )
+        const values = res?.values ?? []
+        completionCache.set(key, values)
+        completionValues.value = { ...completionValues.value, [key]: values }
+    } catch {
+        // 不支持补全的服务器静默降级（参数输入仍可用）
+    }
+}
+
+// ─── 服务器日志 / ping / 凭据失效 ─────────────────────────────
+
+async function loadServerLogs(item: McpServerItem) {
+    try {
+        const res = await apiGet<{ messages?: McpServerLogWire[] }>(
+            `/api/mcp/servers/${encodeURIComponent(item.id)}/logs`,
+            true,
+        )
+        serverLogs.value = { ...serverLogs.value, [item.id]: res?.messages ?? [] }
+    } catch {
+        serverLogs.value = { ...serverLogs.value, [item.id]: [] }
+    }
+}
+
+/** 展开 stderr/服务器日志区时拉取（logging 能力位存在时）。 */
+async function onLogsToggle(item: McpServerItem, event: Event) {
+    const details = event.target as HTMLDetailsElement
+    if (details.open && item.capabilities?.logging) await loadServerLogs(item)
+}
+
+async function setServerLogLevel(item: McpServerItem, level: string) {
+    try {
+        await apiPost(`/api/mcp/servers/${encodeURIComponent(item.id)}/logging/set-level`, { level })
+        toast.success(t('mcp.logsLevelSet', { level }))
+        await loadServerLogs(item)
+    } catch {
+        // api-client 已弹 toast（非法枚举/不可用原因可直接阅读）
+    }
+}
+
+async function pingServer(item: McpServerItem) {
+    if (pinging.value !== null) return
+    pinging.value = item.id
+    try {
+        await apiPost(`/api/mcp/servers/${encodeURIComponent(item.id)}/ping`)
+        toast.success(t('mcp.pingOk'))
+    } catch {
+        // api-client 已弹 toast
+    } finally {
+        pinging.value = null
+    }
+}
+
+async function invalidateCredentials(item: McpServerItem) {
+    if (!(await confirm(t('mcp.confirmInvalidate', { name: item.displayName })))) return
+    if (invalidating.value !== null) return
+    invalidating.value = item.id
+    try {
+        await apiPost(`/api/mcp/servers/${encodeURIComponent(item.id)}/oauth/invalidate`, { kind: 'all' })
+        toast.success(t('mcp.toast.invalidated'))
+        await loadServers(true)
+        const latest = servers.value.find((s) => s.id === item.id)
+        if (latest && (needsConvergePolling(latest) || needsAuthPolling(latest))) startPolling(item.id)
+    } catch {
+        // api-client 已弹 toast（非 OAuth 型/未连接会返回明确原因）
+    } finally {
+        invalidating.value = null
+    }
+}
+
 // ─── 展示辅助 ────────────────────────────────────────────────────
+
+/** 能力位 → 展示名列表（tools 隐含不展示；undefined 能力返回空）。 */
+function capabilityChips(caps?: McpServerCapabilitiesWire): string[] {
+    if (!caps) return []
+    const chips: string[] = []
+    if (caps.resources) chips.push('resources')
+    if (caps.prompts) chips.push('prompts')
+    if (caps.logging) chips.push('logging')
+    if (caps.completions) chips.push('completions')
+    return chips
+}
 
 function agentLabel(id: string): string {
     return agents.value.find((a) => a.id === id)?.name || id
@@ -433,7 +709,9 @@ onUnmounted(() => {
             <div v-for="item in servers" :key="item.id" class="card bg-base-100 border border-base-300 shadow-sm"
                 :data-testid="`mcp-server-${item.id}`">
                 <div class="card-body p-4 gap-3">
-                    <div class="flex items-start justify-between gap-3">
+                    <!-- 卡片头：窄屏纵排（名称与按钮各自成行），sm+ 恢复左右布局——
+                         10+ 个操作按钮在手机上横排必然溢出，换行是最小侵入解 -->
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="toneClass[stateTone(item.state)]"
                                 :title="stateLabel(item.state)" data-testid="mcp-state-dot" />
@@ -443,7 +721,7 @@ onUnmounted(() => {
                                 <div class="text-xs opacity-50 font-mono truncate">{{ item.id }}</div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-1">
+                        <div class="flex flex-wrap items-center gap-1 justify-end">
                             <!-- 状态文字徽标仅 sm+ 屏显示：移动端卡片头部空间不足会把中文挤成竖排；状态由左侧彩色圆点承载 -->
                             <span class="badge badge-ghost badge-sm mr-1 hidden sm:inline-flex">{{ stateLabel(item.state) }}</span>
                             <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
@@ -463,6 +741,29 @@ onUnmounted(() => {
                             <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected'"
                                 :title="t('mcp.disconnect')" @click="disconnect(item)">
                                 <LinkSlashIcon class="w-4 h-4" />
+                            </button>
+                            <!-- 协议层探活 -->
+                            <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected' || pinging !== null"
+                                :title="t('mcp.ping')" data-testid="mcp-ping" @click="pingServer(item)">
+                                <span v-if="pinging === item.id" class="loading loading-spinner loading-xs"></span>
+                                <SignalIcon v-else class="w-4 h-4" />
+                            </button>
+                            <!-- 资源浏览器（能力位门控） -->
+                            <button v-if="item.capabilities?.resources" class="btn btn-ghost btn-xs"
+                                :title="t('mcp.resources')" data-testid="mcp-resources" @click="openResources(item)">
+                                <DocumentDuplicateIcon class="w-4 h-4" />
+                            </button>
+                            <!-- 提示模板（能力位门控） -->
+                            <button v-if="item.capabilities?.prompts" class="btn btn-ghost btn-xs"
+                                :title="t('mcp.prompts')" data-testid="mcp-prompts" @click="openPrompts(item)">
+                                <ChatBubbleLeftRightIcon class="w-4 h-4" />
+                            </button>
+                            <!-- OAuth 凭据失效（仅 OAuth 型） -->
+                            <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs text-warning"
+                                :title="t('mcp.invalidate')" data-testid="mcp-invalidate"
+                                :disabled="invalidating !== null" @click="invalidateCredentials(item)">
+                                <span v-if="invalidating === item.id" class="loading loading-spinner loading-xs"></span>
+                                <ClipboardDocumentCheckIcon v-else class="w-4 h-4" />
                             </button>
                             <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
                                 <WrenchScrewdriverIcon class="w-4 h-4" />
@@ -496,7 +797,27 @@ onUnmounted(() => {
                         <span class="badge badge-outline badge-sm">
                             {{ t('mcp.toolCount', { n: item.toolCount }) }}
                         </span>
+                        <span v-if="item.resourceCount !== undefined" class="badge badge-ghost badge-sm">
+                            {{ t('mcp.resourceCount', { n: item.resourceCount }) }}
+                        </span>
+                        <span v-if="item.promptCount !== undefined" class="badge badge-ghost badge-sm">
+                            {{ t('mcp.promptCount', { n: item.promptCount }) }}
+                        </span>
+                        <!-- 能力位徽标：tools 隐含不展示，其余按声明展示 -->
+                        <span v-for="cap in capabilityChips(item.capabilities)" :key="cap"
+                            class="badge badge-ghost badge-sm opacity-70">
+                            {{ t(`mcp.cap.${cap}`) }}
+                        </span>
                     </div>
+
+                    <!-- 服务器自述说明（instructions）：可折叠，默认收起 -->
+                    <details v-if="item.instructions" class="text-xs" data-testid="mcp-instructions">
+                        <summary class="cursor-pointer flex items-center gap-1 opacity-70 hover:opacity-100">
+                            <InformationCircleIcon class="w-4 h-4" />
+                            <span>{{ t('mcp.instructions') }}</span>
+                        </summary>
+                        <div class="mt-1 max-h-40 overflow-auto rounded bg-base-200/60 p-2 whitespace-pre-wrap">{{ item.instructions }}</div>
+                    </details>
 
                     <div v-if="item.state === 'auth_required'" class="space-y-2">
                         <div class="alert alert-warning py-2 text-xs">
@@ -539,23 +860,49 @@ onUnmounted(() => {
                         <span class="break-all">{{ item.lastError }}</span>
                     </div>
 
-                    <details v-if="item.stderrTail" class="text-xs" data-testid="mcp-stderr">
+                    <details v-if="item.stderrTail || (item.capabilities?.logging && item.state === 'connected')"
+                        class="text-xs" data-testid="mcp-stderr" @toggle="onLogsToggle(item, $event)">
                         <summary
                             class="cursor-pointer flex items-center gap-1 opacity-70 hover:opacity-100"
                             :title="t('mcp.logsHint')"
                         >
                             <InformationCircleIcon class="w-4 h-4" />
                             <span>{{ t('mcp.logs') }}</span>
-                            <span class="badge badge-ghost badge-xs">{{ parseLogLines(item.stderrTail).length }}</span>
+                            <span v-if="item.stderrTail" class="badge badge-ghost badge-xs">{{ parseLogLines(item.stderrTail).length }}</span>
+                            <span v-if="serverLogs[item.id]?.length" class="badge badge-ghost badge-xs">
+                                {{ serverLogs[item.id].length }}
+                            </span>
                         </summary>
-                        <div
-                            class="mt-1 max-h-40 overflow-auto rounded bg-base-200/60 p-2 font-mono leading-5 whitespace-pre-wrap break-all"
-                        >
-                            <div
-                                v-for="(line, i) in parseLogLines(item.stderrTail)"
-                                :key="i"
-                                :class="logLineClass(line.level)"
-                            >{{ line.text || ' ' }}</div>
+                        <div class="mt-1 space-y-2">
+                            <!-- 服务器协议日志（notifications/message；logging 能力）+ 级别控制 -->
+                            <div v-if="item.capabilities?.logging && item.state === 'connected'" class="space-y-1">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <select class="select select-bordered select-xs"
+                                        :aria-label="t('mcp.logsLevel')"
+                                        @change="setServerLogLevel(item, ($event.target as HTMLSelectElement).value)">
+                                        <option v-for="level in MCP_LOG_LEVELS" :key="level" :value="level">{{ level }}</option>
+                                    </select>
+                                    <span class="opacity-50">{{ t('mcp.logsLevelHint') }}</span>
+                                </div>
+                                <div v-if="serverLogs[item.id]?.length"
+                                    class="max-h-40 overflow-auto rounded bg-base-200/60 p-2 font-mono leading-5">
+                                    <div v-for="(message, i) in serverLogs[item.id]" :key="i"
+                                        :class="serverLogTone(message.level)">
+                                        <span class="opacity-50">[{{ message.timestamp }}] {{ message.level }}{{ message.logger ? `(${message.logger})` : '' }}</span>
+                                        {{ typeof message.data === 'string' ? message.data : JSON.stringify(message.data) }}
+                                    </div>
+                                </div>
+                                <div v-else class="opacity-50">{{ t('mcp.noServerLogs') }}</div>
+                            </div>
+                            <!-- stdio stderr 尾部 -->
+                            <div v-if="item.stderrTail"
+                                class="max-h-40 overflow-auto rounded bg-base-200/60 p-2 font-mono leading-5 whitespace-pre-wrap break-all">
+                                <div
+                                    v-for="(line, i) in parseLogLines(item.stderrTail)"
+                                    :key="i"
+                                    :class="logLineClass(line.level)"
+                                >{{ line.text || ' ' }}</div>
+                            </div>
                         </div>
                     </details>
                 </div>
@@ -832,6 +1179,30 @@ onUnmounted(() => {
                                 <label v-else class="label"><span class="label-text-alt opacity-50">{{
                                     t('mcp.form.authServerMetadataUrlHint') }}</span></label>
                             </div>
+
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text">{{ t('mcp.form.resourceMetadataUrl') }}
+                                    <span class="opacity-50">（{{ t('common.optional') }}）</span></span></label>
+                                <input v-model="form.resourceMetadataUrl" type="text"
+                                    class="input input-bordered w-full font-mono"
+                                    placeholder="https://mcp.example.com/.well-known/oauth-protected-resource"
+                                    data-testid="mcp-form-resource-metadata-url" />
+                                <label v-if="formErrors.includes('resourceMetadataUrlInvalid')" class="label">
+                                    <span class="label-text-alt text-error">{{ t('mcp.form.resourceMetadataUrlInvalid') }}</span>
+                                </label>
+                                <label v-else class="label"><span class="label-text-alt opacity-50">{{
+                                    t('mcp.form.resourceMetadataUrlHint') }}</span></label>
+                            </div>
+
+                            <div class="form-control w-full">
+                                <label class="label cursor-pointer justify-start gap-3">
+                                    <span class="label-text">{{ t('mcp.form.skipIssuerValidation') }}</span>
+                                    <input v-model="form.skipIssuerValidation" type="checkbox"
+                                        class="toggle toggle-warning toggle-sm" data-testid="mcp-form-skip-issuer" />
+                                </label>
+                                <label class="label"><span class="label-text-alt opacity-50">{{
+                                    t('mcp.form.skipIssuerValidationHint') }}</span></label>
+                            </div>
                         </div>
                     </template>
 
@@ -913,6 +1284,115 @@ onUnmounted(() => {
                 </div>
             </div>
             <form method="dialog" class="modal-backdrop" @click="toolsTarget = null">
+                <button>close</button>
+            </form>
+        </dialog>
+
+        <!-- 资源抽屉 -->
+        <dialog class="modal" :class="{ 'modal-open': resourcesTarget !== null }" data-testid="mcp-resources-modal"
+            @keydown.esc.prevent="resourcesTarget = null">
+            <div class="modal-box w-full max-w-lg">
+                <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="resourcesTarget = null">
+                        <XMarkIcon class="w-4 h-4" />
+                    </button>
+                </form>
+                <h3 class="font-bold text-lg mb-4 text-center">
+                    {{ t('mcp.resourcesOf', { name: resourcesTarget?.displayName ?? '' }) }}
+                </h3>
+                <div v-if="resourcesLoading" class="text-sm opacity-60">{{ t('common.loading') }}…</div>
+                <div v-else-if="resources.length === 0 && resourceTemplates.length === 0" class="text-sm opacity-60 text-center py-4">
+                    {{ t('mcp.noResources') }}
+                </div>
+                <ul v-else class="space-y-2 max-h-[60vh] overflow-y-auto">
+                    <li v-for="resource in resources" :key="resource.uri"
+                        class="border border-base-300 rounded-lg p-3 space-y-2" :data-testid="`mcp-resource-${resource.uri}`">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0 cursor-pointer" @click="toggleResourceContent(resource.uri)">
+                                <div class="font-mono text-sm break-all">{{ resource.name || resource.uri }}</div>
+                                <div v-if="resource.name" class="text-xs opacity-50 font-mono break-all">{{ resource.uri }}</div>
+                                <div v-if="resource.mimeType" class="text-xs opacity-50">{{ resource.mimeType }}</div>
+                            </div>
+                            <button class="btn btn-ghost btn-xs shrink-0" :title="t('mcp.subscribe')"
+                                :class="subscribedUris.has(resource.uri) ? 'text-success' : ''"
+                                @click="toggleSubscribe(resource.uri)">
+                                <span v-if="subscribedUris.has(resource.uri)">{{ t('mcp.subscribed') }}</span>
+                                <span v-else>{{ t('mcp.subscribe') }}</span>
+                            </button>
+                        </div>
+                        <pre v-if="resourceContents[resource.uri] !== undefined"
+                            class="max-h-48 overflow-auto rounded bg-base-200/60 p-2 font-mono text-xs whitespace-pre-wrap break-all">{{ resourceContents[resource.uri] }}</pre>
+                    </li>
+                    <li v-if="resourceTemplates.length > 0" class="pt-2 text-xs opacity-60">{{ t('mcp.resourceTemplates') }}</li>
+                    <li v-for="template in resourceTemplates" :key="template.uriTemplate"
+                        class="border border-dashed border-base-300 rounded-lg p-3">
+                        <div class="font-mono text-sm break-all">{{ template.name || template.uriTemplate }}</div>
+                        <div class="text-xs opacity-50 font-mono break-all">{{ template.uriTemplate }}</div>
+                        <div v-if="template.description" class="text-xs opacity-60 mt-1">{{ template.description }}</div>
+                    </li>
+                </ul>
+                <div class="modal-action">
+                    <button class="btn" @click="resourcesTarget = null">{{ t('common.close') }}</button>
+                </div>
+            </div>
+            <form method="dialog" class="modal-backdrop" @click="resourcesTarget = null">
+                <button>close</button>
+            </form>
+        </dialog>
+
+        <!-- 提示抽屉 -->
+        <dialog class="modal" :class="{ 'modal-open': promptsTarget !== null }" data-testid="mcp-prompts-modal"
+            @keydown.esc.prevent="promptsTarget = null">
+            <div class="modal-box w-full max-w-lg">
+                <form method="dialog">
+                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="promptsTarget = null">
+                        <XMarkIcon class="w-4 h-4" />
+                    </button>
+                </form>
+                <h3 class="font-bold text-lg mb-4 text-center">
+                    {{ t('mcp.promptsOf', { name: promptsTarget?.displayName ?? '' }) }}
+                </h3>
+                <div v-if="promptsLoading" class="text-sm opacity-60">{{ t('common.loading') }}…</div>
+                <div v-else-if="prompts.length === 0" class="text-sm opacity-60 text-center py-4">
+                    {{ t('mcp.noPrompts') }}
+                </div>
+                <ul v-else class="space-y-2 max-h-[60vh] overflow-y-auto">
+                    <li v-for="prompt in prompts" :key="prompt.name" class="border border-base-300 rounded-lg p-3 space-y-2"
+                        :data-testid="`mcp-prompt-${prompt.name}`">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="font-mono text-sm break-all">{{ prompt.name }}</div>
+                                <div v-if="prompt.description" class="text-xs opacity-60 mt-0.5">{{ prompt.description }}</div>
+                            </div>
+                            <button class="btn btn-ghost btn-xs shrink-0" data-testid="mcp-prompt-get"
+                                @click="getPromptInDrawer(prompt)">
+                                {{ t('mcp.getPrompt') }}
+                            </button>
+                        </div>
+                        <!-- 参数表单：按 prompt.arguments 声明展开；输入时经 completion/complete 拉候选（datalist） -->
+                        <div v-if="prompt.arguments?.length" class="space-y-1">
+                            <div v-for="arg in prompt.arguments" :key="arg.name" class="flex items-center gap-2">
+                                <span class="text-xs opacity-70 w-20 sm:w-28 shrink-0 truncate" :title="arg.description">{{ arg.name }}</span>
+                                <input v-model="promptArgInputs[prompt.name][arg.name]" type="text"
+                                    class="input input-bordered input-sm flex-1 min-w-0 font-mono text-xs"
+                                    :list="`mcp-completion-${prompt.name}-${arg.name}`"
+                                    :placeholder="arg.description"
+                                    @input="onPromptArgInput(prompt, arg.name)" />
+                                <datalist :id="`mcp-completion-${prompt.name}-${arg.name}`">
+                                    <option v-for="value in completionValues[`${prompt.name}/${arg.name}`] ?? []"
+                                        :key="value" :value="value" />
+                                </datalist>
+                            </div>
+                        </div>
+                        <pre v-if="promptResults[prompt.name] !== undefined"
+                            class="max-h-48 overflow-auto rounded bg-base-200/60 p-2 font-mono text-xs whitespace-pre-wrap break-all">{{ promptResults[prompt.name] }}</pre>
+                    </li>
+                </ul>
+                <div class="modal-action">
+                    <button class="btn" @click="promptsTarget = null">{{ t('common.close') }}</button>
+                </div>
+            </div>
+            <form method="dialog" class="modal-backdrop" @click="promptsTarget = null">
                 <button>close</button>
             </form>
         </dialog>

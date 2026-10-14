@@ -222,3 +222,40 @@ test('mcp.* i18n 键 zh/en 双侧齐全', () => {
         assert.match(source, /confirmDelete: '[^']*\{name\}/)
     }
 })
+
+test('资源/提示入口按能力位门控，不依赖缓存内容', () => {
+    assert.match(view, /v-if="item\.capabilities\?\.resources"/, 'resources button gated by capability')
+    assert.match(view, /v-if="item\.capabilities\?\.prompts"/, 'prompts button gated by capability')
+})
+
+test('新端点 wiring：resources/read、prompts/get、complete、logging/set-level、ping、oauth/invalidate', () => {
+    assert.match(view, /\/resources\/read/)
+    assert.match(view, /\/prompts\/get/)
+    assert.match(view, /\/complete`/)
+    assert.match(view, /\/logging\/set-level/)
+    assert.match(view, /\/ping`/)
+    assert.match(view, /\/oauth\/invalidate/)
+})
+
+test('OAuth 新字段表单存在（编辑不丢 resourceMetadataUrl/skipIssuerValidation）', () => {
+    assert.match(view, /v-model="form\.resourceMetadataUrl"/)
+    assert.match(view, /v-model="form\.skipIssuerValidation"/)
+    assert.match(utils, /resourceMetadataUrl\?: string/)
+    assert.match(utils, /skipIssuerValidation\?: boolean/)
+})
+
+test('凭据失效走 useConfirm 确认（不裸删）', () => {
+    assert.match(view, /confirm\(t\('mcp\.confirmInvalidate'/)
+})
+
+test('日志级别选择器用 RFC 5424 八级枚举', () => {
+    assert.match(view, /v-for="level in MCP_LOG_LEVELS"/)
+    assert.match(utils, /MCP_LOG_LEVELS: readonly string\[\]/)
+})
+
+test('i18n：新键 zh/en 双语齐备', () => {
+    for (const key of ['resourceMetadataUrl:', 'skipIssuerValidation:', 'resourceMetadataUrlInvalid:', 'logsLevel:', 'pingOk:', 'invalidate:', 'confirmInvalidate:']) {
+        assert.ok(zh.includes(`            ${key.trim()}`) || zh.includes(key), `zh missing ${key}`)
+        assert.ok(en.includes(key), `en missing ${key}`)
+    }
+})

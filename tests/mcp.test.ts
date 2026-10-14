@@ -9,14 +9,31 @@ import {
     formToPayload,
     logLineClass,
     mcpToolName,
+    MCP_LOG_LEVELS,
     needsAuthPolling,
     needsConvergePolling,
     parseLogLines,
+    serverLogTone,
     splitArgs,
     stateTone,
     validateForm,
 } from '../src/utils/mcp.ts'
 import type { McpFormErrorKey, McpServerItem } from '../src/utils/mcp.ts'
+
+/** 最小 http 型服务器条目（新字段测试的基底）。 */
+function makeHttpItem(): McpServerItem {
+    return {
+        id: 'remote',
+        displayName: '远程',
+        enabled: true,
+        state: 'connected',
+        toolCount: 0,
+        toolNames: [],
+        agents: ['a1'],
+        transport: { type: 'http', url: 'https://a.b/mcp' },
+        updatedAt: '',
+    }
+}
 
 test('splitArgs: 空格/tab/换行切分，引号保留空格', () => {
     assert.deepEqual(splitArgs('npx -y server-fs /ws'), ['npx', '-y', 'server-fs', '/ws'])
@@ -392,4 +409,79 @@ test('logLineClass: error→text-error, warn→text-warning, info→弱化', () 
     assert.equal(logLineClass('error'), 'text-error')
     assert.equal(logLineClass('warn'), 'text-warning')
     assert.equal(logLineClass('info'), 'opacity-70')
+})
+
+test('formFromItem/formToPayload: OAuth resourceMetadataUrl/skipIssuerValidation 回填与下发（编辑不丢字段）', () => {
+    const item: McpServerItem = {
+        ...makeHttpItem(),
+        transport: {
+            type: 'http',
+            url: 'https://mcp.example.com/mcp',
+            auth: {
+                type: 'oauth',
+                clientId: 'abc',
+                resourceMetadataUrl: 'https://mcp.example.com/.well-known/oauth-protected-resource',
+                skipIssuerValidation: true,
+            },
+        },
+    }
+    const form = formFromItem(item)
+    assert.equal(form.resourceMetadataUrl, 'https://mcp.example.com/.well-known/oauth-protected-resource')
+    assert.equal(form.skipIssuerValidation, true)
+
+    const payload = formToPayload(form) as { transport: { auth: Record<string, unknown> } }
+    assert.equal(payload.transport.auth.resourceMetadataUrl, 'https://mcp.example.com/.well-known/oauth-protected-resource')
+    assert.equal(payload.transport.auth.skipIssuerValidation, true)
+
+    // 空值不下发（用服务端缺省）；开关关闭不下发
+    const cleared = formToPayload({ ...form, resourceMetadataUrl: '', skipIssuerValidation: false }) as {
+        transport: { auth: Record<string, unknown> }
+    }
+    assert.equal(cleared.transport.auth.resourceMetadataUrl, undefined)
+    assert.equal(cleared.transport.auth.skipIssuerValidation, undefined)
+})
+
+test('validateForm: resourceMetadataUrl 非法 URL 被拦（与 authServerMetadataUrl 同规则）', () => {
+    const base = { ...emptyForm(), id: 'r', transportKind: 'http' as const, url: 'https://mcp.example.com/mcp', authMode: 'oauth' as const }
+    assert.deepEqual(validateForm({ ...base, resourceMetadataUrl: 'ftp://x/y' }), ['resourceMetadataUrlInvalid'])
+    assert.deepEqual(validateForm({ ...base, resourceMetadataUrl: 'http://mcp.example.com/.well-known/pr' }), ['resourceMetadataUrlInvalid'])
+    assert.deepEqual(validateForm({ ...base, resourceMetadataUrl: 'https://ok.example.com/pr' }), [])
+    assert.deepEqual(validateForm({ ...base, resourceMetadataUrl: 'http://127.0.0.1:8080/pr' }), [])
+})
+
+test('errorsForAuthMode: 离开 oauth 清理 resourceMetadataUrlInvalid', () => {
+    const form = { ...emptyForm(), transportKind: 'http' as const, authMode: 'none' as const }
+    assert.deepEqual(
+        errorsForAuthMode(form, ['resourceMetadataUrlInvalid', 'apiKeyRequired']),
+        [],
+    )
+})
+
+test('McpServerItem 新字段：capabilities/instructions/resourceCount/promptCount 类型面可用', () => {
+    // 编译期契约：新字段在类型上可选（服务端 statusSnapshot 已返回）
+    const item: McpServerItem = {
+        ...makeHttpItem(),
+        instructions: 'use me wisely',
+        capabilities: { tools: {}, resources: { subscribe: true }, prompts: { listChanged: true }, logging: {}, completions: {} },
+        resourceCount: 3,
+        promptCount: 1,
+    }
+    assert.equal(item.instructions, 'use me wisely')
+    assert.equal(item.capabilities?.resources?.subscribe, true)
+    assert.equal(item.resourceCount, 3)
+})
+
+test('MCP_LOG_LEVELS: RFC 5424 八级枚举', () => {
+    assert.equal(MCP_LOG_LEVELS.length, 8)
+    assert.equal(MCP_LOG_LEVELS[0], 'debug')
+    assert.equal(MCP_LOG_LEVELS[7], 'emergency')
+})
+
+test('serverLogTone: 错误系红/警告系黄/其余默认', () => {
+    assert.equal(serverLogTone('error'), 'text-error')
+    assert.equal(serverLogTone('emergency'), 'text-error')
+    assert.equal(serverLogTone('warning'), 'text-warning')
+    assert.equal(serverLogTone('notice'), 'text-warning')
+    assert.equal(serverLogTone('info'), '')
+    assert.equal(serverLogTone('made-up'), '')
 })

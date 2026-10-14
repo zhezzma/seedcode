@@ -43,6 +43,10 @@ export interface McpOAuthSettingsWire {
     clientName?: string
     clientRegistration?: 'dcr' | 'cimd'
     authServerMetadataUrl?: string
+    /** Protected Resource Metadata URL（多资源服务器/WWW-Authenticate 挑战发现替代源）。 */
+    resourceMetadataUrl?: string
+    /** 跳过 RFC 9207 iss 校验（自签/非标准授权服务器调试用）。 */
+    skipIssuerValidation?: boolean
 }
 
 export interface McpHttpTransport {
@@ -54,6 +58,15 @@ export interface McpHttpTransport {
 
 export type McpTransportConfig = McpStdioTransport | McpHttpTransport
 
+/** 服务端能力位投影（statusSnapshot 的 capabilities 字段子集）。 */
+export interface McpServerCapabilitiesWire {
+    tools?: Record<string, unknown>
+    resources?: { subscribe?: boolean; listChanged?: boolean }
+    prompts?: { listChanged?: boolean }
+    logging?: Record<string, unknown>
+    completions?: Record<string, unknown>
+}
+
 export interface McpServerItem {
     id: string
     displayName: string
@@ -62,8 +75,16 @@ export interface McpServerItem {
     lastError?: string
     serverInfo?: { name: string; version: string; title?: string }
     protocolVersion?: string
+    /** 服务器自述使用说明（InitializeResult.instructions）。 */
+    instructions?: string
+    /** 服务器能力位投影。 */
+    capabilities?: McpServerCapabilitiesWire
     toolCount: number
     toolNames: string[]
+    /** 缓存的资源数量（resources/list）。 */
+    resourceCount?: number
+    /** 缓存的 prompt 数（prompts/list）。 */
+    promptCount?: number
     authorizationUrl?: string
     oauthRedirectUrl?: string
     stderrTail?: string
@@ -105,6 +126,10 @@ export interface McpServerForm {
     clientName: string
     clientRegistration: 'dcr' | 'cimd'
     authServerMetadataUrl: string
+    /** Protected Resource Metadata URL（https 或 loopback http；空 = 不下发）。 */
+    resourceMetadataUrl: string
+    /** 跳过 RFC 9207 iss 校验（仅自签/非标准授权服务器调试）。 */
+    skipIssuerValidation: boolean
     agentsAll: boolean
     agents: string[]
     extraTransport: Record<string, unknown>
@@ -160,6 +185,8 @@ export function emptyForm(): McpServerForm {
         clientName: '',
         clientRegistration: 'dcr',
         authServerMetadataUrl: '',
+        resourceMetadataUrl: '',
+        skipIssuerValidation: false,
         agentsAll: true,
         agents: [],
         extraTransport: {},
@@ -223,6 +250,8 @@ export function formFromItem(item: McpServerItem): McpServerForm {
         clientName: auth?.clientName ?? '',
         clientRegistration: auth?.clientRegistration ?? 'dcr',
         authServerMetadataUrl: auth?.authServerMetadataUrl ?? '',
+        resourceMetadataUrl: auth?.resourceMetadataUrl ?? '',
+        skipIssuerValidation: auth?.skipIssuerValidation === true,
         extraTransport: extra,
     }
 }
@@ -244,6 +273,7 @@ export function formToPayload(form: McpServerForm): Record<string, unknown> {
         const callbackTimeoutMs = form.callbackTimeoutMs.trim()
         const callbackUrl = form.callbackUrl.trim()
         const metadataUrl = form.authServerMetadataUrl.trim()
+        const resourceUrl = form.resourceMetadataUrl.trim()
         transport = {
             type: 'http',
             url: form.url.trim(),
@@ -258,6 +288,8 @@ export function formToPayload(form: McpServerForm): Record<string, unknown> {
                 ...(form.clientName.trim() !== '' ? { clientName: form.clientName.trim() } : {}),
                 ...(form.clientRegistration === 'cimd' ? { clientRegistration: 'cimd' as const } : {}),
                 ...(metadataUrl !== '' ? { authServerMetadataUrl: metadataUrl } : {}),
+                ...(resourceUrl !== '' ? { resourceMetadataUrl: resourceUrl } : {}),
+                ...(form.skipIssuerValidation ? { skipIssuerValidation: true } : {}),
             },
         }
     } else {
@@ -335,6 +367,7 @@ export type McpFormErrorKey =
     | 'cimdConflict'
     | 'cimdCallbackUrl'
     | 'authMetadataUrlInvalid'
+    | 'resourceMetadataUrlInvalid'
     | 'agentsRequired'
 
 /** 表单校验：返回全部错误 key（空数组 = 通过）。 */
@@ -394,6 +427,17 @@ export function validateForm(form: McpServerForm): McpFormErrorKey[] {
                     errors.push('authMetadataUrlInvalid')
                 }
             }
+            // 与 authServerMetadataUrl 同规则：https 或 loopback http（镜像服务端 validateOAuthSettings）
+            const resourceUrl = form.resourceMetadataUrl.trim()
+            if (resourceUrl !== '') {
+                const res = URL.canParse(resourceUrl) ? new URL(resourceUrl) : undefined
+                if (
+                    !res ||
+                    !(res.protocol === 'https:' || (res.protocol === 'http:' && isLoopbackHostname(res.hostname)))
+                ) {
+                    errors.push('resourceMetadataUrlInvalid')
+                }
+            }
         }
     }
     if (!form.agentsAll && form.agents.length === 0) errors.push('agentsRequired')
@@ -417,6 +461,7 @@ const OAUTH_ERROR_KEYS = new Set<McpFormErrorKey>([
     'cimdConflict',
     'cimdCallbackUrl',
     'authMetadataUrlInvalid',
+    'resourceMetadataUrlInvalid',
 ])
 
 /** 切换鉴权方式后重算表单错误（离开旧模式时清掉其专属错误键）。 */
@@ -454,6 +499,25 @@ export function needsConvergePolling(item: McpServerItem): boolean {
 }
 
 export const POLL_INTERVAL_MS = 1500
+
+/** RFC 5424 日志级别八枚举（与服务端 MCP_LOG_LEVELS 同源；日志级别选择器用）。 */
+export const MCP_LOG_LEVELS: readonly string[] = [
+    'debug',
+    'info',
+    'notice',
+    'warning',
+    'error',
+    'critical',
+    'alert',
+    'emergency',
+]
+
+/** 服务器日志级别 → 文本色（错误系红色、警告系黄色、其余默认）。 */
+export function serverLogTone(level: string): string {
+    if (level === 'error' || level === 'critical' || level === 'alert' || level === 'emergency') return 'text-error'
+    if (level === 'warning' || level === 'notice') return 'text-warning'
+    return ''
+}
 
 /** stderr 日志行的分级结果（UI 据此着色）。 */
 export type McpLogLevel = 'error' | 'warn' | 'info'
