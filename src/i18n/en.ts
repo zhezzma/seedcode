@@ -696,6 +696,7 @@ export default {
     },
     elicitation: {
         title: 'MCP Server Input Request',
+        titleWithServer: 'MCP Server {server} Input Request',
         expiresIn: 'Expires in {s}s',
         expiresInMin: 'Expires in {m}m {s}s',
         expired: 'Expired',

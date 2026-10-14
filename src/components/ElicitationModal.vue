@@ -163,7 +163,11 @@ const doResolve = async (value: { action: 'accept' | 'decline' | 'cancel'; conte
         <div class="modal-backdrop"></div>
         <div class="row-start-1 col-start-1 bg-base-100 rounded-lg shadow-xl p-6 w-full max-w-lg border border-base-300 max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-transparent">
             <div class="mb-4">
-                <h3 class="text-lg font-bold">{{ $t('elicitation.title') }}</h3>
+                <h3 class="text-lg font-bold">{{
+                    currentRequest.serverId
+                        ? $t('elicitation.titleWithServer', { server: currentRequest.serverId })
+                        : $t('elicitation.title')
+                }}</h3>
                 <p class="text-sm text-base-content/60">{{ timeLeft }}</p>
             </div>
 
