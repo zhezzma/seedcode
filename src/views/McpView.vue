@@ -28,6 +28,7 @@ import {
     DocumentDuplicateIcon,
     ChatBubbleLeftRightIcon,
     ClipboardDocumentCheckIcon,
+    EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline'
 import ViewHeader from '../components/ViewHeader.vue'
 import { apiGet, apiPost, apiPut, apiDelete } from '../composables/api-client'
@@ -643,6 +644,13 @@ async function invalidateCredentials(item: McpServerItem) {
     }
 }
 
+/** details 型 dropdown 点选菜单项后不会自动收起：先关菜单再执行动作。 */
+function withMenuClose(event: Event, action: () => void) {
+    const details = (event.currentTarget as HTMLElement | null)?.closest('details')
+    if (details) details.open = false
+    action()
+}
+
 // ─── 展示辅助 ────────────────────────────────────────────────────
 
 /** 能力位 → 展示名列表（tools 隐含不展示；undefined 能力返回空）。 */
@@ -709,9 +717,9 @@ onUnmounted(() => {
             <div v-for="item in servers" :key="item.id" class="card bg-base-100 border border-base-300 shadow-sm"
                 :data-testid="`mcp-server-${item.id}`">
                 <div class="card-body p-4 gap-3">
-                    <!-- 卡片头：窄屏纵排（名称与按钮各自成行），sm+ 恢复左右布局——
-                         10+ 个操作按钮在手机上横排必然溢出，换行以组为单位（见操作区注释） -->
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <!-- 卡片头：名称与操作行同一行排布（justify-between）；操作行放不下时
+                         整组换到第二行（flex-wrap），行内不会出现单个孤按钮 -->
+                    <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="toneClass[stateTone(item.state)]"
                                 :title="stateLabel(item.state)" data-testid="mcp-state-dot" />
@@ -721,72 +729,90 @@ onUnmounted(() => {
                                 <div class="text-xs opacity-50 font-mono truncate">{{ item.id }}</div>
                             </div>
                         </div>
-                        <!-- 操作区按语义分三组：连接控制 / 内容浏览 / 管理。组是原子 flex 项，
-                             flex-wrap 只会整组换行不会从组中间断开；移动端居中让换行行像有意排版，
-                             而不是单个按钮孤零零吊在右下角；sm+ 恢复右对齐 -->
-                        <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:justify-end">
+                        <!-- 操作行：高频操作（工具/编辑）带文字标签平铺，低频/状态相关/破坏性
+                             操作收进 ⋮ 溢出菜单（触屏上 icon-only 语义不可读）；整行放不下时随卡片头整体换行 -->
+                        <div class="flex flex-wrap items-center gap-1 justify-end shrink-0">
                             <!-- 状态文字徽标仅 sm+ 屏显示：移动端卡片头部空间不足会把中文挤成竖排；状态由左侧彩色圆点承载 -->
                             <span class="badge badge-ghost badge-sm mr-1 hidden sm:inline-flex">{{ stateLabel(item.state) }}</span>
-                            <!-- 连接控制：启用开关 / 连接 / 授权 / 断开 / 探活 -->
-                            <div class="flex items-center gap-1">
-                                <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
-                                    <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
-                                        @change="toggleEnabled(item)" />
-                                </label>
-                                <button class="btn btn-ghost btn-xs" :disabled="item.state === 'connected'"
-                                    :title="t('mcp.connect')" @click="connect(item)">
-                                    <LinkIcon class="w-4 h-4" />
-                                </button>
-                                <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
-                                <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs" :title="t('mcp.authorize')"
-                                    data-testid="mcp-authorize" :disabled="authStarting !== null" @click="openAuthorization(item)">
-                                    <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
-                                    <KeyIcon v-else class="w-4 h-4" />
-                                </button>
-                                <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected'"
-                                    :title="t('mcp.disconnect')" @click="disconnect(item)">
-                                    <LinkSlashIcon class="w-4 h-4" />
-                                </button>
-                                <!-- 协议层探活 -->
-                                <button class="btn btn-ghost btn-xs" :disabled="item.state !== 'connected' || pinging !== null"
-                                    :title="t('mcp.ping')" data-testid="mcp-ping" @click="pingServer(item)">
-                                    <span v-if="pinging === item.id" class="loading loading-spinner loading-xs"></span>
-                                    <SignalIcon v-else class="w-4 h-4" />
-                                </button>
-                            </div>
-                            <!-- 内容浏览：资源 / 提示（能力位门控）/ 工具 -->
-                            <div class="flex items-center gap-1">
-                                <!-- 资源浏览器（能力位门控） -->
-                                <button v-if="item.capabilities?.resources" class="btn btn-ghost btn-xs"
-                                    :title="t('mcp.resources')" data-testid="mcp-resources" @click="openResources(item)">
-                                    <DocumentDuplicateIcon class="w-4 h-4" />
-                                </button>
-                                <!-- 提示模板（能力位门控） -->
-                                <button v-if="item.capabilities?.prompts" class="btn btn-ghost btn-xs"
-                                    :title="t('mcp.prompts')" data-testid="mcp-prompts" @click="openPrompts(item)">
-                                    <ChatBubbleLeftRightIcon class="w-4 h-4" />
-                                </button>
-                                <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
-                                    <WrenchScrewdriverIcon class="w-4 h-4" />
-                                </button>
-                            </div>
-                            <!-- 管理：凭据失效（仅 OAuth 型）/ 编辑 / 删除 -->
-                            <div class="flex items-center gap-1">
-                                <!-- OAuth 凭据失效（仅 OAuth 型） -->
-                                <button v-if="isOAuthServer(item)" class="btn btn-ghost btn-xs text-warning"
-                                    :title="t('mcp.invalidate')" data-testid="mcp-invalidate"
-                                    :disabled="invalidating !== null" @click="invalidateCredentials(item)">
-                                    <span v-if="invalidating === item.id" class="loading loading-spinner loading-xs"></span>
-                                    <ClipboardDocumentCheckIcon v-else class="w-4 h-4" />
-                                </button>
-                                <button class="btn btn-ghost btn-xs" :title="t('common.edit')" @click="openEdit(item)">
-                                    <PencilSquareIcon class="w-4 h-4" />
-                                </button>
-                                <button class="btn btn-ghost btn-xs text-error" :title="t('common.delete')"
-                                    @click="removeServer(item)">
-                                    <TrashIcon class="w-4 h-4" />
-                                </button>
-                            </div>
+                            <label class="cursor-pointer label gap-1 mr-1" :title="t('mcp.enabledHint')">
+                                <input type="checkbox" class="toggle toggle-success toggle-sm" :checked="item.enabled"
+                                    @change="toggleEnabled(item)" />
+                            </label>
+                            <button class="btn btn-ghost btn-xs" :title="t('mcp.tools')" @click="openTools(item)">
+                                <WrenchScrewdriverIcon class="w-4 h-4" />
+                                <span>{{ t('mcp.tools') }}</span>
+                            </button>
+                            <button class="btn btn-ghost btn-xs" :title="t('common.edit')" @click="openEdit(item)">
+                                <PencilSquareIcon class="w-4 h-4" />
+                                <span>{{ t('common.edit') }}</span>
+                            </button>
+                            <!-- 溢出菜单：details 型 dropdown 点选后不会自动收起，菜单项统一走 withMenuClose -->
+                            <details class="dropdown dropdown-end" data-testid="mcp-more">
+                                <summary class="btn btn-ghost btn-xs btn-circle list-none" :title="t('mcp.moreActions')">
+                                    <EllipsisVerticalIcon class="w-4 h-4" />
+                                </summary>
+                                <ul class="dropdown-content menu z-20 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 p-2 shadow-lg">
+                                    <li v-if="item.state !== 'connected'">
+                                        <button @click="withMenuClose($event, () => connect(item))">
+                                            <LinkIcon class="w-4 h-4" />
+                                            {{ t('mcp.connect') }}
+                                        </button>
+                                    </li>
+                                    <!-- OAuth 型服务器常驻授权入口（不再只在 auth_required 时出现）；任一启动中全局禁用（单飞） -->
+                                    <li v-if="isOAuthServer(item)">
+                                        <button data-testid="mcp-authorize" :disabled="authStarting !== null"
+                                            @click="withMenuClose($event, () => openAuthorization(item))">
+                                            <span v-if="authStarting === item.id" class="loading loading-spinner loading-xs"></span>
+                                            <KeyIcon v-else class="w-4 h-4" />
+                                            {{ t('mcp.authorize') }}
+                                        </button>
+                                    </li>
+                                    <li v-if="item.state === 'connected'">
+                                        <button @click="withMenuClose($event, () => disconnect(item))">
+                                            <LinkSlashIcon class="w-4 h-4" />
+                                            {{ t('mcp.disconnect') }}
+                                        </button>
+                                    </li>
+                                    <!-- 协议层探活 -->
+                                    <li v-if="item.state === 'connected'">
+                                        <button data-testid="mcp-ping" @click="withMenuClose($event, () => pingServer(item))">
+                                            <span v-if="pinging === item.id" class="loading loading-spinner loading-xs"></span>
+                                            <SignalIcon v-else class="w-4 h-4" />
+                                            {{ t('mcp.ping') }}
+                                        </button>
+                                    </li>
+                                    <!-- 资源浏览器（能力位门控） -->
+                                    <li v-if="item.capabilities?.resources">
+                                        <button data-testid="mcp-resources" @click="withMenuClose($event, () => openResources(item))">
+                                            <DocumentDuplicateIcon class="w-4 h-4" />
+                                            {{ t('mcp.resources') }}
+                                        </button>
+                                    </li>
+                                    <!-- 提示模板（能力位门控） -->
+                                    <li v-if="item.capabilities?.prompts">
+                                        <button data-testid="mcp-prompts" @click="withMenuClose($event, () => openPrompts(item))">
+                                            <ChatBubbleLeftRightIcon class="w-4 h-4" />
+                                            {{ t('mcp.prompts') }}
+                                        </button>
+                                    </li>
+                                    <!-- OAuth 凭据失效（仅 OAuth 型） -->
+                                    <li v-if="isOAuthServer(item)">
+                                        <button class="text-warning" data-testid="mcp-invalidate"
+                                            :disabled="invalidating !== null"
+                                            @click="withMenuClose($event, () => invalidateCredentials(item))">
+                                            <span v-if="invalidating === item.id" class="loading loading-spinner loading-xs"></span>
+                                            <ClipboardDocumentCheckIcon v-else class="w-4 h-4" />
+                                            {{ t('mcp.invalidate') }}
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button class="text-error" @click="withMenuClose($event, () => removeServer(item))">
+                                            <TrashIcon class="w-4 h-4" />
+                                            {{ t('common.delete') }}
+                                        </button>
+                                    </li>
+                                </ul>
+                            </details>
                         </div>
                     </div>
 

@@ -178,11 +178,22 @@ test('ViewHeader 传 wc-pad 与 is-main-page（悬浮窗键避让 + 移动端返
     assert.match(view, /<ViewHeader :title="t\('mcp\.title'\)" is-main-page wc-pad>/)
 })
 
-test('操作区按语义分组且以组为原子换行（移动端孤行居中，不出现单按钮吊右）', () => {
-    // 外层容器：移动端居中 + sm+ 右对齐；组间距（gap-x-3）大于组内间距（组内 gap-1）
-    assert.match(view, /flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:justify-end/)
-    // 恰好三个语义组（连接控制/内容浏览/管理），各为独立 flex 原子，换行不会从组中间断开
-    assert.equal(view.match(/<div class="flex items-center gap-1">/g)?.length, 3)
+test('操作区 = 主行（开关/工具/编辑）+ ⋮ 溢出菜单，卡片头单行排布可整体换行', () => {
+    // 卡片头：名称与操作同行（justify-between），放不下整行换行（不再窄屏强制纵排）
+    assert.match(view, /flex flex-wrap items-center justify-between gap-x-2 gap-y-1/)
+    // 高频操作带文字标签平铺，其余收进溢出菜单（触屏上 icon-only 语义不可读）
+    assert.match(view, /<EllipsisVerticalIcon class="w-4 h-4" \/>/)
+    for (const key of ["t('mcp.connect')", "t('mcp.disconnect')", "t('mcp.ping')", "t('mcp.authorize')", "t('mcp.resources')", "t('mcp.prompts')", "t('mcp.invalidate')", "t('common.delete')"]) {
+        assert.ok(view.includes(key), `溢出菜单缺少动作项：${key}`)
+    }
+    // 菜单项点选后必须走 withMenuClose 收起 details 型 dropdown
+    assert.match(view, /function withMenuClose\(event: Event, action: \(\) => void\)/)
+    assert.ok(view.split('withMenuClose($event,').length >= 7, 'all menu items must close the dropdown')
+})
+
+test('溢出菜单 i18n 键 zh/en 双侧齐全', () => {
+    assert.ok(zh.includes("moreActions: '更多操作'"))
+    assert.ok(en.includes("moreActions: 'More actions'"))
 })
 
 test('编辑保存保留未知传输字段（env/inheritEnv/headers 不丢）', () => {

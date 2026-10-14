@@ -1165,6 +1165,7 @@ export default {
         resourceTemplates: '资源模板（uriTemplate）',
         getPrompt: '获取',
         invalidate: '失效凭据',
+        moreActions: '更多操作',
         confirmInvalidate: '确定失效 {name} 的 OAuth 凭据？下次连接将重新走授权流程。',
         logsLevel: '日志级别',
         logsLevelHint: '设置服务器上报日志的级别（logging/setLevel）',

@@ -1163,6 +1163,7 @@ export default {
         resourceTemplates: 'Resource templates (uriTemplate)',
         getPrompt: 'Get',
         invalidate: 'Invalidate credentials',
+        moreActions: 'More actions',
         confirmInvalidate: 'Invalidate OAuth credentials of {name}? The next connection will restart authorization.',
         logsLevel: 'Log level',
         logsLevelHint: 'Set the level the server reports logs at (logging/setLevel)',
