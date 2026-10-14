@@ -147,7 +147,7 @@ test('useChatState: abort 成功后清空本地队列（对齐服务端 clearQue
     assert.ok(!fn.includes('persistPendingQueue'))
     // 先验存在再比顺序：否则行文本漂移时 indexOf 返回 -1、-1 < 任意位置恒真（vacuous-pass）
     assert.ok(fn.includes('sd.chatMessages = result.messages'), 'abort must persist messages from /abort response')
-    // 流式临时条目与 done/loadChatHistory 同规则：持久化消息落地后一并清空（todo details 链路）
+    // 流式临时条目与 done/loadChatHistory 同规则：持久化消息落地后一并清空（tasklist details 链路）
     // 顺序守门：必须先落地 chatMessages 再清临时条目，反序会丢面板快照
     assert.match(fn, /sd\.chatToolMessages = \[\]/)
     assert.ok(
@@ -156,9 +156,9 @@ test('useChatState: abort 成功后清空本地队列（对齐服务端 clearQue
     )
 })
 
-test('useChatState: tool_execution_end 推送对象补齐 toolName/details（TodoBar 流式实时更新的数据源，回归守门）', () => {
+test('useChatState: tool_execution_end 推送对象补齐 toolName/details（TasklistBar 流式实时更新的数据源，回归守门）', () => {
     const handler = extractFn(chatStateSource, 'handleSSEEvent')
-    // 缺任一字段 → TodoBar 退化为只在回合结束 done 后更新（最终审查 Critical#1 同型回归）
+    // 缺任一字段 → TasklistBar 退化为只在回合结束 done 后更新（最终审查 Critical#1 同型回归）
     assert.match(handler, /toolName: data\.toolName,/)
     assert.match(handler, /details: data\.result\?\.details/)
 })
@@ -243,11 +243,11 @@ test('HomeView: 会话页输入框上方挂载 ChatDockArea（PendingQueueBar �
     assert.ok(!homeViewSource.includes('<PendingQueueBar'), 'HomeView must not mount PendingQueueBar directly')
     const dockAreaSource = read('src/components/chat/ChatDockArea.vue')
     assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'pending-queue', order: 10/, 'PendingQueueBar must register into chat dock')
-    // TodoBar 挂载完全依赖这一行注册：删掉不会有任何其他测试失败（Ruling T8 留给审查的口子）
-    assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'todo', order: 20/, 'TodoBar must register into chat dock')
-    // order 语义守门：pending-queue 必须排在 todo 之前（字面量互不关联，顺序反转无现有断言）
+    // TasklistBar 挂载完全依赖这一行注册：删掉不会有任何其他测试失败（Ruling T8 留给审查的口子）
+    assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'tasklist', order: 20/, 'TasklistBar must register into chat dock')
+    // order 语义守门：pending-queue 必须排在 tasklist 之前（字面量互不关联，顺序反转无现有断言）
     const orderOf = (id: string) => Number(dockAreaSource.match(new RegExp(`id: '${id}', order: (\\d+)`))?.[1])
-    assert.ok(orderOf('pending-queue') < orderOf('todo'), 'pending-queue must render before todo in chat dock')
+    assert.ok(orderOf('pending-queue') < orderOf('tasklist'), 'pending-queue must render before tasklist in chat dock')
 })
 
 test('PendingQueueBar / MessageBubble: 排队可视化元素存在', () => {

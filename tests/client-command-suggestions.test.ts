@@ -1,13 +1,13 @@
 // tests/client-command-suggestions.test.ts
 // 客户端命令统一注册表（clientCommands.ts）的 wiring 断言。
 //
-// 背景：/todos、/tree 是前端本地拦截的客户端命令，不在服务端 /api/commands
+// 背景：/tasklist、/tree 是前端本地拦截的客户端命令，不在服务端 /api/commands
 // 命令表里，`/` 补全与「命令」按钮下拉都看不到。方案：clientCommands.ts
 // 作为唯一注册表，useChatInput 的 watch 合并进 / 补全（按 name 去重），
 // ChatInput 下拉渲染「本地指令」分区；/tree 从静态 COMMANDS 移入注册表防重复。
 //
 // clientCommands.ts 是纯模块（仅 type 依赖 useCommandState），可直接单测；
-// useChatInput / ChatInput 依赖 vue，沿用 todo-restore-command.test.ts 的
+// useChatInput / ChatInput 依赖 vue，沿用 tasklist-restore-command.test.ts 的
 // 源码结构断言模式。
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -24,9 +24,9 @@ const chatInputSource = readFileSync(path.join(repoRoot, 'src/composables/useCha
 const chatInputVueSource = readFileSync(path.join(repoRoot, 'src/components/chat/ChatInput.vue'), 'utf8')
 const commandStateSource = readFileSync(path.join(repoRoot, 'src/composables/useCommandState.ts'), 'utf8')
 
-test('注册表：/todos 与 /tree 已登记，带下拉文案与 client 来源', () => {
+test('注册表：/tasklist 与 /tree 已登记，带下拉文案与 client 来源', () => {
     const names = CLIENT_COMMANDS.map(cmd => cmd.name)
-    assert.ok(names.includes('todos'), '注册表必须包含 /todos')
+    assert.ok(names.includes('tasklist'), '注册表必须包含 /tasklist')
     assert.ok(names.includes('tree'), '注册表必须包含 /tree')
     for (const cmd of CLIENT_COMMANDS) {
         assert.equal(cmd.source, 'client', `${cmd.name} 必须标记 source: 'client'`)
@@ -35,8 +35,8 @@ test('注册表：/todos 与 /tree 已登记，带下拉文案与 client 来源'
 })
 
 test('注册表：filterClientCommands 按前缀过滤，输出纯 CommandInfo（无下拉元数据）', () => {
-    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['todos', 'tree'])
-    assert.deepEqual(filterClientCommands('to').map(cmd => cmd.name), ['todos'])
+    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['tasklist', 'tree'])
+    assert.deepEqual(filterClientCommands('ta').map(cmd => cmd.name), ['tasklist'])
     assert.deepEqual(filterClientCommands('TREE').map(cmd => cmd.name), ['tree'], '前缀过滤须大小写不敏感')
     assert.deepEqual(filterClientCommands('zzz'), [])
     for (const cmd of filterClientCommands('')) {

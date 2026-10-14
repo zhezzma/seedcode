@@ -573,15 +573,15 @@ export default {
             steerTitle: 'Steer：立即注入当前回复，影响正在生成的回答',
             followTitle: 'Follow-up：排队，当前回复完成后自动发送',
         },
-        todo: {
-            countLabel: '任务清单 ({done}/{total})',
+        tasklist: {
+            countLabel: '会话清单 ({done}/{total})',
             allDone: '全部完成 ({done}/{total})',
             // zh 由模板中的「·」分隔符承载前缀，不写「正在」避免与 activeForm 双「正在」
             workingOn: '{active}',
             hint: '点击查看详情',
             dismissHint: '关闭',
             sectionInProgress: '进行中',
-            sectionPending: '待办',
+            sectionPending: '待处理',
             sectionCompleted: '已完成',
         },
         inputPlaceholder: "发消息或输入'/'选择命令",
@@ -705,7 +705,7 @@ export default {
         greetingEvening: '晚上好呀，有什么想让我帮忙的吗',
         noAgentDesc: '还未设定哟',
         commandNotAvailableWhileBusy: '智能体运行中，无法使用命令',
-        noTodos: '当前会话还没有任务清单，让模型为多步骤工作建立清单吧',
+        noTasklist: '当前会话还没有会话清单，让模型为多步骤工作建立清单吧',
         createSessionFailed: '创建会话失败，请重试',
     },
     extensions: {

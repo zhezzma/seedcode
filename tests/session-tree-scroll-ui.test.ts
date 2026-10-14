@@ -47,7 +47,7 @@ test('session tree modal emits jump-to-entry on message node click', () => {
     assert.doesNotMatch(source, /rewriteFromHere/)
 })
 
-test('/tree 为纯 UI 客户端命令，busy 时放行（同 /todos，跳转守卫在 handleJumpToTreeEntry）', () => {
+test('/tree 为纯 UI 客户端命令，busy 时放行（同 /tasklist，跳转守卫在 handleJumpToTreeEntry）', () => {
     const source = src('views/HomeView.vue')
 
     // 截取 isTreeCommand 拦截分支（到 4 空格缩进的收括号为止），分支内不得出现 busy 拦截

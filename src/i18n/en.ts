@@ -573,8 +573,8 @@ export default {
             steerTitle: 'Steer: inject into the current reply immediately',
             followTitle: 'Follow-up: queue and send after the current reply finishes',
         },
-        todo: {
-            countLabel: 'Todos ({done}/{total})',
+        tasklist: {
+            countLabel: 'Session Steps ({done}/{total})',
             allDone: 'All done ({done}/{total})',
             workingOn: 'Working on {active}',
             hint: 'Click for details',
@@ -704,7 +704,7 @@ export default {
         greetingEvening: 'Good evening. How can I help',
         noAgentDesc: 'Not set yet',
         commandNotAvailableWhileBusy: 'Commands are not available while the agent is busy',
-        noTodos: 'No task list in this session yet. Ask the agent to create one for multi-step work',
+        noTasklist: 'No session step list yet. Ask the agent to create one for multi-step work',
         createSessionFailed: 'Failed to create session, please retry',
     },
     extensions: {

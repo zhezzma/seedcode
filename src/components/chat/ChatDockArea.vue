@@ -2,11 +2,11 @@
      显隐由 widget 组件内部条件决定（无数据时根节点 v-if 不渲染）。 -->
 <script setup lang="ts">
 import PendingQueueBar from './PendingQueueBar.vue'
-import TodoBar from './TodoBar.vue'
+import TasklistBar from './TasklistBar.vue'
 import { getChatDockWidgets, registerChatDockWidget } from './chat-dock-registry'
 
 registerChatDockWidget({ id: 'pending-queue', order: 10, component: PendingQueueBar })
-registerChatDockWidget({ id: 'todo', order: 20, component: TodoBar })
+registerChatDockWidget({ id: 'tasklist', order: 20, component: TasklistBar })
 
 const widgets = getChatDockWidgets()
 </script>

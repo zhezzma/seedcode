@@ -32,7 +32,7 @@ import { writeClipboard } from '../utils/clipboard.ts'
 import { useChatState, splitModelId, type ChatSendOverrides, type ChatAttachment } from '../composables/useChatState'
 import { useChatInput } from '../composables/useChatInput'
 import { useCommandState } from '../composables/useCommandState'
-import { useTodoState } from '../composables/useTodoState'
+import { useTasklistState } from '../composables/useTasklistState'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
@@ -53,7 +53,7 @@ const settingsStore = useUiSettingsStore()
 const chatState = useChatState()
 const { setSessionKeyResolver, restoreSessionDraft } = useChatInput()
 setSessionKeyResolver(() => chatState.sessionKey)
-const todoState = useTodoState()
+const tasklistState = useTasklistState()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
 const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState()
@@ -324,7 +324,7 @@ const handleSend = async (mode?: BusySendBehavior) => {
     if (!inputText && !hasAttachments && !isBusy.value) return
 
     // /tree：客户端命令——打开会话树弹窗，不经服务端。
-    // 纯 UI（只读）操作在 busy 时也放行（同 /todos）；若要跳转节点，
+    // 纯 UI（只读）操作在 busy 时也放行（同 /tasklist）；若要跳转节点，
     // handleJumpToTreeEntry 内部已有独立的 busy/分支守卫，不会误切运行中的会话。
     const isTreeCommand = inputText.trim() === '/tree'
     if (isTreeCommand && !hasAttachments) {
@@ -335,18 +335,18 @@ const handleSend = async (mode?: BusySendBehavior) => {
         return
     }
 
-    // /todos：客户端命令——重现并展开任务清单面板，不经服务端。
-    // 服务端的 /todos 扩展命令在 rpc 宿主下是静默 no-op（todo.ts 的 tui 守卫），
+    // /tasklist：客户端命令——重现并展开会话清单面板，不经服务端。
+    // 服务端同名扩展命令在 rpc 宿主下是静默 no-op，
     // 纯 UI 操作在 busy 时也放行（恰恰是模型跑着、面板被关后最需要看的时刻）。
     // 注意：下方正则字面量与 "Case 1: Busy + no text" 注释均为
-    // tests/todo-restore-command.test.ts 的次序锚点，改名/移动须同步测试。
-    const todosCommand = /^\/todos(?:\s|$)/i.test(inputText)
-    if (todosCommand && !hasAttachments) {
+    // tests/tasklist-restore-command.test.ts 的次序锚点，改名/移动须同步测试。
+    const tasklistCommand = /^\/tasklist(?:\s|$)/i.test(inputText)
+    if (tasklistCommand && !hasAttachments) {
         if (chatInputRef.value) {
             chatInputRef.value.inputText = ''
         }
-        if (!todoState.restore()) {
-            useToast().info(t('home.noTodos'))
+        if (!tasklistState.restore()) {
+            useToast().info(t('home.noTasklist'))
         }
         return
     }

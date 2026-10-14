@@ -42,7 +42,7 @@ export interface ChatMessage {
     details?: any
     entryId?: string
     parentEntryId?: string | null
-    toolName?: string // 历史 /messages 与流式 tool_execution_end 的 toolResult 均携带（todo 提取器两条路径都依赖）
+    toolName?: string // 历史 /messages 与流式 tool_execution_end 的 toolResult 均携带（tasklist 提取器两条路径都依赖）
     /** pi 消息通用字段：display=false 面向模型（扩展注入的隐性提醒等），不进用户聊天记录 */
     display?: boolean
     /** 展示类 custom（面板/图片卡）：服务端通道归位后的 custom_message 条目
@@ -939,7 +939,7 @@ const abortChat = async (sessionKey?: string) => {
                     //（否则 abort 后同一 toolResult 双份残留，随 sessionsMap 永不驱逐）。
                     // 已知空窗：并行批在 tool_execution_end 与批尾落盘之间被 abort 时，
                     // /abort 快照不含该未落盘 toolResult，面板短暂回退到上一条持久化快照。
-                    // abort 后本轮不会再有 done 事件：收敛靠下一次 todo 调用（服务端重放对齐）、
+                    // abort 后本轮不会再有 done 事件：收敛靠下一次 tasklist 调用（服务端重放对齐）、
                     // 下一轮 run 的 done 全量刷新或 loadChatHistory（error 路径保留临时条目同理）
                     sd.chatToolMessages = []
                     // 本地回执（!!）不在 durable 内，替换后重挂
@@ -1162,7 +1162,7 @@ function beginBranchRewriteSSE(
 
     opts.beginOptimistic(sessionData)
     // 分支被改写：流式临时条目一并作废（同 abort 规则），
-    // 否则被放弃分支的 todo 快照会以“数组位置更靠后”赢得 last-write-wins。
+    // 否则被放弃分支的 tasklist 快照会以“数组位置更靠后”赢得 last-write-wins。
     // 刻意不放进 beginOptimistic：本地 chatMessages 陈旧（找不到目标条目）时分支在服务端照样被改写，清理不可跳过
     sessionData.chatToolMessages = []
     // 本地回执账本同步作废：截断会移除截断点之后的回执消息，残留账本会在 run
@@ -1618,7 +1618,7 @@ const navigateBranch = async (targetEntryId: string, sessionKey?: string): Promi
         const sd = getSessionData(targetKey)
         sd.chatMessages = result.messages
         // 分支已切换：流式临时条目属旧分支，一并作废（同 abort 规则），
-        // 否则旧分支 todo 快照在拼接序列尾部残留、误导 last-write-wins
+        // 否则旧分支 tasklist 快照在拼接序列尾部残留、误导 last-write-wins
         sd.chatToolMessages = []
         // 本地回执重挂：锚点规则自动丢弃不在目标分支的回执（anchor 缺失即弃），
         // 不会把其它分支执行过的 !! 复活进本分支
