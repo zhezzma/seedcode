@@ -532,7 +532,9 @@ onUnmounted(() => {
                         </div>
                     </div>
 
-                    <div v-if="item.lastError" class="alert alert-error py-2 text-xs" data-testid="mcp-last-error">
+                    <div v-if="item.lastError" class="alert py-2 text-xs"
+                        :class="item.state === 'connected' ? 'alert-warning' : 'alert-error'"
+                        data-testid="mcp-last-error">
                         <ExclamationTriangleIcon class="w-4 h-4" />
                         <span class="break-all">{{ item.lastError }}</span>
                     </div>

@@ -193,6 +193,10 @@ test('编辑表单掩码提示：SECRET_MASK 从 utils/mcp 契约导入，掩码
     assert.match(en, /apiKeyMaskedHint: '[^']*\*\*\*/)
 })
 
+test('lastError 分级展示：连接存活时降级为警告色（流断开类软错误不再红牌常驻）', () => {
+    assert.match(view, /:class="item\.state === 'connected' \? 'alert-warning' : 'alert-error'"/)
+})
+
 test('mcp.* i18n 键 zh/en 双侧齐全', () => {
     for (const rel of ['src/i18n/zh.ts', 'src/i18n/en.ts']) {
         const source = rel.endsWith('zh.ts') ? zh : en
