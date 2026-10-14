@@ -360,6 +360,11 @@ const handleSend = async (mode?: BusySendBehavior) => {
 
     const { pushInputHistory } = useChatInput()
 
+    // 统一记录输入历史：凡从输入框发出（普通发送 / steer 插入 / follow-up 排队 / 命令）
+    // 都进历史，可被上下键调出。走当前 sessionKey（与上下键翻阅同一来源）；
+    // 新会话首条消息此刻 key 为空，由下方 Case 3 创建会话后补记。空文本由 pushHistory 跳过。
+    pushInputHistory(inputText)
+
     // Optimistic UI update: Clear input immediately
     if (chatInputRef.value) {
         chatInputRef.value.inputText = ''
@@ -471,9 +476,9 @@ const handleSend = async (mode?: BusySendBehavior) => {
         }
     }
 
-    // 记录输入历史：必须绑定最终 sessionKey。
-    // 新会话首条消息如果在 commitNewSession 之前写入，会因为 sessionKey 为空而丢失。
-    pushInputHistory(inputText, targetSessionKey)
+    // 新会话首条消息：入口（上方统一记录）时 sessionKey 尚为空，此处创建会话后补记。
+    // 已有会话的普通发送已在入口记过，这里跳过，避免重复调用。
+    if (isNew) pushInputHistory(inputText, targetSessionKey)
 
     // Process attachments:
     // - Images: Keep as attachments
