@@ -189,6 +189,11 @@ test('操作区 = 主行（开关/工具/编辑）+ ⋮ 溢出菜单，卡片头
     // 菜单项点选后必须走 withMenuClose 收起 details 型 dropdown
     assert.match(view, /function withMenuClose\(event: Event, action: \(\) => void\)/)
     assert.ok(view.split('withMenuClose($event,').length >= 7, 'all menu items must close the dropdown')
+    // 点击菜单外任意处自动收起（details 原生不响应外部点击，需 document 级监听 + 卸载清理）
+    assert.match(view, /function closeOpenDropdowns\(event: Event\)/)
+    assert.match(view, /document\.querySelectorAll\('details\.dropdown\[open\]'\)/)
+    assert.match(view, /document\.addEventListener\('click', closeOpenDropdowns\)/)
+    assert.match(view, /document\.removeEventListener\('click', closeOpenDropdowns\)/)
 })
 
 test('溢出菜单 i18n 键 zh/en 双侧齐全', () => {

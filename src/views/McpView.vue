@@ -651,6 +651,14 @@ function withMenuClose(event: Event, action: () => void) {
     action()
 }
 
+/** 点击菜单外任意处自动收起所有打开的 ⋮ 溢出菜单（details 原生不响应外部点击）。 */
+function closeOpenDropdowns(event: Event) {
+    const target = event.target as Node | null
+    document.querySelectorAll('details.dropdown[open]').forEach((details) => {
+        if (!details.contains(target)) (details as HTMLDetailsElement).open = false
+    })
+}
+
 // ─── 展示辅助 ────────────────────────────────────────────────────
 
 /** 能力位 → 展示名列表（tools 隐含不展示；undefined 能力返回空）。 */
@@ -679,6 +687,7 @@ function transportSummary(item: McpServerItem): string {
 let alive = true
 
 onMounted(async () => {
+    document.addEventListener('click', closeOpenDropdowns)
     await Promise.all([loadServers(), loadAgents()])
     if (!alive) return // 挂载后已卸载：不起定时器
     for (const item of servers.value) {
@@ -689,6 +698,7 @@ onMounted(async () => {
 onUnmounted(() => {
     alive = false
     stopAllPolling()
+    document.removeEventListener('click', closeOpenDropdowns)
 })
 </script>
 
