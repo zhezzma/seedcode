@@ -694,6 +694,18 @@ export default {
         allowAlways: 'Always Allow',
         deny: 'Deny',
     },
+    elicitation: {
+        title: 'MCP Server Input Request',
+        expiresIn: 'Expires in {s}s',
+        expiresInMin: 'Expires in {m}m {s}s',
+        expired: 'Expired',
+        accept: 'Submit',
+        decline: 'Decline',
+        cancel: 'Cancel',
+        selectPlaceholder: 'Select...',
+        noFields: 'No fields to fill for this request',
+        requiredMissing: 'Required field "{field}" cannot be empty',
+    },
     home: {
         welcome: 'Welcome to SeedCode',
         startChat: 'Start Sidebar',
