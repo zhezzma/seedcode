@@ -33,6 +33,7 @@ import { useChatState, splitModelId, type ChatSendOverrides, type ChatAttachment
 import { useChatInput } from '../composables/useChatInput'
 import { useCommandState } from '../composables/useCommandState'
 import { useTasklistState } from '../composables/useTasklistState'
+import { useGoalState } from '../composables/useGoalState'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
@@ -54,6 +55,7 @@ const chatState = useChatState()
 const { setSessionKeyResolver, restoreSessionDraft } = useChatInput()
 setSessionKeyResolver(() => chatState.sessionKey)
 const tasklistState = useTasklistState()
+const goalbarState = useGoalState()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
 const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState()
@@ -64,10 +66,24 @@ const wsViewer = useWorkspaceViewer()
 // busy 时仍允许走 /chat 的命令（BUSY_ALLOWED_COMMANDS）。投递类命令（DELIVERY_COMMANDS：
 // /steer /follow-up /abort）走控制 API，不在此列——两份清单均收口在 utils/command-invocation.ts，
 // 服务端命令表为权威，新增/改名只改常量（tests/busy-send-pills.test.ts 锚定）。
-const busyAllowedCommandPattern = new RegExp(`^\/(${BUSY_ALLOWED_COMMANDS
-    .map(command => command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')})(?=\\s|$)`)
+// goal 全系 busy 时不经 /chat（含 off）——停止/恢复走扩展路由按钮，故白名单为空。
+const busyAllowedCommandPattern = BUSY_ALLOWED_COMMANDS.length > 0
+    ? new RegExp(`^\\/(${BUSY_ALLOWED_COMMANDS.join('|')})(?=\\s|$)`, 'i')
+    : null
 const deliveryCommandPattern = new RegExp(`^\\/(${DELIVERY_COMMANDS.join('|')})(?:\\s+([\\s\\S]*))?$`, 'i')
+
+// busy 时仍放行走 /chat 的命令谓词（两源合并，调用方不拼 ||）：
+// - BUSY_ALLOWED_COMMANDS（如 /goal）——静态名单（busyAllowedCommandPattern）；
+// - resource 命令（prompt 模板 / skill）——服务端 followUp 入队 + 短回执，按命令表
+//   source 判定。表未加载时保守不放行（回落到原 busy 拦截）。
+const isBusyAllowedCommand = (text: string): boolean => {
+    if (busyAllowedCommandPattern?.test(text)) return true
+    if (!isLoaded.value) return false
+    const trimmed = text.trimStart()
+    if (!trimmed.startsWith('/')) return false
+    const name = (trimmed.slice(1).split(/\s+/)[0] || '').toLowerCase()
+    return allCommands.value.some(cmd => cmd.name.toLowerCase() === name && (cmd.source === 'prompt' || cmd.source === 'skill'))
+}
 
 // Refs
 const messagesContainerRef = ref<HTMLDivElement | null>(null)
@@ -351,6 +367,21 @@ const handleSend = async (mode?: BusySendBehavior) => {
         return
     }
 
+    // /goalbar：客户端命令——重现自动续跑状态条，不经服务端（/goal 是服务端真命令，
+    // 裸 /goal = 帮助，不能劫持）。纯 UI 操作 busy 时也放行（同 /tasklist——
+    // 恰恰是模型跑着、状态条被关后最需要看的时刻）。
+    // 正则字面量被 tests/busy-send-pills.test.ts 注册表↔HomeView 对齐测试锚定。
+    const goalbarCommand = /^\/goalbar(?:\s|$)/i.test(inputText)
+    if (goalbarCommand && !hasAttachments) {
+        if (chatInputRef.value) {
+            chatInputRef.value.inputText = ''
+        }
+        if (!goalbarState.restore()) {
+            useToast().info(t('home.noGoalRunning'))
+        }
+        return
+    }
+
     // /compact 不在此拦截：与其它命令统一走 /chat 命令路径（服务端 streamCommandDeferred
     // 先开流发 compaction_start 驱动瞬态压缩行，完成后回执「会话已压缩」并持久化，
     // 展示与其它命令回执一致）。此前拦截到专用端点 + toast 反馈，交互不统一。
@@ -387,8 +418,10 @@ const handleSend = async (mode?: BusySendBehavior) => {
         // ! 开头不在此拦截，保持走 steer/follow-up（与旧行为一致）。
         // 命令表未加载时保守回退为 startsWith 判断
         if (inputText.startsWith('/') && isCommandInvocation(inputText, knownCommandNames)) {
-            // Allow a small set of commands to pass through as normal messages while busy.
-            if (busyAllowedCommandPattern.test(inputText)) {
+            // Allow commands to pass through as normal messages while busy:
+            // - BUSY_ALLOWED_COMMANDS（如 /goal）
+            // - resource 命令（prompt 模板 / skill）：服务端 followUp 入队，走 /chat 排队执行
+            if (isBusyAllowedCommand(inputText)) {
                 await chatState.sendMessage(inputText)
                 scrollToBottom(true)
                 return

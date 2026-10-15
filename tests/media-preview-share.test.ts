@@ -149,6 +149,8 @@ test('bottom pill always shows the file name alongside the zoom hint', () => {
 
 test('mobile Tauri path falls back to sharekit native share', () => {
     const composableSource = readFileSync(path.join(repoRoot, 'src/composables/useMediaPreview.ts'), 'utf8')
+        // Windows + autocrlf=true 检出即 CRLF，正则锚点统一按 LF 匹配
+        .replace(/\r\n/g, '\n')
 
     // 显隐条件：Web Share API 或移动 Tauri（Android WebView 不实现 navigator.share）
     assert.match(composableSource, /typeof navigator\.share === 'function'\) \|\|\n    \(isTauri\(\) && isMobileDevice\)/)

@@ -8,8 +8,10 @@ export const DELIVERY_COMMANDS = ['follow-up', 'steer', 'abort'] as const
 /**
  * busy 时仍放行走 /chat 的命令白名单（其余已知命令 busy 不可用）。
  * 投递类命令不在此列（见 DELIVERY_COMMANDS）。
+ * goal 全系 busy 时不经 /chat（含 off）——停止/恢复走扩展路由按钮
+ * （POST /api/extensions/goal/:sessionId/stop|resume），故白名单为空。
  */
-export const BUSY_ALLOWED_COMMANDS = ['goal'] as const
+export const BUSY_ALLOWED_COMMANDS = [] as const
 
 /**
  * 判断一条用户消息是否会被后端按「命令」处理（而非作为普通 prompt 发给模型）。

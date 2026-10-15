@@ -583,6 +583,20 @@ export default {
             sectionPending: 'Pending',
             sectionCompleted: 'Completed',
         },
+        goalBar: {
+            running: 'Auto-continue',
+            stopped: 'Stopped',
+            finished: 'Finished',
+            turnCount: 'Turn {current}/{max}',
+            turnCountUnlimited: 'Turn {current}',
+            judge: 'Judge: {model}',
+            judgeSession: 'session model',
+            startMessage: 'Start message',
+            turnMessage: 'Continue message',
+            dismissHint: 'Dismiss',
+            stopHint: 'Stop',
+            resumeHint: 'Resume',
+        },
         inputPlaceholder: "Type a message or '/' to select a command",
         // 新会话欢迎页专用：不支持 / 命令，文案换成更有邀请感的开场
         inputPlaceholderHome: "Tell me your idea and I'll build it",
@@ -718,6 +732,7 @@ export default {
         noAgentDesc: 'Not set yet',
         commandNotAvailableWhileBusy: 'Commands are not available while the agent is busy',
         noTasklist: 'No session step list yet. Ask the agent to create one for multi-step work',
+        noGoalRunning: 'No auto-continue is currently running',
         createSessionFailed: 'Failed to create session, please retry',
     },
     extensions: {

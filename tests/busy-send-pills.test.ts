@@ -70,6 +70,12 @@ test('isClientInterceptedCommand: 语义与 HomeView 拦截分支逐字对齐（
     assert.equal(isClientInterceptedCommand('/tasklist xxx'), true)
     assert.equal(isClientInterceptedCommand('/TASKLIST'), true)
     assert.equal(isClientInterceptedCommand('/tasklistX'), false)
+    // /goalbar：同 tasklist 前缀语义（/goal 服务端命令不被误伤）
+    assert.equal(isClientInterceptedCommand('/goalbar'), true)
+    assert.equal(isClientInterceptedCommand('/goalbar xxx'), true)
+    assert.equal(isClientInterceptedCommand('/GoalBar'), true)
+    assert.equal(isClientInterceptedCommand('/goalbarX'), false)
+    assert.equal(isClientInterceptedCommand('/goal resume'), false, '/goal 子命令必须透传服务端，不得被前缀误伤')
     // 服务端命令与非命令不命中
     assert.equal(isClientInterceptedCommand('/steer xxx'), false)
     assert.equal(isClientInterceptedCommand('/compact'), false)

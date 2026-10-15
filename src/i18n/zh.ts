@@ -584,6 +584,20 @@ export default {
             sectionPending: '待处理',
             sectionCompleted: '已完成',
         },
+        goalBar: {
+            running: '自动续跑',
+            stopped: '已停止',
+            finished: '已结束',
+            turnCount: '第 {current}/{max} 轮',
+            turnCountUnlimited: '第 {current} 轮',
+            judge: '裁判: {model}',
+            judgeSession: '当前模型',
+            startMessage: '起始消息',
+            turnMessage: '续跑消息',
+            dismissHint: '关闭',
+            stopHint: '停止',
+            resumeHint: '恢复',
+        },
         inputPlaceholder: "发消息或输入'/'选择命令",
         // 新会话欢迎页专用：不支持 / 命令，文案换成更有邀请感的开场
         inputPlaceholderHome: '说说你的想法，我来实现',
@@ -719,6 +733,7 @@ export default {
         noAgentDesc: '还未设定哟',
         commandNotAvailableWhileBusy: '智能体运行中，无法使用命令',
         noTasklist: '当前会话还没有会话工作步骤，让模型为多步骤工作建立步骤吧',
+        noGoalRunning: '当前没有运行中的自动续跑',
         createSessionFailed: '创建会话失败，请重试',
     },
     extensions: {

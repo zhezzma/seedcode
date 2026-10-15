@@ -35,8 +35,9 @@ test('注册表：/tasklist 与 /tree 已登记，带下拉文案与 client 来�
 })
 
 test('注册表：filterClientCommands 按前缀过滤，输出纯 CommandInfo（无下拉元数据）', () => {
-    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['tasklist', 'tree'])
+    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['tasklist', 'tree', 'goalbar'])
     assert.deepEqual(filterClientCommands('ta').map(cmd => cmd.name), ['tasklist'])
+    assert.deepEqual(filterClientCommands('goal').map(cmd => cmd.name), ['goalbar'], '前缀 goal 同时命中服务端 /goal，合并去重后两者并存')
     assert.deepEqual(filterClientCommands('TREE').map(cmd => cmd.name), ['tree'], '前缀过滤须大小写不敏感')
     assert.deepEqual(filterClientCommands('zzz'), [])
     for (const cmd of filterClientCommands('')) {

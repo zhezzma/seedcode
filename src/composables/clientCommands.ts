@@ -28,6 +28,9 @@ export interface ClientCommand extends CommandInfo {
 export const CLIENT_COMMANDS: ClientCommand[] = [
     { name: 'tasklist', description: '会话工作步骤面板', source: 'client', dropdownLabel: '/tasklist (会话工作步骤)', intercept: 'prefix' },
     { name: 'tree', description: '会话树', source: 'client', dropdownLabel: '/tree (会话树)', intercept: 'exact' },
+    // 不能叫 /goal：那是服务端真命令（裸 /goal = 帮助），劫持会改变其语义；独立名避免冲突。
+    // 同名时 / 补全按 name 去重会隐藏客户端条目（服务端优先），goalbar 无服务端同名，下拉可见
+    { name: 'goalbar', description: '自动续跑状态条', source: 'client', dropdownLabel: '/goalbar (自动续跑状态条)', intercept: 'prefix' },
 ]
 
 /**

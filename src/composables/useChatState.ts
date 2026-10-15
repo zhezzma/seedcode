@@ -12,6 +12,7 @@ import { type KnownApi } from './useModelsState'
 import { useToast } from './useToast'
 import { clearAllSurfaces } from './useA2UISurfaces'
 import { createRuntimeId } from '../utils/runtime-id.ts'
+import { emitExtensionEvent, isExtensionEvent } from './extension-events'
 import { onServerMessage } from './notify-server-connection'
 import { i18n } from '../i18n'
 import {
@@ -213,6 +214,14 @@ export function attachToSessionIfNeeded(targetKey: string) {
                     currentSessionData.chatRunId = currentSessionData.chatRunId || generateUUID()
                     currentSessionData.chatStreamStartedAt = currentSessionData.chatStreamStartedAt || Date.now()
                 }
+                return
+            }
+
+            // 扩展事件（ext. 前缀契约，见 ./extension-events）：转发 extension-events 总线，不计入
+            // 流活动证据（不影响空闲 done 的跳过判定——扩展状态推送不是 run 活动）。
+            // 判别不依赖核心事件清单——服务端新增核心事件无需改本文件
+            if (isExtensionEvent(event.event)) {
+                emitExtensionEvent(event.event, event.data, targetKey)
                 return
             }
 
@@ -904,6 +913,14 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             // 刷新 usage 统计（消息结束后上下文占比可能已变化）
             fetchSessionUsage(targetKey)
             break
+        default:
+            // 扩展事件（ext. 前缀）转发客户端事件总线——各扩展 composable 按事件名
+            // 订阅（./extension-events），核心零扩展知识。无前缀的未知事件（服务端
+            // 新增、客户端尚无 case 的核心事件）维持静默忽略（与历史行为一致，由
+            // done 全量刷新兑底）
+            if (isExtensionEvent(eventType)) {
+                emitExtensionEvent(eventType, data, targetKey)
+            }
     }
 }
 
