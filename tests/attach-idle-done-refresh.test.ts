@@ -61,7 +61,7 @@ test('handleSSEEvent 接受 skipSettledRefresh 选项，done 分支据此跳过�
 
     // 守卫之后的完整刷新链路仍在（真实流 done 依赖它）
     const afterGuard = fn.slice(guardIdx)
-    assert.match(afterGuard, /apiGet<\{ messages: ChatMessage\[\] \}>/, 'done 分支应保留 /messages 重拉')
+    assert.match(afterGuard, /apiGet<\{ messages: ChatMessage\[\]; isStreaming\?: boolean \}>/, 'done 分支应保留 /messages 重拉（含 isStreaming：busy 时兜底 attach）')
     assert.match(afterGuard, /fetchSessionTree\(targetKey\)/, 'done 分支应保留 /entries 刷新')
     assert.match(afterGuard, /fetchSessionUsage\(targetKey\)/, 'done 分支应保留 /usage 刷新')
 
