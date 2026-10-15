@@ -550,6 +550,19 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                         timestamp: typeof echoMsg.timestamp === 'number' ? echoMsg.timestamp : Date.now(),
                         id: generateUUID(),
                     }]
+                } else if (echoText && !inFlightEcho) {
+                    // 服务端自发提交的 user 条目（不属任何本地账本）：如 goal 续跑链的
+                    // turnMessage 条目（引擎收尾边界原子提交，不经 steer/follow-up 队列）、
+                    // 扩展 appendMessage。不追加的话：续跑对话缺 user 侧，且连续 assistant
+                    // 消息被展示层合并气泡（assistantMsgMerge）挤成一个大泡。
+                    // 三个消费面（在途登记/队列/removedEcho）都不命中才到这里——本机发送
+                    // 的回显恒被 inFlightEcho 拦下（乐观气泡已覆盖），无双气泡风险
+                    sessionData.chatMessages = [...sessionData.chatMessages, {
+                        role: 'user',
+                        content: echoMsg.content,
+                        timestamp: typeof echoMsg.timestamp === 'number' ? echoMsg.timestamp : Date.now(),
+                        id: generateUUID(),
+                    }]
                 }
             }
             // 特殊处理带有完整 content 的初始消息（如 custom 角色消息等）
@@ -896,7 +909,7 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                 break
             }
             // 静默刷新消息，补上 entryId/parentEntryId（不设置 chatLoading，避免页面闪烁）
-            apiGet<{ messages: ChatMessage[] }>(`/api/chat/${targetKey}/messages`).then(result => {
+            apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`).then(result => {
                 if (result?.messages) {
                     const sd = getSessionData(targetKey)
                     sd.chatMessages = result.messages
@@ -908,6 +921,15 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     remountLocalReceipts(sd)
                     // Messages reloaded -> Tree structure definitely valid now
                     fetchSessionTree(targetKey)
+                }
+                // 服务端发起的 run 仍在进行（如 /goal start|restart|resume：命令流
+                // streamCommand 只发回执不订阅 run 事件，任务 run 是服务端 startRun
+                // 另开的——无流附着则续跑回复/轮数推进对客户端全部不可见，直到手动
+                // 刷新）。重拉发现 busy 即附着：快照线补回扩展状态（如 GoalBar），
+                // 推送线接上后续所有轮次。已持活跃连接时幂等跳过；期间用户已开新流
+                // （sendMessage）同样跳过，无副作用。
+                if (result?.isStreaming) {
+                    attachToSessionIfNeeded(targetKey)
                 }
             }).catch(() => { /* 静默失败不影响使用 */ })
             // 刷新 usage 统计（消息结束后上下文占比可能已变化）
