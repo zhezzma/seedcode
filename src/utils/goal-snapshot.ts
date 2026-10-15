@@ -16,6 +16,8 @@ export interface GoalStatePayload {
     judgeEnabled: boolean
     /** "provider/model"（explicit 模式）；session 模式时 undefined */
     judgeModel?: string
+    /** 自定义裁判业务规则（--judge-prompt）；裁判未启用或未自定义时 undefined */
+    judgePrompt?: string
     startedAt: number
     /** 停止后是否可 resume（服务端 off/judge-error=true；max/judge-stop=false）；
      *  运行中（enabled=true）恒 true——仅在停止态决定是否显示恢复按钮 */
@@ -34,6 +36,7 @@ export function isGoalStatePayload(v: unknown): v is GoalStatePayload {
         typeof p.turnMessage === 'string' &&
         typeof p.judgeEnabled === 'boolean' &&
         (p.judgeModel === undefined || typeof p.judgeModel === 'string') &&
+        (p.judgePrompt === undefined || typeof p.judgePrompt === 'string') &&
         typeof p.startedAt === 'number' &&
         typeof p.resumable === 'boolean'
     )

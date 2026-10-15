@@ -32,10 +32,12 @@ const state = (startedAt: number, enabled = true): GoalStatePayload => ({ ...FUL
 // 事件载荷形状守卫（推送线/快照线统一入口）
 // ============================================================
 
-test('合法载荷通过（完整形状 + judgeModel 缺失的 session 模式形态）', () => {
+test('合法载荷通过（完整形状 + judgeModel/judgePrompt 缺失的 session 模式形态）', () => {
     assert.ok(isGoalStatePayload(FULL_PAYLOAD))
     assert.ok(isGoalStatePayload({ ...FULL_PAYLOAD, judgeModel: undefined }), 'session 模式 JSON 序列化丢键')
     assert.ok(isGoalStatePayload({ ...FULL_PAYLOAD, judgeModel: 'openai/gpt-4o' }), 'explicit 模式带模型')
+    assert.ok(isGoalStatePayload({ ...FULL_PAYLOAD, judgeEnabled: true, judgePrompt: '只允许正数' }), '带自定义裁判规则')
+    assert.ok(isGoalStatePayload({ ...FULL_PAYLOAD, judgePrompt: undefined }), '裁判规则缺失（未启用/未自定义）')
 })
 
 test('形状非法的载荷被守卫逐字段拒绝', () => {
@@ -47,6 +49,7 @@ test('形状非法的载荷被守卫逐字段拒绝', () => {
     assert.equal(bad({ turnMessage: null }), false, 'turnMessage null')
     assert.equal(bad({ judgeEnabled: 1 }), false, 'judgeEnabled 非布尔')
     assert.equal(bad({ judgeModel: 3 }), false, 'judgeModel 非字符串/undefined')
+    assert.equal(bad({ judgePrompt: 7 }), false, 'judgePrompt 非字符串/undefined')
     assert.equal(bad({ startedAt: undefined }), false, 'startedAt 缺失')
     assert.equal(bad({ resumable: 'yes' }), false, 'resumable 非布尔')
     assert.equal(bad({ resumable: undefined }), false, 'resumable 缺失')

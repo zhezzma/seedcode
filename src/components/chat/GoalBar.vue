@@ -1,18 +1,19 @@
 <!-- src/components/chat/GoalBar.vue -->
-<!-- goal 自动续跑状态条：运行中显示续跑进度 + 停止按钮；停止后显示结果 + 恢复按钮。
+<!-- goal 自动续跑状态条：运行中显示续跑进度 + 停止按钮；停止后显示结果 + 恢复/重新开始按钮。
      ✕ 任何状态可关闭，关闭记忆按会话持久化；新 goal 启动 / resume（新 startedAt）后面板自动重现。
      /goalbar 客户端命令重现已关闭的面板（展开详情 + 脉冲，任何状态都有可见反馈）。
      状态三条到达线（零轮询）：推送线（run 进行中服务端 emitExtensionEvent 实时扇出，经 useChatState
      default 分支转发 extension-events 总线）；快照线（attach/刷新/切会话，attach 流携带 seed.goal 现态）；
      按钮线（停止/恢复 POST 响应直接带回状态）。
-     停止/恢复按钮走扩展路由 POST /api/extensions/goal/:sessionId/stop|resume，
+     停止/恢复/重新开始按钮走扩展路由 POST /api/extensions/goal/:sessionId/stop|resume|restart，
      绕过 /chat 命令路径的 busy 门禁（busy 时 /goal 全系含 off 一律 409）。 -->
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronDownIcon, XMarkIcon, StopIcon, PlayIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon, StopIcon, PlayIcon, ArrowPathIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useGoalState } from '../../composables/useGoalState'
 import { attachToSessionIfNeeded, useChatState } from '../../composables/useChatState'
+import { useConfirm } from '../../composables/useConfirm'
 import { apiPost } from '../../composables/api-client'
 import type { GoalStatePayload } from '../../utils/goal-snapshot'
 
@@ -21,9 +22,12 @@ const { goalState, visibleBar, dismiss, expandRequest, applyState } = useGoalSta
 const chatState = useChatState()
 const expanded = ref(false)
 
-// 停止/恢复按钮 loading 态（防止连点）
+// 停止/恢复/重新开始/清除按钮 loading 态（防止连点）
 const stopping = ref(false)
 const resuming = ref(false)
+const restarting = ref(false)
+const clearing = ref(false)
+const { confirm } = useConfirm()
 
 async function stopGoal(): Promise<void> {
     if (stopping.value || !chatState.sessionKey) return
@@ -65,6 +69,47 @@ async function resumeGoal(): Promise<void> {
         // apiPost 已弹 toast（409 busy / 400 无可恢复状态）
     } finally {
         resuming.value = false
+    }
+}
+
+async function restartGoal(): Promise<void> {
+    if (restarting.value || !chatState.sessionKey) return
+    // 同 stopGoal/resumeGoal：key 在 await 前捕获
+    const key = chatState.sessionKey
+    restarting.value = true
+    try {
+        const res = await apiPost<{ ok: boolean; state?: GoalStatePayload | null }>(
+            `/api/extensions/goal/${encodeURIComponent(key)}/restart`,
+        )
+        applyState(res?.state ?? null, key)
+        // 重开在服务端开了全新 run（重发起始消息，turnCount 归零），同 resume 需要附着流
+        if (res?.state?.enabled) attachToSessionIfNeeded(key)
+    } catch {
+        // apiPost 已弹 toast（409 busy / 400 无最近任务配置）
+    } finally {
+        restarting.value = false
+    }
+}
+
+async function clearGoal(): Promise<void> {
+    if (clearing.value || !chatState.sessionKey) return
+    // key 在 confirm 前捕获（同 stopGoal 规则）：弹窗期间切会话，确认后仍清除
+    // 点击时的会话——applyState 的归属守卫比对响应到达时刻的当前会话，key 现取会串会话
+    const key = chatState.sessionKey
+    // 二次确认：全清不可恢复（resume 进度 + restart 配置一并删除）——
+    // 同删除 agent/skill 的 useConfirm 交互（全应用删除类操作同款）
+    const confirmed = await confirm(t('chat.goalBar.clearConfirm'))
+    if (!confirmed) return
+    clearing.value = true
+    try {
+        await apiPost(`/api/extensions/goal/${encodeURIComponent(key)}/clear`)
+        // 按钮线：清除后本端即时闭合（goalState=null → visibleBar=false）；
+        // 其他窗口由服务端 ext.goal_cleared 推送闭合（useGoalState 监听）
+        applyState(null, key)
+    } catch {
+        // apiPost 已弹 toast（409 busy 等）
+    } finally {
+        clearing.value = false
     }
 }
 
@@ -113,7 +158,8 @@ watch(() => chatState.sessionKey, () => {
                             ? t('chat.goalBar.running')
                             : (goalState!.resumable ? t('chat.goalBar.stopped') : t('chat.goalBar.finished')) }}
                     </span>
-                    <span v-if="goalState!.enabled" class="whitespace-nowrap">
+                    <!-- 轮数：运行中恒显；停止态仅在设了上限（--turns）时镜像显示 -->
+                    <span v-if="goalState!.enabled || goalState!.maxTurns > 0" class="whitespace-nowrap">
                         {{ goalState!.maxTurns > 0
                             ? t('chat.goalBar.turnCount', { current: goalState!.turnCount, max: goalState!.maxTurns })
                             : t('chat.goalBar.turnCountUnlimited', { current: goalState!.turnCount }) }}
@@ -136,6 +182,18 @@ watch(() => chatState.sessionKey, () => {
                     :title="t('chat.goalBar.resumeHint')" :aria-label="t('chat.goalBar.resumeHint')" @click="resumeGoal()">
                     <PlayIcon class="h-3.5 w-3.5" />
                 </button>
+                <!-- 重新开始按钮（停止态：从最近任务配置重跑全新运行，turnCount 归零） -->
+                <button v-if="!goalState!.enabled" type="button" :disabled="restarting"
+                    class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-warning"
+                    :title="t('chat.goalBar.restartHint')" :aria-label="t('chat.goalBar.restartHint')" @click="restartGoal()">
+                    <ArrowPathIcon class="h-3.5 w-3.5" />
+                </button>
+                <!-- 清除按钮（停止态）：全清服务器 goal 状态并闭合状态条，二次确认 -->
+                <button v-if="!goalState!.enabled" type="button" :disabled="clearing"
+                    class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-error"
+                    :title="t('chat.goalBar.clearHint')" :aria-label="t('chat.goalBar.clearHint')" @click="clearGoal()">
+                    <TrashIcon class="h-3.5 w-3.5" />
+                </button>
                 <button type="button"
                     class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-base-content"
                     :title="t('chat.goalBar.dismissHint')" :aria-label="t('chat.goalBar.dismissHint')" @click="dismiss()">
@@ -153,6 +211,27 @@ watch(() => chatState.sessionKey, () => {
                 <div class="rounded-lg border border-base-300 bg-base-200 px-2 py-1 text-base-content/70">
                     {{ goalState!.turnMessage }}
                 </div>
+                <!-- 轮数上限（--turns）；不限轮数时不显示（折叠条同规则） -->
+                <template v-if="goalState!.maxTurns > 0">
+                    <div class="text-base-content/40 pt-0.5">{{ t('chat.goalBar.turns') }}</div>
+                    <div class="rounded-lg border border-base-300 bg-base-200 px-2 py-1 text-base-content/70">
+                        {{ t('chat.goalBar.turnCount', { current: goalState!.turnCount, max: goalState!.maxTurns }) }}
+                    </div>
+                </template>
+                <!-- 裁判模型：裁判启用即显示（session 模式无独立模型，显示当前模型） -->
+                <template v-if="goalState!.judgeEnabled">
+                    <div class="text-base-content/40 pt-0.5">{{ t('chat.goalBar.judgeModel') }}</div>
+                    <div class="rounded-lg border border-base-300 bg-base-200 px-2 py-1 text-base-content/70">
+                        {{ goalState!.judgeModel || t('chat.goalBar.judgeSession') }}
+                    </div>
+                </template>
+                <!-- 裁判规则（--judge-prompt 自定义时显示） -->
+                <template v-if="goalState!.judgePrompt">
+                    <div class="text-base-content/40 pt-0.5">{{ t('chat.goalBar.judgePrompt') }}</div>
+                    <div class="whitespace-pre-wrap break-words rounded-lg border border-base-300 bg-base-200 px-2 py-1 text-base-content/70">
+                        {{ goalState!.judgePrompt }}
+                    </div>
+                </template>
             </div>
         </div>
     </div>

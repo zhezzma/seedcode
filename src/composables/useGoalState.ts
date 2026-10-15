@@ -68,6 +68,12 @@ function buildGoalState() {
     }
     onExtensionEvent('ext.goal_state', listener)
 
+    // 清除线：ext.goal_cleared（服务端 goalClear 推送，与 ext.goal_state 同源两仓契约，
+    // 事件名与 seedagent extensions/goal/index.ts GOAL_CLEARED_EVENT 同值，改名须同步）
+    // → 清空现态。点击方在 POST /clear 响应后 applyState(null)（按钮线），本监听覆盖
+    // 其他窗口的实时闭合；载荷恒 null，不经过形状守卫。
+    onExtensionEvent('ext.goal_cleared', (_data, key) => applyState(null, key))
+
     // 会话切换：清空现态——切会话触发 attach，快照线补充新会话现态
     watch(() => chatState.sessionKey, () => {
         goalState.value = null

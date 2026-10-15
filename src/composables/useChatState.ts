@@ -1001,6 +1001,13 @@ const abortChat = async (sessionKey?: string) => {
         }
         resetStreamState(sd)
 
+        // goal 状态兑底：abort 会连带停 goal（扩展 abort 收线 finalizer，off 语义：
+        // 清 active、保留 resume），但发起停止的本端 SSE 已关（推送线不可达）——
+        // 重新 attach 走快照线（extension-events collect 各 source 现态）拿
+        // ext.goal_state(enabled=false)，GoalBar 即时转「已停止」。goal-agnostic：
+        // attach 本就是空闲会话的常规姿态（shouldAttachSession = 无活跃 SSE 即附着）。
+        attachToSessionIfNeeded(targetKey)
+
         // Refresh tree structure just in case the aborted message was saved
         fetchSessionTree(targetKey)
     }
