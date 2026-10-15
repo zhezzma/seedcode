@@ -413,20 +413,12 @@ const handleSend = async (mode?: BusySendBehavior) => {
         // /follow-up /steer /abort：走控制 API，不经 /chat
         if (await trySendDeliveryCommand(inputText, rawAttachments)) return
 
-        // 检查是否为真正的命令：与后端一致按命令表精确匹配首 token，
-        // 未知的 /xxx（如路径开头的消息）作为普通文本走 steer/follow-up。
-        // ! 开头不在此拦截，保持走 steer/follow-up（与旧行为一致）。
-        // 命令表未加载时保守回退为 startsWith 判断
-        if (inputText.startsWith('/') && isCommandInvocation(inputText, knownCommandNames)) {
-            // Allow commands to pass through as normal messages while busy:
-            // - BUSY_ALLOWED_COMMANDS（如 /goal）
-            // - resource 命令（prompt 模板 / skill）：服务端 followUp 入队，走 /chat 排队执行
-            if (isBusyAllowedCommand(inputText)) {
-                await chatState.sendMessage(inputText)
-                scrollToBottom(true)
-                return
-            }
-            // 其他命令在 busy 状态下不可用
+        // 已知命令按命令表精确匹配首 token（未加载时保守回退为 startsWith）；未知的 /xxx
+        // （如路径开头的消息）作为普通文本、! 开头均走 steer/follow-up。
+        // busy 期仅资源命令（prompt 模板 / skill，如 /handoff）放行——落到下方 steer/follow-up
+        // 同路径（服务端 /follow-up、/steer 两端点 resolveResourceInvocation 展开后排队或注入；
+        // /chat busy 门禁对资源命令一律 409）；其余已知命令 busy 不可用。
+        if (inputText.startsWith('/') && isCommandInvocation(inputText, knownCommandNames) && !isBusyAllowedCommand(inputText)) {
             useToast().warning(t('home.commandNotAvailableWhileBusy'))
             // 恢复输入框内容
             if (chatInputRef.value) {
@@ -434,7 +426,7 @@ const handleSend = async (mode?: BusySendBehavior) => {
             }
             return
         }
-        // 非命令文本：显式 mode（busy 双通道按钮：插入/排队）优先；
+        // 非命令文本 / 资源命令：显式 mode（busy 双通道按钮：插入/排队）优先；
         // Enter 等无 mode 入口回落 busySendBehavior 设置默认
         const sendMode = mode === 'steer' || mode === 'follow' ? mode : settingsStore.busySendBehavior
         const sent = sendMode === 'follow'

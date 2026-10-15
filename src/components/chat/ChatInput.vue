@@ -87,9 +87,19 @@ const {
 //   按 intercept 标注匹配 exact/prefix），新增命令只改注册表，UI 自动跟随。
 //   isCommandInvocation 镜像后端语义、另有调用方（自动命名守卫等），
 //   客户端命令只在 UI 谓词合并，不写入 util。
+// 资源命令（prompt 模板 / skill，如 /handoff）例外：busy 时与普通文本同交互——
+// HomeView.handleSend Case 2 把它落到 steer/follow-up 同路径，故此处返回 false
+// 显双胶囊（mode 被消费），而非原发送按钮。按命令表 source 判定，表未加载时
+// 保守不判（回落到下方 isCommandInvocation，与旧行为一致）。
 const busyCommandText = computed(() => {
     const text = inputText.value.trim()
     if (!text.startsWith('/')) return false
+    if (commandsLoaded.value) {
+        const name = (text.slice(1).split(/\s+/)[0] || '').toLowerCase()
+        if (allCommands.value.some(cmd => cmd.name.toLowerCase() === name && (cmd.source === 'prompt' || cmd.source === 'skill'))) {
+            return false
+        }
+    }
     return isCommandInvocation(text, commandsLoaded.value ? allCommands.value.map(cmd => cmd.name) : null)
         || isClientInterceptedCommand(text)
 })
