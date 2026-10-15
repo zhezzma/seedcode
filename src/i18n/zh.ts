@@ -573,7 +573,7 @@ export default {
             steerTitle: 'Steer：立即注入当前回复，影响正在生成的回答',
             followTitle: 'Follow-up：排队，当前回复完成后自动发送',
         },
-        tasklist: {
+        taskBar: {
             countLabel: '会话工作步骤 ({done}/{total})',
             allDone: '全部完成 ({done}/{total})',
             // zh 由模板中的「·」分隔符承载前缀，不写「正在」避免与 activeForm 双「正在」
@@ -732,7 +732,7 @@ export default {
         greetingEvening: '晚上好呀，有什么想让我帮忙的吗',
         noAgentDesc: '还未设定哟',
         commandNotAvailableWhileBusy: '智能体运行中，无法使用命令',
-        noTasklist: '当前会话还没有会话工作步骤，让模型为多步骤工作建立步骤吧',
+        noTaskBar: '当前会话还没有会话工作步骤，让模型为多步骤工作建立步骤吧',
         noGoalRunning: '当前没有运行中的自动续跑',
         createSessionFailed: '创建会话失败，请重试',
     },

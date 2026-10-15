@@ -40,7 +40,7 @@ export function isGoalStatePayload(v: unknown): v is GoalStatePayload {
 }
 
 // ============================================================
-// 面板关闭记忆状态机（纯函数，同 tasklist-snapshot 模式）
+// 面板关闭记忆状态机（纯函数，同 taskbar-snapshot 模式）
 // 语义：✕ 任何状态可关闭；重现只由「新 goal 启动 / resume」（新 startedAt）触发；
 // 停止（enabled=false）不动记忆——状态条转为停止态（显示恢复按钮），
 // 已关闭则保持隐藏（刷新加载窗口同 null 一样不吞 dismiss 记忆）。
@@ -57,7 +57,7 @@ export interface GoalPanelMemory {
 
 /**
  * 快照驱动面板记忆状态机：返回新记忆；无变化返回原引用（调用方据引用判断是否落盘）。
- * - null 快照 = 未知/加载中（attach 快照线未到、会话切换窗口）：不动记忆——同 tasklist
+ * - null 快照 = 未知/加载中（attach 快照线未到、会话切换窗口）：不动记忆——同 taskbar
  *   （null 当作停止会把加载窗口的空窗当成「已停止」，吞掉 dismiss 记忆并
  *   在快照到达后误判为新 goal 而复活状态条）
  * - 停止（enabled=false）→ 不动记忆：状态条转为停止态（显示恢复按钮），

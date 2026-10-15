@@ -69,7 +69,7 @@ async function resumeGoal(): Promise<void> {
 }
 
 // /goalbar 唤起脉冲：面板「已显示且已展开」时 expanded 置位是纯 no-op，
-// 用一次性背景闪烁兑现命令在任何状态下都有可见反馈（同 TasklistBar）。
+// 用一次性背景闪烁兑现命令在任何状态下都有可见反馈（同 TaskBar）。
 const flashed = ref(false)
 let flashTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -91,7 +91,7 @@ onBeforeUnmount(() => {
 })
 
 // 会话切换时收起展开态：组件常驻 ChatDockArea 不随会话卸载，
-// 展开状态延续到新会话会造成误导（同 TasklistBar）
+// 展开状态延续到新会话会造成误导（同 TaskBar）
 watch(() => chatState.sessionKey, () => {
     expanded.value = false
 })
@@ -160,7 +160,7 @@ watch(() => chatState.sessionKey, () => {
 
 <style scoped>
 /* /goalbar 唤起脉冲：主题色背景闪烁一次后回到常态底色（bg-base-100/40）。
-   同 tasklist-flash；prefers-reduced-motion 用户降级为无动画（展开反馈仍在） */
+   同 taskbar-flash；prefers-reduced-motion 用户降级为无动画（展开反馈仍在） */
 .goalbar-flash {
     animation: goalbar-flash 1s ease-out;
 }

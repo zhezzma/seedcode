@@ -32,7 +32,7 @@ import { writeClipboard } from '../utils/clipboard.ts'
 import { useChatState, splitModelId, type ChatSendOverrides, type ChatAttachment } from '../composables/useChatState'
 import { useChatInput } from '../composables/useChatInput'
 import { useCommandState } from '../composables/useCommandState'
-import { useTasklistState } from '../composables/useTasklistState'
+import { useTaskBarState } from '../composables/useTaskBarState'
 import { useGoalState } from '../composables/useGoalState'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
@@ -54,7 +54,7 @@ const settingsStore = useUiSettingsStore()
 const chatState = useChatState()
 const { setSessionKeyResolver, restoreSessionDraft } = useChatInput()
 setSessionKeyResolver(() => chatState.sessionKey)
-const tasklistState = useTasklistState()
+const taskBarState = useTaskBarState()
 const goalbarState = useGoalState()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
@@ -340,7 +340,7 @@ const handleSend = async (mode?: BusySendBehavior) => {
     if (!inputText && !hasAttachments && !isBusy.value) return
 
     // /tree：客户端命令——打开会话树弹窗，不经服务端。
-    // 纯 UI（只读）操作在 busy 时也放行（同 /tasklist）；若要跳转节点，
+    // 纯 UI（只读）操作在 busy 时也放行（同 /taskbar）；若要跳转节点，
     // handleJumpToTreeEntry 内部已有独立的 busy/分支守卫，不会误切运行中的会话。
     const isTreeCommand = inputText.trim() === '/tree'
     if (isTreeCommand && !hasAttachments) {
@@ -351,24 +351,24 @@ const handleSend = async (mode?: BusySendBehavior) => {
         return
     }
 
-    // /tasklist：客户端命令——重现并展开会话工作步骤面板，不经服务端。
+    // /taskbar：客户端命令——重现并展开会话工作步骤面板，不经服务端。
     // 服务端同名扩展命令在 rpc 宿主下是静默 no-op，
     // 纯 UI 操作在 busy 时也放行（恰恰是模型跑着、面板被关后最需要看的时刻）。
     // 注意：下方正则字面量与 "Case 1: Busy + no text" 注释均为
-    // tests/tasklist-restore-command.test.ts 的次序锚点，改名/移动须同步测试。
-    const tasklistCommand = /^\/tasklist(?:\s|$)/i.test(inputText)
-    if (tasklistCommand && !hasAttachments) {
+    // tests/taskbar-restore-command.test.ts 的次序锚点，改名/移动须同步测试。
+    const taskBarCommand = /^\/taskbar(?:\s|$)/i.test(inputText)
+    if (taskBarCommand && !hasAttachments) {
         if (chatInputRef.value) {
             chatInputRef.value.inputText = ''
         }
-        if (!tasklistState.restore()) {
-            useToast().info(t('home.noTasklist'))
+        if (!taskBarState.restore()) {
+            useToast().info(t('home.noTaskBar'))
         }
         return
     }
 
     // /goalbar：客户端命令——重现自动续跑状态条，不经服务端（/goal 是服务端真命令，
-    // 裸 /goal = 帮助，不能劫持）。纯 UI 操作 busy 时也放行（同 /tasklist——
+    // 裸 /goal = 帮助，不能劫持）。纯 UI 操作 busy 时也放行（同 /taskbar——
     // 恰恰是模型跑着、状态条被关后最需要看的时刻）。
     // 正则字面量被 tests/busy-send-pills.test.ts 注册表↔HomeView 对齐测试锚定。
     const goalbarCommand = /^\/goalbar(?:\s|$)/i.test(inputText)

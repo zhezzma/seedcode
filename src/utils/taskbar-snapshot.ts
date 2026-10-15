@@ -1,4 +1,4 @@
-// src/utils/tasklist-snapshot.ts
+// src/utils/taskbar-snapshot.ts
 // 从会话消息流提取会话工作步骤（tasklist）全量快照（服务端工具结果的 details 持久化格式）。
 // 纯函数、零 vue 依赖 —— node --test 回归基线直接可跑。
 // 历史（GET /messages）与流式（SSE）同一入口，天然覆盖刷新/重连/实时更新三场景。
@@ -6,18 +6,18 @@
 // seedagent/src/extensions/tasklist/tasklist.ts 的 export const TOOL_NAME；改名须两仓同步，否则面板静默消失。
 // 命名约定：本面板是「会话工作步骤」；「任务清单」一词留给外部待办类扩展，两者不混用。
 
-export type TasklistTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
+export type TaskBarTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
 
-export interface TasklistTask {
+export interface TaskBarTask {
     id: number
     subject: string
     description?: string
     activeForm?: string
-    status: TasklistTaskStatus
+    status: TaskBarTaskStatus
 }
 
-export interface TasklistSnapshot {
-    tasks: TasklistTask[]
+export interface TaskBarSnapshot {
+    tasks: TaskBarTask[]
     nextId: number
 }
 
@@ -28,7 +28,7 @@ export interface MinimalMessage {
     details?: unknown
 }
 
-function isTasklistDetails(v: unknown): v is { tasks: TasklistTask[]; nextId: number } {
+function isTaskBarDetails(v: unknown): v is { tasks: TaskBarTask[]; nextId: number } {
     if (!v || typeof v !== 'object') return false
     const d = v as Record<string, unknown>
     // Number.isSafeInteger：非整数 nextId（如 2.5）会让服务端 create 派生出非法 id 快照，
@@ -41,29 +41,29 @@ function isTasklistDetails(v: unknown): v is { tasks: TasklistTask[]; nextId: nu
         !d.tasks.every(
             (t) =>
                 t && typeof t === 'object' &&
-                Number.isInteger((t as TasklistTask).id) &&
-                typeof (t as TasklistTask).subject === 'string' &&
-                typeof (t as TasklistTask).status === 'string' &&
-                ((t as TasklistTask).description === undefined || typeof (t as TasklistTask).description === 'string') &&
-                ((t as TasklistTask).activeForm === undefined || typeof (t as TasklistTask).activeForm === 'string'),
+                Number.isInteger((t as TaskBarTask).id) &&
+                typeof (t as TaskBarTask).subject === 'string' &&
+                typeof (t as TaskBarTask).status === 'string' &&
+                ((t as TaskBarTask).description === undefined || typeof (t as TaskBarTask).description === 'string') &&
+                ((t as TaskBarTask).activeForm === undefined || typeof (t as TaskBarTask).activeForm === 'string'),
         )
     )
         return false
     // id/nextId 一致性 + 唯一性（与服务端守卫同源）：正整数 id、nextId ≥ 1、所有 id < nextId；
     // 重复 id 会使 Vue :key 冲突、徽章语义混乱
     if ((d.nextId as number) < 1) return false
-    const ids = new Set(d.tasks.map((t) => (t as TasklistTask).id))
+    const ids = new Set(d.tasks.map((t) => (t as TaskBarTask).id))
     if (ids.size !== d.tasks.length) return false
     const nextId = d.nextId as number
-    return d.tasks.every((t) => (t as TasklistTask).id >= 1 && (t as TasklistTask).id < nextId)
+    return d.tasks.every((t) => (t as TaskBarTask).id >= 1 && (t as TaskBarTask).id < nextId)
 }
 
 /** 正序扫描，取最后一条形状匹配的 tasklist 工具结果快照；没有则 null。 */
-export function extractTasklistSnapshot(messages: MinimalMessage[]): TasklistSnapshot | null {
-    let snap: TasklistSnapshot | null = null
+export function extractTaskBarSnapshot(messages: MinimalMessage[]): TaskBarSnapshot | null {
+    let snap: TaskBarSnapshot | null = null
     for (const m of messages) {
         if (!m || m.role !== 'toolResult' || m.toolName !== 'tasklist') continue
-        if (!isTasklistDetails(m.details)) continue
+        if (!isTaskBarDetails(m.details)) continue
         snap = { tasks: m.details.tasks.map((t) => ({ ...t })), nextId: m.details.nextId }
     }
     return snap
@@ -75,7 +75,7 @@ export function extractTasklistSnapshot(messages: MinimalMessage[]): TasklistSna
 // 回退（快照回到已见过的结构）、改名、完成、删除都不再影响面板可见性。
 // ============================================================
 
-export interface TasklistPanelMemory {
+export interface TaskBarPanelMemory {
     /** 见过（曾显示/已关闭）的活步骤 id；新 id 出现 = 新工作开始 = 面板重现 */
     seen: number[]
     /** 用户是否已关闭当前清单 */
@@ -88,7 +88,7 @@ export interface TasklistPanelMemory {
  * - clear（空快照且 nextId 归位）→ 记忆重置（新周期视为全新工作）
  * - 其余一切变化（完成/删除/改名/回退）→ 记忆不变（已关就保持隐藏，没关就保持显示）
  */
-export function applySnapshotToMemory(mem: TasklistPanelMemory, snapshot: TasklistSnapshot | null): TasklistPanelMemory {
+export function applySnapshotToMemory(mem: TaskBarPanelMemory, snapshot: TaskBarSnapshot | null): TaskBarPanelMemory {
     if (!snapshot) return mem
     const live = snapshot.tasks.filter((t) => t.status !== 'deleted')
     // clear 的标志：快照清空且 nextId 归位（delete 全部不清 nextId，不会误触）
@@ -117,9 +117,9 @@ export function unionSeen(seen: number[], liveIds: number[]): number[] {
  * 抽成独立函数并纳入测试基线：若有人交换拼接顺序或在中间插入去重/切片，
  * 流式实时更新会静默退化为「回合结束才更新」——这是必须被测试钉住的顺序假设。
  */
-export function extractTasklistSnapshotFromSources(
+export function extractTaskBarSnapshotFromSources(
     history: MinimalMessage[],
     streaming: MinimalMessage[],
-): TasklistSnapshot | null {
-    return extractTasklistSnapshot([...history, ...streaming])
+): TaskBarSnapshot | null {
+    return extractTaskBarSnapshot([...history, ...streaming])
 }

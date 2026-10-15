@@ -1,5 +1,5 @@
 // tests/goalbar-restore-command.test.ts
-// /goalbar 客户端命令的 wiring 结构断言（同 tasklist-restore-command.test.ts 模式：
+// /goalbar 客户端命令的 wiring 结构断言（同 taskbar-restore-command.test.ts 模式：
 // useGoalState 依赖 vue 响应性，node --test 无法直接实例化，钉住源码关键形状）。
 //
 // 背景：GoalBar 被 ✕ 关闭后需有途径再次显示。/goal 是服务端真命令（裸 /goal = 帮助）

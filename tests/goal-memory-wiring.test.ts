@@ -1,11 +1,11 @@
 // tests/goal-memory-wiring.test.ts
 // GoalBar 关闭记忆的 wiring 结构断言（useGoalState 依赖 vue 响应性 + useChatState 单例，
-// node --test 无法直接实例化——同 tasklist-memory-wiring.test.ts 模式：钉住源码关键形状）。
+// node --test 无法直接实例化——同 taskbar-memory-wiring.test.ts 模式：钉住源码关键形状）。
 //
 // 背景bug：applyGoalStateToMemory 曾把 null 快照并入「停止」重置——刷新/导航的加载窗口
 // （sessionKey 已切、历史未到、goalState=null）会把 dismiss 记忆重置并落盘，历史到达后
 // 状态条误判为新 goal 复活。防线 = null 原引用返回（纯函数，锚在 goal-snapshot.test.ts）
-// + 本文件钉住的 wiring 三道防线（与 tasklist 同构）：
+// + 本文件钉住的 wiring 三道防线（与 taskbar 同构）：
 // 1. 跨会话污染：元组 watch [goalState, sessionKey] 同源求值 + memOwner 归属兜底
 //    + 回调内用解构 key 落盘。
 // 2. 空 seen 关闭：快照稳定期挂载时非 immediate 的 goalState watch 从未触发，

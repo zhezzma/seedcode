@@ -51,26 +51,26 @@ test('ChatInput: busyCommandText 覆盖全部「mode 不消费」路径（服务
     assert.match(fn, /if \(!text\.startsWith\('\/'\)\) return false/)
     assert.match(fn, /isCommandInvocation\(text, commandsLoaded\.value \? allCommands\.value\.map\(cmd => cmd\.name\) : null\)/)
     assert.match(fn, /isClientInterceptedCommand\(text\)/)
-    assert.ok(!/['"]\/(?:tree|tasklist|goal)['"]/.test(fn), 'busyCommandText must not hardcode client command names')
+    assert.ok(!/['"]\/(?:tree|taskbar|goal)['"]/.test(fn), 'busyCommandText must not hardcode client command names')
     assert.match(chatInputSource, /import \{ isClientInterceptedCommand \} from '\.\.\/\.\.\/composables\/clientCommands'/)
     assert.match(chatInputSource, /import \{ isCommandInvocation \} from '\.\.\/\.\.\/utils\/command-invocation'/)
     // util 保持纯后端语义：客户端命令不得混入
     assert.ok(!commandInvocationSource.includes('/tree'), 'client command /tree must not leak into isCommandInvocation')
-    assert.ok(!commandInvocationSource.includes('tasklist'), 'client command /tasklist must not leak into isCommandInvocation')
+    assert.ok(!commandInvocationSource.includes('taskbar'), 'client command /taskbar must not leak into isCommandInvocation')
 })
 
-test('isClientInterceptedCommand: 语义与 HomeView 拦截分支逐字对齐（tree 精确区分大小写 / tasklist 前缀忽略大小写）', () => {
+test('isClientInterceptedCommand: 语义与 HomeView 拦截分支逐字对齐（tree 精确区分大小写 / taskbar 前缀忽略大小写）', () => {
     // /tree：HomeView isTreeCommand = inputText.trim() === '/tree'（区分大小写、无参数）
     assert.equal(isClientInterceptedCommand('/tree'), true)
     assert.equal(isClientInterceptedCommand('/tree '), true) // 调用方容忍未修剪文本（内部 trim）
     assert.equal(isClientInterceptedCommand('/tree extra'), false)
     assert.equal(isClientInterceptedCommand('/Tree'), false)
-    // /tasklist：HomeView tasklistCommand = /^\/tasklist(?:\s|$)/i（前缀、忽略大小写）
-    assert.equal(isClientInterceptedCommand('/tasklist'), true)
-    assert.equal(isClientInterceptedCommand('/tasklist xxx'), true)
-    assert.equal(isClientInterceptedCommand('/TASKLIST'), true)
-    assert.equal(isClientInterceptedCommand('/tasklistX'), false)
-    // /goalbar：同 tasklist 前缀语义（/goal 服务端命令不被误伤）
+    // /taskbar：HomeView taskBarCommand = /^\/taskbar(?:\s|$)/i（前缀、忽略大小写）
+    assert.equal(isClientInterceptedCommand('/taskbar'), true)
+    assert.equal(isClientInterceptedCommand('/taskbar xxx'), true)
+    assert.equal(isClientInterceptedCommand('/TASKBAR'), true)
+    assert.equal(isClientInterceptedCommand('/taskbarX'), false)
+    // /goalbar：同 taskbar 前缀语义（/goal 服务端命令不被误伤）
     assert.equal(isClientInterceptedCommand('/goalbar'), true)
     assert.equal(isClientInterceptedCommand('/goalbar xxx'), true)
     assert.equal(isClientInterceptedCommand('/GoalBar'), true)

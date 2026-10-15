@@ -456,7 +456,7 @@ defineExpose({
                             <li v-for="cmd in COMMANDS" :key="cmd.value">
                                 <a @click="handleCommandSelect(cmd)" class="rounded-lg">{{ cmd.label }}</a>
                             </li>
-                            <!-- 本地指令：客户端命令注册表派生（/tasklist /tree），不经服务端 -->
+                            <!-- 本地指令：客户端命令注册表派生（/taskbar /tree），不经服务端 -->
                             <li v-if="clientCommandItems.length" class="menu-title">
                                 <span>{{ $t('chat.clientCommands') }}</span>
                             </li>

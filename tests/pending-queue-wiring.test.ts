@@ -156,9 +156,9 @@ test('useChatState: abort 成功后清空本地队列（对齐服务端 clearQue
     )
 })
 
-test('useChatState: tool_execution_end 推送对象补齐 toolName/details（TasklistBar 流式实时更新的数据源，回归守门）', () => {
+test('useChatState: tool_execution_end 推送对象补齐 toolName/details（TaskBar 流式实时更新的数据源，回归守门）', () => {
     const handler = extractFn(chatStateSource, 'handleSSEEvent')
-    // 缺任一字段 → TasklistBar 退化为只在回合结束 done 后更新（最终审查 Critical#1 同型回归）
+    // 缺任一字段 → TaskBar 退化为只在回合结束 done 后更新（最终审查 Critical#1 同型回归）
     assert.match(handler, /toolName: data\.toolName,/)
     assert.match(handler, /details: data\.result\?\.details/)
 })
@@ -243,11 +243,11 @@ test('HomeView: 会话页输入框上方挂载 ChatDockArea（PendingQueueBar �
     assert.ok(!homeViewSource.includes('<PendingQueueBar'), 'HomeView must not mount PendingQueueBar directly')
     const dockAreaSource = read('src/components/chat/ChatDockArea.vue')
     assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'pending-queue', order: 10/, 'PendingQueueBar must register into chat dock')
-    // TasklistBar 挂载完全依赖这一行注册：删掉不会有任何其他测试失败（Ruling T8 留给审查的口子）
-    assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'tasklist', order: 20/, 'TasklistBar must register into chat dock')
-    // order 语义守门：pending-queue 必须排在 tasklist 之前（字面量互不关联，顺序反转无现有断言）
+    // TaskBar 挂载完全依赖这一行注册：删掉不会有任何其他测试失败（Ruling T8 留给审查的口子）
+    assert.match(dockAreaSource, /registerChatDockWidget\(\{ id: 'taskbar', order: 20/, 'TaskBar must register into chat dock')
+    // order 语义守门：pending-queue 必须排在 taskbar 之前（字面量互不关联，顺序反转无现有断言）
     const orderOf = (id: string) => Number(dockAreaSource.match(new RegExp(`id: '${id}', order: (\\d+)`))?.[1])
-    assert.ok(orderOf('pending-queue') < orderOf('tasklist'), 'pending-queue must render before tasklist in chat dock')
+    assert.ok(orderOf('pending-queue') < orderOf('taskbar'), 'pending-queue must render before taskbar in chat dock')
 })
 
 test('PendingQueueBar / MessageBubble: 排队可视化元素存在', () => {

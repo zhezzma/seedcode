@@ -1,7 +1,7 @@
 import type { CommandInfo } from './useCommandState'
 
 // ==================== 客户端命令统一注册表 ====================
-// 客户端命令 = 前端本地拦截处理、不经服务端的命令（如 /tasklist 重现会话工作步骤面板、
+// 客户端命令 = 前端本地拦截处理、不经服务端的命令（如 /taskbar 重现会话工作步骤面板、
 // /tree 打开会话树；服务端命令表 /api/commands 不含它们，故 / 补全需前端合并）。
 // 本注册表是唯一事实来源，两处消费：
 //   1. `/` 补全浮层：useChatInput 的 watch 按前缀合并（按 name 去重，防服务端未来同名下发）
@@ -11,14 +11,14 @@ import type { CommandInfo } from './useCommandState'
 
 /** 客户端命令 = CommandInfo + 下拉条目元数据 */
 export interface ClientCommand extends CommandInfo {
-    /** 「命令」下拉显示文案（如 '/tasklist (会话工作步骤)'）；缺省用 `/${name}` */
+    /** 「命令」下拉显示文案（如 '/taskbar (会话工作步骤)'）；缺省用 `/${name}` */
     dropdownLabel?: string
     /** 下拉选中后是否自动发送；缺省跟随全局 autoSendCommands 设置（与 CommandItem.autoSend 语义一致） */
     autoSend?: boolean
     /** busy 期间的客户端拦截语义：HomeView.handleSend 在 steer/follow-up mode 分流前拦截执行
      *  （mode 不被消费），ChatInput 据此在 busy 时回退原发送按钮而非双胶囊。
      *  - 'exact'：仅裸命令名命中（如 /tree，带参数会被当普通文本走 mode）；
-     *  - 'prefix'：命令名后可跟参数（如 /tasklist xxx）。
+     *  - 'prefix'：命令名后可跟参数（如 /taskbar xxx）。
      *  新增拦截命令时：在此标注 + 在 handleSend 写对应分支（两者由
      *  tests/busy-send-pills.test.ts 的注册表↔HomeView 对齐测试锚定）；
      *  缺省 = 不拦截，按普通文本走 mode。 */
@@ -26,7 +26,7 @@ export interface ClientCommand extends CommandInfo {
 }
 
 export const CLIENT_COMMANDS: ClientCommand[] = [
-    { name: 'tasklist', description: '会话工作步骤面板', source: 'client', dropdownLabel: '/tasklist (会话工作步骤)', intercept: 'prefix' },
+    { name: 'taskbar', description: '会话工作步骤面板', source: 'client', dropdownLabel: '/taskbar (会话工作步骤)', intercept: 'prefix' },
     { name: 'tree', description: '会话树', source: 'client', dropdownLabel: '/tree (会话树)', intercept: 'exact' },
     // 不能叫 /goal：那是服务端真命令（裸 /goal = 帮助），劫持会改变其语义；独立名避免冲突。
     // 同名时 / 补全按 name 去重会隐藏客户端条目（服务端优先），goalbar 无服务端同名，下拉可见

@@ -573,7 +573,7 @@ export default {
             steerTitle: 'Steer: inject into the current reply immediately',
             followTitle: 'Follow-up: queue and send after the current reply finishes',
         },
-        tasklist: {
+        taskBar: {
             countLabel: 'Session Steps ({done}/{total})',
             allDone: 'All done ({done}/{total})',
             workingOn: 'Working on {active}',
@@ -731,7 +731,7 @@ export default {
         greetingEvening: 'Good evening. How can I help',
         noAgentDesc: 'Not set yet',
         commandNotAvailableWhileBusy: 'Commands are not available while the agent is busy',
-        noTasklist: 'No session step list yet. Ask the agent to create one for multi-step work',
+        noTaskBar: 'No session step list yet. Ask the agent to create one for multi-step work',
         noGoalRunning: 'No auto-continue is currently running',
         createSessionFailed: 'Failed to create session, please retry',
     },

@@ -1,4 +1,4 @@
-<!-- src/components/chat/TasklistBar.vue -->
+<!-- src/components/chat/TaskBar.vue -->
 <!-- 会话工作步骤条：有步骤才出现；折叠态一行摘要，点击展开按状态分组。
      ✕ 任何状态可用（含中断/未完成），关闭记忆按会话持久化（同结构快照不再弹出）；
      新步骤/状态变化（结构指纹变化）后面板自动重现一次，可再次关闭。 -->
@@ -6,21 +6,21 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
-import { useTasklistState } from '../../composables/useTasklistState'
+import { useTaskBarState } from '../../composables/useTaskBarState'
 import { useChatState } from '../../composables/useChatState'
-import type { TasklistTask } from '../../utils/tasklist-snapshot'
+import type { TaskBarTask } from '../../utils/taskbar-snapshot'
 
 const { t } = useI18n()
-const { tasks, counts, inProgress, dismiss, visibleBar, allDone, expandRequest } = useTasklistState()
+const { tasks, counts, inProgress, dismiss, visibleBar, allDone, expandRequest } = useTaskBarState()
 const expanded = ref(false)
 
-// /tasklist 唤起脉冲：面板「已显示且已展开」时 expanded 置位是纯 no-op，
+// /taskbar 唤起脉冲：面板「已显示且已展开」时 expanded 置位是纯 no-op，
 // 用一次性背景闪烁兑现在何状态下执行命令都有可见反馈的承诺。
 const flashed = ref(false)
 let flashTimer: ReturnType<typeof setTimeout> | undefined
 
-// /tasklist 客户端命令的展开请求：restore 重现面板时同时展开分组清单；
-// 配合 tasklist-flash 脉冲，任何状态下执行命令都有可见反馈。
+// /taskbar 客户端命令的展开请求：restore 重现面板时同时展开分组清单；
+// 配合 taskbar-flash 脉冲，任何状态下执行命令都有可见反馈。
 watch(expandRequest, () => {
     expanded.value = true
     // class 摘除 → 下一拍重加：重放 CSS 动画（连续触发也重新起播）
@@ -49,12 +49,12 @@ watch(() => chatState.sessionKey, () => {
 // 注：v-for 对象迭代时 key 被 Vue 推断为 string，故用 Record<string, string>
 // 以通过 strict 模式索引（union 字面量键会触发 TS7053）。
 const SECTION_KEY: Record<string, string> = {
-    inProgress: 'chat.tasklist.sectionInProgress',
-    pending: 'chat.tasklist.sectionPending',
-    completed: 'chat.tasklist.sectionCompleted',
+    inProgress: 'chat.taskBar.sectionInProgress',
+    pending: 'chat.taskBar.sectionPending',
+    completed: 'chat.taskBar.sectionCompleted',
 }
 
-const groups = (list: TasklistTask[]) => ({
+const groups = (list: TaskBarTask[]) => ({
     inProgress: list.filter((x) => x.status === 'in_progress'),
     pending: list.filter((x) => x.status === 'pending'),
     completed: list.filter((x) => x.status === 'completed'),
@@ -63,7 +63,7 @@ const groups = (list: TasklistTask[]) => ({
 
 <template>
     <div v-if="visibleBar" class="border-t border-base-300 bg-base-100/40 px-4 py-1 text-xs select-none"
-        :class="{ 'tasklist-flash': flashed }">
+        :class="{ 'taskbar-flash': flashed }">
         <div class="mx-auto w-full max-w-3xl">
             <!-- 折叠条：进度 + 正在做的事 + 展开箭头 / 完成态关闭钮 -->
             <div class="flex items-center gap-1.5 py-0.5 ">
@@ -73,19 +73,19 @@ const groups = (list: TasklistTask[]) => ({
                     <span aria-hidden="true">{{ allDone ? '✓' : '📋' }}</span>
                     <span class="font-medium whitespace-nowrap">
                         {{ allDone
-                            ? t('chat.tasklist.allDone', { done: counts.done, total: counts.total })
-                            : t('chat.tasklist.countLabel', { done: counts.done, total: counts.total }) }}
+                            ? t('chat.taskBar.allDone', { done: counts.done, total: counts.total })
+                            : t('chat.taskBar.countLabel', { done: counts.done, total: counts.total }) }}
                     </span>
                     <span v-if="inProgress && !allDone" class="text-base-content/50 truncate">
-                        · {{ t('chat.tasklist.workingOn', { active: inProgress.activeForm || inProgress.subject }) }}
+                        · {{ t('chat.taskBar.workingOn', { active: inProgress.activeForm || inProgress.subject }) }}
                     </span>
-                    <span v-if="!allDone && !expanded" class="text-base-content/40 whitespace-nowrap">· {{ t('chat.tasklist.hint') }}</span>
+                    <span v-if="!allDone && !expanded" class="text-base-content/40 whitespace-nowrap">· {{ t('chat.taskBar.hint') }}</span>
                     <ChevronDownIcon class="ml-auto h-3.5 w-3.5 shrink-0 transition-transform duration-200"
                         :class="{ 'rotate-180': expanded }" />
                 </button>
                 <button type="button"
                     class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-base-content"
-                    :title="t('chat.tasklist.dismissHint')" :aria-label="t('chat.tasklist.dismissHint')" @click="dismiss()">
+                    :title="t('chat.taskBar.dismissHint')" :aria-label="t('chat.taskBar.dismissHint')" @click="dismiss()">
                     <XMarkIcon class="h-3.5 w-3.5" />
                 </button>
             </div>
@@ -112,14 +112,14 @@ const groups = (list: TasklistTask[]) => ({
 </template>
 
 <style scoped>
-/* /tasklist 唤起脉冲：主题色背景闪烁一次后回到常态底色（bg-base-100/40）。
+/* /taskbar 唤起脉冲：主题色背景闪烁一次后回到常态底色（bg-base-100/40）。
    daisyUI 5 主题色以 --color-primary 等 CSS 变量暴露；
    prefers-reduced-motion 用户降级为无动画（展开反馈仍在） */
-.tasklist-flash {
-    animation: tasklist-flash 1s ease-out;
+.taskbar-flash {
+    animation: taskbar-flash 1s ease-out;
 }
 
-@keyframes tasklist-flash {
+@keyframes taskbar-flash {
     0% {
         background-color: color-mix(in oklab, var(--color-primary) 16%, transparent);
     }
@@ -130,7 +130,7 @@ const groups = (list: TasklistTask[]) => ({
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .tasklist-flash {
+    .taskbar-flash {
         animation: none;
     }
 }

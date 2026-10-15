@@ -44,7 +44,7 @@ function savePanelMemory(sessionKey: string, mem: GoalPanelMemory): void {
     }
 }
 
-// 模块级单例（与 useTasklistState 同模式）：HomeView 的 /goalbar 客户端命令
+// 模块级单例（与 useTaskBarState 同模式）：HomeView 的 /goalbar 客户端命令
 // 与 GoalBar 必须共享同一份 panelMem——若按实例各持一份，restore() 翻转的内存态
 // 落不到 GoalBar 正在渲染的那份上。
 function buildGoalState() {
@@ -77,7 +77,7 @@ function buildGoalState() {
     // 重现只由「新 goal 启动 / resume」（新 startedAt）触发；停止不动记忆
     // （v2：停止态转为停止展示 + 恢复按钮，已关保持隐藏——详见 goal-snapshot.ts）。
     // 跨会话一致性：快照与会话键同源求值（元组 watch 在同一 job 内读两个 source），
-    // memOwner 归属兜底同 useTasklistState——两者任意顺序到达，写入前归属一致。
+    // memOwner 归属兜底同 useTaskBarState——两者任意顺序到达，写入前归属一致。
     // /goalbar 命令的展开请求通道：restore() 自增，GoalBar watch 后展开详情 + 脉冲
     const expandRequest = ref(0)
     const panelMem = ref<GoalPanelMemory>(loadPanelMemory(chatState.sessionKey))

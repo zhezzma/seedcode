@@ -1,23 +1,23 @@
-// src/composables/useTasklistState.ts
-// TasklistBar 的数据源：从当前会话消息流 computed 出会话工作步骤快照。
+// src/composables/useTaskBarState.ts
+// TaskBar 的数据源：从当前会话消息流 computed 出会话工作步骤快照。
 // 流式 toolResult 到达 → 自动更新；刷新/重连 → 从历史自动恢复，无需任何额外请求。
 import { computed, ref, watch } from 'vue'
 import {
     applySnapshotToMemory,
-    extractTasklistSnapshotFromSources,
+    extractTaskBarSnapshotFromSources,
     unionSeen,
-    type TasklistPanelMemory,
-    type TasklistTask,
-} from '../utils/tasklist-snapshot'
+    type TaskBarPanelMemory,
+    type TaskBarTask,
+} from '../utils/taskbar-snapshot'
 import { useChatState } from './useChatState'
 
-const PANEL_PREFIX = 'tasklist-panel:'
+const PANEL_PREFIX = 'taskbar-panel:'
 
-function loadPanelMemory(sessionKey: string): TasklistPanelMemory {
+function loadPanelMemory(sessionKey: string): TaskBarPanelMemory {
     try {
         const raw = localStorage.getItem(PANEL_PREFIX + sessionKey)
         if (raw) {
-            const parsed = JSON.parse(raw) as TasklistPanelMemory
+            const parsed = JSON.parse(raw) as TaskBarPanelMemory
             if (Array.isArray(parsed?.seen)) return { seen: parsed.seen, dismissed: !!parsed.dismissed }
         }
     } catch {
@@ -26,7 +26,7 @@ function loadPanelMemory(sessionKey: string): TasklistPanelMemory {
     return { seen: [], dismissed: false }
 }
 
-function savePanelMemory(sessionKey: string, mem: TasklistPanelMemory): void {
+function savePanelMemory(sessionKey: string, mem: TaskBarPanelMemory): void {
     try {
         localStorage.setItem(PANEL_PREFIX + sessionKey, JSON.stringify(mem))
     } catch {
@@ -34,23 +34,23 @@ function savePanelMemory(sessionKey: string, mem: TasklistPanelMemory): void {
     }
 }
 
-// 模块级单例（与 useChatInput/useCommandState 同模式）：HomeView 的 /tasklist 客户端命令
-// 与 TasklistBar 必须共享同一份 panelMem——若按实例各持一份，restore() 翻转的内存态
-// 落不到 TasklistBar 正在渲染的那份上（localStorage 持久化救不了同驻留的两个实例）。
+// 模块级单例（与 useChatInput/useCommandState 同模式）：HomeView 的 /taskbar 客户端命令
+// 与 TaskBar 必须共享同一份 panelMem——若按实例各持一份，restore() 翻转的内存态
+// 落不到 TaskBar 正在渲染的那份上（localStorage 持久化救不了同驻留的两个实例）。
 // snapshot/counts 本就同源于 chatState，单例化后 watch 也只注册一次。
-function buildTasklistState() {
+function buildTaskBarState() {
     const chatState = useChatState()
 
     // 扫描拼接序列：chatToolMessages 是回合内按时间序追加的新条目，
     // 排在已固化的 chatMessages 之后，last-write-wins 语义才正确，
     // 使面板能在流式 toolResult 到达时实时更新（而非只在回合结束 done 全量刷新）。
     const snapshot = computed(() =>
-        extractTasklistSnapshotFromSources(chatState.chatMessages, chatState.chatToolMessages)
+        extractTaskBarSnapshotFromSources(chatState.chatMessages, chatState.chatToolMessages)
     )
 
     // 活步骤三态白名单：手编/旧版数据的枚举外 status 若只按「非 deleted」过滤，
     // 会计入 total 却不落入任何分组（计数与明细不一致、面板永远无法进入可关闭态）
-    const tasks = computed<TasklistTask[]>(() =>
+    const tasks = computed<TaskBarTask[]>(() =>
         (snapshot.value?.tasks ?? []).filter(
             (t) => t.status === 'pending' || t.status === 'in_progress' || t.status === 'completed',
         )
@@ -65,7 +65,7 @@ function buildTasklistState() {
 
     const inProgress = computed(() => tasks.value.find((t) => t.status === 'in_progress'))
 
-    // 面板可见性状态机（TasklistPanelMemory）：消失只由 ✕ 或无步骤引起；
+    // 面板可见性状态机（TaskBarPanelMemory）：消失只由 ✕ 或无步骤引起；
     // 重现只由「新活步骤创建」触发——完成/删除/改名/快照回退都不再影响可见性。
     //
     // 跨会话一致性：快照与所属会话键【同源求值】（元组 watch 在同一 job 内读两个 source），
@@ -74,9 +74,9 @@ function buildTasklistState() {
     // （否则切换 flush 中旧会话的记忆会撞上新会话的快照，把记忆覆盖污染）。
     // memOwner 归属兜底：sessionKey watch 因快照 null→null 不变而未触发元组 watch 的
     // 窗口里由它负责重载；两者任意顺序到达，写入前都能保证归属一致。
-    // /tasklist 命令的展开请求通道：restore() 自增，TasklistBar watch 后展开分组清单
+    // /taskbar 命令的展开请求通道：restore() 自增，TaskBar watch 后展开分组清单
     const expandRequest = ref(0)
-    const panelMem = ref<TasklistPanelMemory>(loadPanelMemory(chatState.sessionKey))
+    const panelMem = ref<TaskBarPanelMemory>(loadPanelMemory(chatState.sessionKey))
     const memOwner = ref(chatState.sessionKey)
     watch(() => chatState.sessionKey, (key) => {
         memOwner.value = key
@@ -107,7 +107,7 @@ function buildTasklistState() {
         savePanelMemory(chatState.sessionKey, panelMem.value)
     }
 
-    // /tasklist 客户端命令（HomeView 拦截，不经服务端）：重现已关闭的面板。
+    // /taskbar 客户端命令（HomeView 拦截，不经服务端）：重现已关闭的面板。
     // 返回 false = 当前会话无活步骤（面板无处可显），调用方据此提示而非静默。
     // 活步骤存在时，applySnapshotToMemory 对「无新 id」快照返回原引用，
     // 不会把 dismissed 改回 true —— 重现后面板稳定可见。
@@ -115,7 +115,7 @@ function buildTasklistState() {
         if (counts.value.total === 0) return false
         panelMem.value = { ...panelMem.value, dismissed: false }
         savePanelMemory(chatState.sessionKey, panelMem.value)
-        // 广播展开请求：面板已在显示时也自增，保证 /tasklist 永远有可见反馈
+        // 广播展开请求：面板已在显示时也自增，保证 /taskbar 永远有可见反馈
         // （展开分组清单的语义，而非仅撤销关闭）
         expandRequest.value++
         return true
@@ -124,8 +124,8 @@ function buildTasklistState() {
     return { snapshot, tasks, counts, inProgress, dismiss, restore, visibleBar, allDone, expandRequest }
 }
 
-const _tasklistState = buildTasklistState()
+const _taskBarState = buildTaskBarState()
 
-export function useTasklistState() {
-    return _tasklistState
+export function useTaskBarState() {
+    return _taskBarState
 }

@@ -2,12 +2,12 @@
      显隐由 widget 组件内部条件决定（无数据时根节点 v-if 不渲染）。 -->
 <script setup lang="ts">
 import PendingQueueBar from './PendingQueueBar.vue'
-import TasklistBar from './TasklistBar.vue'
+import TaskBar from './TaskBar.vue'
 import GoalBar from './GoalBar.vue'
 import { getChatDockWidgets, registerChatDockWidget } from './chat-dock-registry'
 
 registerChatDockWidget({ id: 'pending-queue', order: 10, component: PendingQueueBar })
-registerChatDockWidget({ id: 'tasklist', order: 20, component: TasklistBar })
+registerChatDockWidget({ id: 'taskbar', order: 20, component: TaskBar })
 registerChatDockWidget({ id: 'goalbar', order: 5, component: GoalBar })
 
 const widgets = getChatDockWidgets()
