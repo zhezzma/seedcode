@@ -247,6 +247,21 @@ const modelScope = computed({
     }
 })
 
+// 崩溃恢复策略（agent 重新打开时对崩溃遗留任务的处理；回退值对齐服务端/框架默认 resume）
+const startupInterruptedTasks = computed({
+    get: () => props.agent?.startup?.interruptedForegroundTasks || 'resume',
+    set: async (val: string) => {
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                startup: { interruptedForegroundTasks: val }
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+        }
+    }
+})
+
 const compactionModal = ref<HTMLDialogElement | null>(null)
 const compactionSettings = ref<{
     enabled: boolean;
@@ -519,6 +534,15 @@ const handleDeleteAgent = async () => {
                                 <select v-model="modelScope" class="select select-bordered select-sm w-full font-sans">
                                     <option value="session">{{ $t('agent.modelScopeSession') }}</option>
                                     <option value="branch">{{ $t('agent.modelScopeBranch') }}</option>
+                                </select>
+                            </div>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.startupSettings') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <select v-model="startupInterruptedTasks" class="select select-bordered select-sm w-full font-sans">
+                                    <option value="resume">{{ $t('agent.startupInterruptedResume') }}</option>
+                                    <option value="settle">{{ $t('agent.startupInterruptedSettle') }}</option>
                                 </select>
                             </div>
                         </li>

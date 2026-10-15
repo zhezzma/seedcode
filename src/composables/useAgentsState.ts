@@ -26,6 +26,11 @@ export interface ProgressSettings {
     outputIntervalMs?: number;
 }
 
+/** 启动策略（agent 句柄 open 时的崩溃恢复行为，缺省 resume） */
+export interface StartupSettings {
+    interruptedForegroundTasks?: "settle" | "resume";
+}
+
 export interface AgentInfo {
     id: string
     name?: string
@@ -45,6 +50,7 @@ export interface AgentInfo {
     compaction?: CompactionSettings
     retry?: RetrySettings
     progress?: ProgressSettings
+    startup?: StartupSettings
     sessionId?: string
     createdAt?: string
     skills?: string[]
