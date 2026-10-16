@@ -7,7 +7,8 @@ import { useUiSettingsStore, type GatewayProfile } from '../stores/setting'
 import { localServer, switchGateway, gatewaySwitchBlockReason } from '../composables/local-server'
 import { useToast } from '../composables/useToast'
 import { gatewayHostLabel } from '../utils/gateway-url'
-import { openExternalLink } from '../utils/external-link'
+import { openExternalLink, parseExternalUrl } from '../utils/external-link'
+import { apiGet } from '../composables/api-client'
 
 defineProps<{ collapsed: boolean }>()
 
@@ -73,12 +74,16 @@ const determinePlacement = () => {
 
 const openMenu = async () => {
     isOpen.value = true
+    linksSubmenuOpen.value = false
+    void loadExternalLinks()
     await nextTick()
     determinePlacement()
 }
 
 const closeMenu = () => {
     isOpen.value = false
+    cancelLinksSubmenuClose()
+    linksSubmenuOpen.value = false
     emit('navigate')
 }
 
@@ -111,6 +116,7 @@ watch(isOpen, (open) => {
 onBeforeUnmount(() => {
     document.removeEventListener('mousedown', onDocumentMouseDown, true)
     document.removeEventListener('keydown', onDocumentKeydown)
+    cancelLinksSubmenuClose()
 })
 
 /** 切换账号：共享守卫（local 未就绪/remote 未填地址）拦截，通过则激活并 reload。 */
@@ -139,13 +145,97 @@ const openSettings = () => {
     void router.push('/settings')
 }
 
-/** 外部链接：JS 触发一次性 <a target="_blank">（utils/external-link），不用 opener 插件、
- *  不用 window.open——后者在 Tauri WebView 内不可靠。菜单项做成 button 而非 <a>：先关菜单
- *  再触发，关菜单不拦锚点导航，纯 Web 下同样是新标签页。 */
-const handleExternalLink = () => {
-    const url = configStore.externalUrl
+/** 外部链接（服务端 external-links 扩展清单的只读展示）：
+ *  菜单打开时拉取一次（silent：服务器未部署该扩展/不可达不弹全局 toast，
+ *  子面板内联提示），hover 条目右侧弹子面板，点行经 openExternalLink 打开。
+ *  导航机制同旧实现：JS 触发一次性 <a target="_blank">（utils/external-link），
+ *  不用 opener 插件、不用 window.open——后者在 Tauri WebView 内不可靠。 */
+interface ExternalLinkItem {
+    id: string
+    name: string
+    url: string
+}
+
+const externalLinks = ref<ExternalLinkItem[]>([])
+const linksLoading = ref(false)
+const linksLoadFailed = ref(false)
+const linksSubmenuOpen = ref(false)
+let linksCloseTimer: ReturnType<typeof setTimeout> | undefined
+// 迟响应闸：跨网关切换/快速开关菜单时，旧服务器请求的响应不得覆盖当前列表
+let linksRequestSeq = 0
+
+// 触屏（hover:none）上点按会先派发兼容性 mouseenter（子面板被打开），随后的
+// click 若再做 toggle 就会把首次点按吞掉（评审修复）：非 hover 设备 click 语义
+// 固定为「打开」（幂等），关闭交给点外/Esc/关菜单。setup 期求值一次即可。
+const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches
+
+const loadExternalLinks = async () => {
+    linksLoading.value = true
+    linksLoadFailed.value = false
+    const requestSeq = ++linksRequestSeq
+    try {
+        const payload = await apiGet<{ links?: Array<{ id?: unknown; name?: unknown; url?: unknown }> }>(
+            '/api/extensions/external-links/links', true)
+        if (requestSeq !== linksRequestSeq) return // 迟响应：已有更新请求，丢弃本次结果
+        // 服务端已做净化，这里只做形状防御：非字符串 url 的条目丢弃
+        externalLinks.value = (payload?.links ?? []).map((link, index) => ({
+            id: typeof link?.id === 'string' && link.id ? link.id : `idx-${index}`,
+            name: typeof link?.name === 'string' ? link.name : '',
+            url: typeof link?.url === 'string' ? link.url : '',
+        })).filter((link) => link.url !== '')
+    } catch {
+        if (requestSeq === linksRequestSeq) linksLoadFailed.value = true
+    } finally {
+        if (requestSeq === linksRequestSeq) linksLoading.value = false
+    }
+}
+
+/** 行显示名：名称留空回退 URL 域名（parseExternalUrl 过非法 URL 再退原始串） */
+const linkLabel = (link: ExternalLinkItem): string => {
+    if (link.name.trim()) return link.name
+    return parseExternalUrl(link.url)?.host ?? link.url
+}
+
+const cancelLinksSubmenuClose = () => {
+    if (linksCloseTimer !== undefined) {
+        clearTimeout(linksCloseTimer)
+        linksCloseTimer = undefined
+    }
+}
+
+const scheduleLinksSubmenuClose = () => {
+    cancelLinksSubmenuClose()
+    // 短延迟跨越条目→子面板的间隙；子面板 mouseenter 会取消
+    linksCloseTimer = setTimeout(() => {
+        linksSubmenuOpen.value = false
+        linksCloseTimer = undefined
+    }, 150)
+}
+
+const openLinksSubmenu = () => {
+    cancelLinksSubmenuClose()
+    linksSubmenuOpen.value = true
+}
+
+const toggleLinksSubmenu = () => {
+    if (!canHover) {
+        // 触屏：mouseenter 已开面板，click 不得再 toggle（首次点按被吞，评审修复）
+        openLinksSubmenu()
+        return
+    }
+    if (linksSubmenuOpen.value) {
+        cancelLinksSubmenuClose()
+        linksSubmenuOpen.value = false
+    } else {
+        openLinksSubmenu()
+    }
+}
+
+/** 打开链接：先关菜单再触发（关菜单发 navigate 收尾抽屉，如移动端），
+ *  导航本身仍是原生 <a target="_blank">（openExternalLink） */
+const openLink = (link: ExternalLinkItem) => {
     closeMenu()
-    if (url) openExternalLink(url)
+    openExternalLink(link.url)
 }
 </script>
 
@@ -229,14 +319,42 @@ const handleExternalLink = () => {
             </ul>
 
             <ul class="menu menu-compact w-full p-0 mt-1" role="menu">
-                <!-- 外部链接（原侧栏 Header 跳转按钮的归宿）：设置里配了地址才显示。
-                     button + JS 触发锚点（handleExternalLink），导航本身仍是原生 <a target="_blank"> -->
-                <li v-if="configStore.externalUrl" role="none" class=" pt-1 border-t border-base-300">
-                    <button type="button" role="menuitem" class="rounded-xl px-3 py-2 text-sm"
-                        @click="handleExternalLink">
+                <!-- 外部链接：服务端 external-links 扩展清单的只读展示。hover（触屏点击）
+                     弹右侧子面板，链接的增删改在服务端扩展设置表单里做，这里纯展示。 -->
+                <li role="none" class="relative pt-1 border-t border-base-300"
+                    @mouseenter="openLinksSubmenu" @mouseleave="scheduleLinksSubmenuClose">
+                    <button type="button" role="menuitem" class="rounded-xl px-3 py-2 text-sm w-full"
+                        :aria-expanded="linksSubmenuOpen" aria-haspopup="menu"
+                        @click="toggleLinksSubmenu">
                         <ArrowTopRightOnSquareIcon class="h-4 w-4" />
                         {{ t('gateway.externalLink') }}
                     </button>
+                    <!-- 链接子面板：桌面 lg: 飞出右侧（锚 li 底沿向上长，扫避视口下缘）；
+                         移动端无 hover，叠在主菜单上方（抽屉 w-80 内右侧放不下）。
+                         max-h 封顶内部滚动，同账号列表策略 -->
+                    <div v-if="linksSubmenuOpen" class="external-links-submenu block absolute z-50 w-56 rounded-2xl border border-base-300 bg-base-100 p-1 shadow-lg
+                             max-h-64 overflow-y-auto max-lg:left-0 max-lg:right-0 max-lg:w-auto max-lg:bottom-full max-lg:mb-1
+                             lg:left-full lg:bottom-0 lg:ml-1"
+                        role="menu" @mouseenter="cancelLinksSubmenuClose" @mouseleave="scheduleLinksSubmenuClose" @click.stop>
+                        <div v-if="linksLoading" class="flex items-center gap-2 px-3 py-2 text-sm text-base-content/50">
+                            <span class="loading loading-spinner loading-sm"></span>
+                            {{ t('common.loading') }}
+                        </div>
+                        <div v-else-if="linksLoadFailed" class="px-3 py-2 text-xs text-base-content/50">
+                            {{ t('gateway.externalLinkLoadFailed') }}
+                        </div>
+                        <div v-else-if="externalLinks.length === 0" class="px-3 py-2 text-xs text-base-content/50">
+                            {{ t('gateway.externalLinkEmpty') }}
+                        </div>
+                        <template v-else>
+                            <button v-for="link in externalLinks" :key="link.id" type="button" role="menuitem"
+                                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-base-300/90"
+                                :title="link.url" @click="openLink(link)">
+                                <ArrowTopRightOnSquareIcon class="h-4 w-4 shrink-0 text-base-content/40" />
+                                <span class="min-w-0 flex-1 truncate text-left">{{ linkLabel(link) }}</span>
+                            </button>
+                        </template>
+                    </div>
                 </li>
             </ul>
         </div>

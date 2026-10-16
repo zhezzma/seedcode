@@ -10,7 +10,7 @@
  */
 
 /** 解析外部链接：trim + new URL，仅放行 http(s)；其余 scheme（javascript: 等）与非法输入返回 null。
- *  externalUrl 是设置里手填的值、可能是任意字符串，必须先过闸再进 DOM。纯函数，便于测试。 */
+ *  链接来自服务端 external-links 扩展清单（设置表单录入），仍可能是任意字符串，必须先过闸再进 DOM。纯函数，便于测试。 */
 export function parseExternalUrl(url: string): URL | null {
     let parsed: URL
     try {

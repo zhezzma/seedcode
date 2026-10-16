@@ -809,6 +809,8 @@ export default {
         addServer: '添加服务器',
         settings: '设置',
         externalLink: '外部链接',
+        externalLinkEmpty: '暂无链接（在服务端「External Links」扩展设置中按行添加）',
+        externalLinkLoadFailed: '链接加载失败',
         save: '保存',
         connect: '连接',
         reconnect: '重新连接',
@@ -875,9 +877,6 @@ export default {
         ttsEngineQwen: 'Qwen TTS (实时PCM/低延迟)',
         ttsEngineEdge: 'Edge TTS (流式MSE/免费)',
         ttsEngineVoiceGateway: 'Voice Gateway (PCM 流式)',
-        externalUrl: '外部链接',
-        externalUrlPlaceholder: '例如: http://example.com',
-        externalUrlDesc: '侧边栏的外部跳转链接，留空则不显示按钮',
     },
     setup: {
         enterGatewayUrl: '请输入网关地址',

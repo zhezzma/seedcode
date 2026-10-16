@@ -23,7 +23,6 @@ import {
     LanguageIcon,
     ClockIcon,
     ChatBubbleLeftRightIcon,
-    LinkIcon,
     PlusIcon,
     QueueListIcon,
 } from '@heroicons/vue/24/outline'
@@ -266,10 +265,6 @@ const saveBusySendBehavior = (event: Event) => {
     })
 }
 
-const saveExternalUrl = (event: Event) => {
-    configStore.save({ externalUrl: (event.target as HTMLInputElement).value.trim() })
-}
-
 const saveAsr = () => {
     configStore.save({
         asrEngine: editForm.value.asrEngine,
@@ -375,19 +370,6 @@ const logout = async () => {
                                     <option value="steer">{{ $t('settings.busySendBehaviorSteer') }}</option>
                                     <option value="follow">{{ $t('settings.busySendBehaviorFollow') }}</option>
                                 </select>
-                            </li>
-
-                            <li class="flex items-center justify-between gap-4 p-4">
-                                <div class="flex items-center gap-3">
-                                    <LinkIcon class="h-5 w-5 text-base-content/60" />
-                                    <div>
-                                        <span class="font-medium">{{ $t('settings.externalUrl') }}</span>
-                                        <p class="text-xs text-base-content/50">{{ $t('settings.externalUrlDesc') }}</p>
-                                    </div>
-                                </div>
-                                <input type="text" class="input input-bordered input-sm w-40"
-                                    :value="configStore.externalUrl" :placeholder="$t('settings.externalUrlPlaceholder')"
-                                    @change="saveExternalUrl" />
                             </li>
 
                             <li class="flex items-center justify-between p-4">

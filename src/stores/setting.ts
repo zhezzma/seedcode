@@ -63,7 +63,6 @@ export interface UiSettings {
     assistantMsgMerge: boolean
     language: 'zh' | 'en'
     showAllProviders: boolean  // 是否显示没有 apiKey 的提供商
-    externalUrl: string  // 外部链接地址（侧边栏跳转按钮）
     workspacePanel: {
         open: boolean
         width: number
@@ -411,7 +410,6 @@ const getDefaultSettings = (): UiSettings => ({
     assistantMsgMerge: true,
     language: 'zh',
     showAllProviders: true,
-    externalUrl: '',
     workspacePanel: {
         open: false,
         width: 360,
@@ -439,6 +437,9 @@ const loadConfig = (): UiSettings => {
             delete parsed.lastActiveSessionKey
             // 迁移：deviceName 已废弃（引导页名称改写入 GatewayProfile.name），从旧配置中剥离
             delete parsed.deviceName
+            // 迁移：externalUrl 已废弃（单一外链改由服务端 external-links 扩展清单接管，
+            // 旧值不迁移），从旧配置中剥离防死键随 ...parsed 回写
+            delete parsed.externalUrl
             if (parsed.gatewayUrl && !parsed.apiBaseUrl) {
                 let url = parsed.gatewayUrl as string
                 url = url.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://')

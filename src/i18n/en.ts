@@ -808,6 +808,8 @@ export default {
         addServer: 'Add server',
         settings: 'Settings',
         externalLink: 'External link',
+        externalLinkEmpty: 'No links yet (add lines in the server-side External Links extension settings)',
+        externalLinkLoadFailed: 'Failed to load links',
         save: 'Save',
         connect: 'Connect',
         reconnect: 'Reconnect',
@@ -873,9 +875,6 @@ export default {
         ttsEngineQwen: 'Qwen TTS (Realtime PCM/Low Latency)',
         ttsEngineEdge: 'Edge TTS (Streaming MSE/Free)',
         ttsEngineVoiceGateway: 'Voice Gateway (PCM Streaming)',
-        externalUrl: 'External URL',
-        externalUrlPlaceholder: 'e.g. http://example.com',
-        externalUrlDesc: 'External link in sidebar, leave empty to hide the button',
     },
     setup: {
         enterGatewayUrl: 'Please enter Gateway URL',

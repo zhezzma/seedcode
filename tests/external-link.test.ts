@@ -61,15 +61,21 @@ test('openExternalLink: JS 触发一次性 <a target="_blank">，非法地址不
     assert.deepEqual(clicked, [{ href: 'https://example.com', target: '_blank', rel: 'noopener noreferrer' }])
 })
 
-test('账号菜单外部链接：button + JS 触发锚点，不引插件不用 window.open', () => {
-    // 菜单项是 button（先关菜单再触发，关菜单不拦导航），不是自带 target=_blank 的 <a>
+test('账号菜单外部链接：子菜单行 button + JS 触发锚点，不引插件不用 window.open', () => {
+    // 子面板链接行是 button（先关菜单再触发，关菜单不拦导航），不是自带 target=_blank 的 <a>；
+    // 行点击统一走 openLink(link)：先 closeMenu（发 navigate 收尾抽屉），再经 openExternalLink 触发锚点
     assert.match(
         switcherSource,
-        /<button type="button" role="menuitem" class="rounded-xl px-3 py-2 text-sm"\s+@click="handleExternalLink">/,
-        'external link menu item must be a button wired to handleExternalLink',
+        /@click="openLink\(link\)"/,
+        'external link submenu rows must be buttons wired to openLink(link)',
+    )
+    assert.match(
+        switcherSource,
+        /const openLink = \(link: ExternalLinkItem\) => \{\s*closeMenu\(\)\s*openExternalLink\(link\.url\)/,
+        'openLink must close the menu first, then trigger the anchor via openExternalLink',
     )
     assert.match(switcherSource, /from ['"]\.\.\/utils\/external-link(?:\.ts)?['"]/)
-    assert.match(switcherSource, /openExternalLink\(url\)/)
+    assert.match(switcherSource, /openExternalLink\(link\.url\)/)
     // 打开路径只有一条：JS 触发原生锚点。禁 window.open 与 opener 插件（剥注释后断言）
     assert.doesNotMatch(utilCode, /window\.open/)
     assert.doesNotMatch(utilCode, /plugin-opener/)
