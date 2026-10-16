@@ -75,20 +75,37 @@ test('sidebar submenu renders server extension links read-only', () => {
     )
 })
 
-test('touch devices are not swallowed by the hover-open + click-toggle race', () => {
-    // 触屏点按会先派发兼容性 mouseenter（子面板被打开），随后的 click 若再做 toggle
-    // 就会把首次点按吞掉（评审 Important #3）。非 hover 设备上 click 必须固定为「打开」
-    // 语义（幂等），关闭交给点外/Esc/关菜单。
+test('touch taps toggle the submenu without hover interference', () => {
+    // 触屏点按会派发兼容性 mouse 事件（pointerdown → mouseenter → click）：hover 处理器
+    // 不设防的话首点会被「mouseenter 开 + click 幂等开」吞掉或无法再点关（用户反馈：
+    // 点外部链接应能关闭已打开的子菜单）。方案：pointerdown 读 pointerType 识别触控，
+    // 触控期间抑制 hover 处理器，click 对所有指针类型统一 toggle（首点开、再点关）。
     assert.match(
         switcherSource,
-        /matchMedia\?\.\(['"]\(hover: hover\)['"]\)/,
-        'switcher must detect hover capability instead of assuming mouse',
+        /@pointerdown="onLinksButtonPointerDown"/,
+        'submenu trigger must observe pointerdown to detect touch taps',
     )
     assert.match(
         switcherSource,
-        /const toggleLinksSubmenu = \(\) => \{[\s\S]*?if \(!canHover\) \{[\s\S]*?openLinksSubmenu\(\)/,
-        'on non-hover devices click must be an idempotent open, never a toggle-close',
+        /touchTapPending = e\.pointerType !== 'mouse'/,
+        'touch detection must key off pointerType, not media queries',
     )
+    assert.match(
+        switcherSource,
+        /const onLinksEnter = \(\) => \{\s*if \(!touchTapPending\) openLinksSubmenu\(\)\s*\}/,
+        'compat mouseenter from touch taps must not open the submenu',
+    )
+    assert.match(
+        switcherSource,
+        /const onLinksLeave = \(\) => \{\s*if \(!touchTapPending\) scheduleLinksSubmenuClose\(\)\s*\}/,
+        'compat mouseleave from touch taps must not schedule a close',
+    )
+    assert.match(
+        switcherSource,
+        /const toggleLinksSubmenu = \(\) => \{[\s\S]*?touchTapPending = false\s*if \(linksSubmenuOpen\.value\) \{\s*cancelLinksSubmenuClose\(\)\s*linksSubmenuOpen\.value = false/,
+        'click must be a uniform toggle (open if closed, close if open) for all pointer types',
+    )
+    assert.doesNotMatch(switcherSource, /canHover/, 'media-query hover gate is superseded by pointerType detection')
 })
 
 test('settings form dialog applies updateComponents from rpc responses', () => {

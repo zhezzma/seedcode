@@ -84,6 +84,7 @@ const closeMenu = () => {
     isOpen.value = false
     cancelLinksSubmenuClose()
     linksSubmenuOpen.value = false
+    touchTapPending = false
     emit('navigate')
 }
 
@@ -164,10 +165,23 @@ let linksCloseTimer: ReturnType<typeof setTimeout> | undefined
 // 迟响应闸：跨网关切换/快速开关菜单时，旧服务器请求的响应不得覆盖当前列表
 let linksRequestSeq = 0
 
-// 触屏（hover:none）上点按会先派发兼容性 mouseenter（子面板被打开），随后的
-// click 若再做 toggle 就会把首次点按吞掉（评审修复）：非 hover 设备 click 语义
-// 固定为「打开」（幂等），关闭交给点外/Esc/关菜单。setup 期求值一次即可。
-const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches
+// 触屏点按会派发兼容性 mouse 事件（pointerdown → mouseenter → click）：hover 处理器
+// 若不设防，首点会被「mouseenter 开 + click」的重复处理吞掉或无法再点关。用
+// pointerdown 的 pointerType 识别触控：触控点按期间抑制 hover 处理器，click 对
+// 所有指针类型统一 toggle（首点开、再点关）；鼠标路径完全不受影响。
+let touchTapPending = false
+
+const onLinksButtonPointerDown = (e: PointerEvent) => {
+    touchTapPending = e.pointerType !== 'mouse'
+}
+
+const onLinksEnter = () => {
+    if (!touchTapPending) openLinksSubmenu()
+}
+
+const onLinksLeave = () => {
+    if (!touchTapPending) scheduleLinksSubmenuClose()
+}
 
 const loadExternalLinks = async () => {
     linksLoading.value = true
@@ -218,11 +232,8 @@ const openLinksSubmenu = () => {
 }
 
 const toggleLinksSubmenu = () => {
-    if (!canHover) {
-        // 触屏：mouseenter 已开面板，click 不得再 toggle（首次点按被吞，评审修复）
-        openLinksSubmenu()
-        return
-    }
+    // 所有指针类型统一 toggle：首点开、再点关（含触屏——点击外部链接可关闭已开的子菜单）
+    touchTapPending = false
     if (linksSubmenuOpen.value) {
         cancelLinksSubmenuClose()
         linksSubmenuOpen.value = false
@@ -322,10 +333,10 @@ const openLink = (link: ExternalLinkItem) => {
                 <!-- 外部链接：服务端 external-links 扩展清单的只读展示。hover（触屏点击）
                      弹右侧子面板，链接的增删改在服务端扩展设置表单里做，这里纯展示。 -->
                 <li role="none" class="relative pt-1 border-t border-base-300"
-                    @mouseenter="openLinksSubmenu" @mouseleave="scheduleLinksSubmenuClose">
+                    @mouseenter="onLinksEnter" @mouseleave="onLinksLeave">
                     <button type="button" role="menuitem" class="rounded-xl px-3 py-2 text-sm w-full"
                         :aria-expanded="linksSubmenuOpen" aria-haspopup="menu"
-                        @click="toggleLinksSubmenu">
+                        @pointerdown="onLinksButtonPointerDown" @click="toggleLinksSubmenu">
                         <ArrowTopRightOnSquareIcon class="h-4 w-4" />
                         {{ t('gateway.externalLink') }}
                     </button>
