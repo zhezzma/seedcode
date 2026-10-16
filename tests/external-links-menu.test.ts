@@ -91,6 +91,22 @@ test('touch devices are not swallowed by the hover-open + click-toggle race', ()
     )
 })
 
+test('settings form dialog applies updateComponents from rpc responses', () => {
+    // 表单型 rpc（external-links 增删卡片）：服务端重生成整树回推，弹层必须就地
+    // 换树（原先丢弃并告警——新卡片要关窗重开才出现，交互不可用）
+    const dialogSource = read('src/components/extensions/A2UIFormDialog.vue')
+    assert.match(
+        dialogSource,
+        /message\.updateComponents && message\.updateComponents\.surfaceId === formSurfaceId/,
+        'form dialog must apply updateComponents responses instead of dropping them',
+    )
+    assert.match(
+        dialogSource,
+        /components\.value = message\.updateComponents\.components/,
+        'form dialog must replace the component tree in place',
+    )
+})
+
 test('external-link util comment reflects the new data source', () => {
     // utils/external-link.ts 的闸门注释引用了旧设置字段，重定向后应同步
     assert.doesNotMatch(externalLinkSource, /externalUrl 是设置里手填的值/)

@@ -3,7 +3,8 @@
  * 通用 a2ui 表单弹层：从 loadUrl 拉取服务端声明的 a2ui 组件树并渲染，
  * 保存时把 dataModel 整体 POST 到 saveUrl（ExtensionSettingsModal 是它的固定端点包装）。
  * a2ui v1.0：响应必须携带 version:"v1.0"（服务端注入），不匹配即拒绝渲染（防两仓部署漂移）；
- * 树内 functionCall action（如 ChoicePicker 级联）经 /api/a2ui/events RPC 下行更新就地应用。
+ * 树内 functionCall action（如 ChoicePicker 级联）经 /api/a2ui/events RPC 下行更新就地应用；
+ * 表单型 rpc（条目增删类）可回推 updateComponents + updateDataModel(root) 整树刷新。
  * 错误提示由 api-client 统一 toast（400 不在静默白名单）。
  */
 import { ref, watch } from 'vue'
@@ -70,7 +71,7 @@ const rpcScheduler = createA2uiRpcScheduler()
 /** 树内 functionCall action（如 ChoicePicker 级联）：callAgentFunction RPC。
  *  args 内的 {path} 绑定必须先对本地 dataModel 解析（服务端不解析渲染端数据模型，
  *  未解析的绑定对象会导致 rpc 参数失配）；updateDataModel 按 surfaceId 过滤后就地
- *  应用。updateComponents 类响应不适用（组件树来自 GET 快照），丢弃并告警。
+ *  应用；updateComponents 按 surfaceId 过滤后整树替换（表单型 rpc 的条目增删刷新）。
  *  慢操作反馈：rpc 是请求-响应语义，服务端无法中途推进度；扩展可在 args 里声明
  *  pendingPath/pendingText，发起 rpc 前就地写入 dataModel 让表单显示“稍候”提示，
  *  完成后由服务端回包的 updateDataModel 覆盖为最终状态。 */
@@ -106,6 +107,11 @@ function onFormAction(action: Action, dataModel: Record<string, any>, _sourceCom
             for (const message of result.messages as A2uiResponseMessage[]) {
                 if (message.updateDataModel && message.updateDataModel.surfaceId === formSurfaceId) {
                     setByPath(dataModel, message.updateDataModel.path ?? '/', message.updateDataModel.value)
+                } else if (message.updateComponents && message.updateComponents.surfaceId === formSurfaceId) {
+                    // 表单型 rpc（条目增删类，如 external-links 的添加/删除）：服务端重生成
+                    // 整棵组件树回推，就地换树 + 配套 updateDataModel(root) 整模刷新——
+                    // 新卡片即时出现、被删卡片即时消失，无需关窗重开
+                    components.value = message.updateComponents.components
                 } else if (message.agentFunctionResponse) {
                     // 响应回执（首个消息），值已在 result.value/error 里
                 } else {
