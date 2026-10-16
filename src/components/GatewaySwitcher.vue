@@ -350,7 +350,6 @@ const openLink = (link: ExternalLinkItem) => {
                             <button v-for="link in externalLinks" :key="link.id" type="button" role="menuitem"
                                 class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-base-300/90"
                                 :title="link.url" @click="openLink(link)">
-                                <ArrowTopRightOnSquareIcon class="h-4 w-4 shrink-0 text-base-content/40" />
                                 <span class="min-w-0 flex-1 truncate text-left">{{ linkLabel(link) }}</span>
                             </button>
                         </template>
