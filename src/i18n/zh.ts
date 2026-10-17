@@ -544,6 +544,12 @@ export default {
         inputCapabilities: '输入能力',
         inputText: '文本',
         inputImage: '图片',
+        type: {
+            image: '生图',
+            imageDesc: '生图模型（generateImages 协议），不用于会话对话',
+            classifier: '裁判',
+            classifierDesc: '结构化决策模型（classify 协议），供 judge 工具/goal 裁判使用，不用于会话对话',
+        },
         selectProviderHint: '请从左侧选择一个提供商',
         thinking: {
             title: '思考等级',

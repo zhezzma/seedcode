@@ -37,6 +37,8 @@ export interface ModelCost {
 export interface AvailableModel {
     id: string
     name: string
+    /** 模型类型：chat 缺省；image 生图 / classifier 决策裁判（不进会话模型选择器）。 */
+    type?: 'chat' | 'image' | 'classifier'
     // Optional overrides
     contextWindow?: number
     maxTokens?: number
@@ -194,7 +196,9 @@ const availableModels = computed<ProviderInfo[]>(() => {
     const result: ProviderInfo[] = []
     for (const [id, config] of Object.entries(state.providers)) {
         if (!config.apiKey) continue
-        result.push({ id, name: id, provider: id, ...config })
+        // 会话模型选择器只收 chat 模型：image/classifier 不支持 stream（type 缺省 = chat，兼容旧响应）。
+        const chatOnly = { ...config, models: config.models?.filter(m => !m.type || m.type === 'chat') }
+        result.push({ id, name: id, provider: id, ...chatOnly })
     }
     return result.sort((a, b) => {
         if (a.custom && !b.custom) return -1

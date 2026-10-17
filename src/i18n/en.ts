@@ -544,6 +544,12 @@ export default {
         inputCapabilities: 'Input Capabilities',
         inputText: 'Text',
         inputImage: 'Image',
+        type: {
+            image: 'Image Gen',
+            imageDesc: 'Image generation model (generateImages protocol), not usable for conversation',
+            classifier: 'Judge',
+            classifierDesc: 'Structured decision model (classify protocol) for the judge tool / goal referee, not usable for conversation',
+        },
         selectProviderHint: 'Please select a provider from the left sidebar',
         thinking: {
             title: 'Thinking Levels',

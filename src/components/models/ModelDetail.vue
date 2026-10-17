@@ -38,6 +38,7 @@ const modelList = computed(() => {
     return provider.value?.models.map(m => ({
         id: m.id,
         name: m.name,
+        type: m.type ?? 'chat',
         reasoning: m.reasoning,
         input: m.input?.length ? m.input : ['text'],
         contextWindow: m.contextWindow || 0,
@@ -254,6 +255,10 @@ const handleClearModels = async () => {
 
                         <!-- Tags -->
                         <div class="flex flex-wrap gap-1 mt-2">
+                            <span v-if="item.type === 'classifier'" class="badge badge-xs badge-secondary"
+                                :title="$t('model.type.classifierDesc')">⚖️ {{ $t('model.type.classifier') }}</span>
+                            <span v-else-if="item.type === 'image'" class="badge badge-xs badge-secondary"
+                                :title="$t('model.type.imageDesc')">🎨 {{ $t('model.type.image') }}</span>
                             <span v-if="item.reasoning" class="badge badge-xs badge-primary">{{
                                 $t('model.mode.reasoning') }}</span>
                             <span v-if="item.input.includes('text')" class="badge badge-xs badge-ghost">
