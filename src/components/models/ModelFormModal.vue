@@ -114,6 +114,7 @@ const handleSubmit = () => {
     const model: AvailableModel = {
         id: formData.id,
         name: formData.name,
+        type: formData.type,
         contextWindow: formData.contextWindow,
         maxTokens: formData.maxTokens,
         // 表单只编辑基础费率；tiers 不展示但必须随 cost 整对象 PATCH 带回，否则服务端会丢掉阶梯价。
@@ -185,6 +186,19 @@ const handleSubmit = () => {
                     <label class="label"><span class="label-text">{{ $t('model.outputCost') }}</span></label>
                     <input v-model.number="formData.cost!.output" type="number" step="0.01"
                         class="input input-bordered w-full" :disabled="isReadonly" />
+                </div>
+
+                <!-- Model Type -->
+                <div class="form-control md:col-span-2">
+                    <label class="label">
+                        <span class="label-text">{{ $t('model.type.label') }}</span>
+                    </label>
+                    <select v-model="formData.type" class="select select-bordered w-full" :disabled="isReadonly">
+                        <option value="chat">{{ $t('model.type.chat') }}</option>
+                        <option value="image">{{ $t('model.type.image') }}</option>
+                        <option value="classifier">{{ $t('model.type.classifier') }}</option>
+                    </select>
+                    <p class="text-xs text-base-content/50 mt-1">{{ $t('model.type.hint') }}</p>
                 </div>
 
                 <!-- Capabilities -->

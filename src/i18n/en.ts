@@ -545,6 +545,9 @@ export default {
         inputText: 'Text',
         inputImage: 'Image',
         type: {
+            label: 'Model Type',
+            chat: 'Chat',
+            hint: 'Chat = conversation model; Image = generateImages protocol; Judge = classifier decision protocol (consumed by the judge tool). The latter two cannot do conversation.',
             image: 'Image Gen',
             imageDesc: 'Image generation model (generateImages protocol), not usable for conversation',
             classifier: 'Judge',

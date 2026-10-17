@@ -545,6 +545,9 @@ export default {
         inputText: '文本',
         inputImage: '图片',
         type: {
+            label: '模型类型',
+            chat: '对话',
+            hint: '对话 = 会话模型；生图 = generateImages 协议；裁判 = classifier 决策协议（judge 工具消费）。后两类不支持会话对话。',
             image: '生图',
             imageDesc: '生图模型（generateImages 协议），不用于会话对话',
             classifier: '裁判',
