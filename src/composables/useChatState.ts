@@ -685,13 +685,19 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                 if (existing) break
             }
             // 添加新的工具调用 Block
-            stream.push({
+            const toolBlock = {
                 type: 'toolCall',
                 id: data.toolCallId,
                 name: data.toolName,
                 toolState: 'calling',
                 arguments: data.args
-            })
+            }
+            stream.push(toolBlock)
+            // 思考结束于工具调用开始：活跃权转移到工具卡（非 thinking 块，无三点消费方）
+            // → 思考三点随工具启动熄灭。否则 active 钉在思考块上，工具执行期间三点一直转，
+            // 直到工具完后的下一条正文 delta 才灭（实测主力「不及时」场景：agent 会话
+            // 工具动辄数十秒）。若同消息内后续又有 thinking_delta，活跃权自然拉回，三点复亮
+            markActiveStreamBlock(stream, toolBlock)
             break
         case 'tool_execution_update':
             // 工具参数更新，支持 partialResult

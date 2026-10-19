@@ -68,6 +68,12 @@ test('MessageBubble delegates thinking blocks to ThinkingBlock', () => {
     // chat-attach.__activeBlock）→ 思考结束后正文 delta 即把标记转移走，三点随灭。
     // 模板绑定拼写回归会让三点退回「转到回复结束才灭」的旧行为，锁住绑定串
     assert.match(bubbleSource, /:active="block\.active === true"/)
+    // 三点绑定必须走 dotsOn（active + 空闲 3s 自动熄灯），不得直接绑 active——
+    // 思考停顿期无任何事件到达（协议无 thinking_end），直绑 active 会干转到下一个事件
+    assert.match(componentSource, /v-if="dotsOn"/)
+    assert.ok(componentSource.includes('THINKING_IDLE_MS'), 'missing idle timeout constant')
+    assert.ok(componentSource.includes('() => props.text'), 'idle watch must reset on text growth (new thinking delta)')
+    assert.ok(componentSource.includes('clearTimeout'), 'idle timer must be cleared on unmount')
     // hideThinkingBlock 开关已随 Settings 残留清理移除：思考块无条件渲染
     assert.match(bubbleSource, /block\.type === 'thinking'/)
 })

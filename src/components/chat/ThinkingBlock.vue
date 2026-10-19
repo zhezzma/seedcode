@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
@@ -50,6 +50,24 @@ const onToggleKeydown = (e: KeyboardEvent) => {
     toggle()
 }
 
+// ── 三点空闲自动熄灯 ──
+// 流式协议没有「思考结束」事件：思考停顿（想完到开口/调工具前的间隙）期间
+// 无任何事件到达，active 会一直挂着 → 三点干转到下一个事件（正文 delta /
+// message_end）。展示层本地兜底：亮灯后 THINKING_IDLE_MS 内无新增思考文本
+// → 判定思考已停，本地熄灯；任何新 delta（text 增长）或 active 重新置位
+// → 复亮并重新计时。纯展示层，渲染策略（streaming）不参与。
+const THINKING_IDLE_MS = 3000
+const dotsOn = ref(false)
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+watch([() => props.active, () => props.text], ([act]) => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer)
+    dotsOn.value = act
+    if (act) idleTimer = setTimeout(() => { dotsOn.value = false }, THINKING_IDLE_MS)
+}, { immediate: true })
+onBeforeUnmount(() => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer)
+})
+
 // 用 rAF 合并一帧内的多次滚到底部：流式热路径每个 delta 都会走到这里，
 // 若每 delta 直接读布局+写 scrollTop 会造成强制 reflow 且高频 delta 下重复滚动；
 // rAF 回调天然合并同帧多次调度，一帧最多滚一次
@@ -97,10 +115,9 @@ watch(() => props.text, () => {
                     d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
             </svg>
             {{ t('chat.reasoning') }}
-            <!-- 三点动画=「正在思考」（active：最近 delta 落在此块）；置于标题文字之后；
-                 streaming 只表示渲染策略上的直播态（曾增长过），单 phase 协议下
-                 正文输出期间它仍为 true——若用作三点判定会转到回复结束才灭 -->
-            <span v-if="active" class="loading loading-dots loading-xs" aria-hidden="true"></span>
+            <!-- 三点动画=「正在思考」：active 亮灯 + 空闲 3s 自动熄灯（停顿期无事件，
+                 见上方注释）；streaming 只表示渲染策略上的直播态（曾增长过） -->
+            <span v-if="dotsOn" class="loading loading-dots loading-xs" aria-hidden="true"></span>
         </div>
         <!-- 折叠时内容完全不挂载，彻底避免 markdown 全量渲染 -->
         <div v-if="expanded" class="collapse-content">

@@ -121,12 +121,27 @@ const dumpLastAssistantBlocks = () => {
 
 await chat.setSessionKey('S1')
 
+let stream: any[] | null = null
+
+// ─── 场景 E：思考结束于工具调用——tool_execution_start 即三点灭（修复前漏洞：
+//      active 钉在思考块上，工具跑多久三点转多久，直到工具完后的正文 delta）───
+await chat.sendMessage('查一下')
+emit('chat', 'message_start', { message: { role: 'assistant' } })
+emit('chat', 'thinking_delta', { contentIndex: 0, delta: '先想一下' })
+stream = streamOf()
+console.log('E_BEFORE_TOOL ' + marks(stream, blockOf(stream, 'thinking')))
+emit('chat', 'tool_execution_start', { toolCallId: 'call-E', toolName: 'bash', args: { cmd: 'ls' } })
+stream = streamOf()
+console.log('E_ON_TOOL_START ' + marks(stream, blockOf(stream, 'thinking')))
+// 工具执行完的下一 phase：message_end 固化上一条 → 新消息正文
+emit('chat', 'message_end', { message: { role: 'assistant', timestamp: 4 } })
+
 // ─── 场景 A：单 phase 主诉——正文开始（text_delta）即思考结束，三点应消失 ───
 await chat.sendMessage('讲个笑话')
 emit('chat', 'message_start', { message: { role: 'assistant' } })
 emit('chat', 'thinking_delta', { contentIndex: 0, delta: '思考中…… ' })
 emit('chat', 'thinking_delta', { contentIndex: 0, delta: '想好了' })
-let stream = streamOf()
+stream = streamOf()
 console.log('A_THINKING ' + marks(stream, blockOf(stream, 'thinking')))
 console.log('A_THINKING_UI ' + dumpLastAssistantBlocks())
 emit('chat', 'text_delta', { contentIndex: 1, delta: '正文开始了' })
@@ -201,6 +216,12 @@ async function runHarness(): Promise<Record<string, string>> {
         await rm(outfile, { force: true })
     }
 }
+
+test('场景 E：思考结束于工具调用 → tool_execution_start 即三点灭', async () => {
+    const lines = await runHarness()
+    assert.strictEqual(lines.E_BEFORE_TOOL, 'live=true active=true', `思考中应亮: ${lines.E_BEFORE_TOOL}`)
+    assert.strictEqual(lines.E_ON_TOOL_START, 'live=true active=false', `工具启动后思考三点应灭: ${lines.E_ON_TOOL_START}`)
+})
 
 test('场景 A：单 phase 正文开始 → 思考块三点消失（active=false），渲染策略不变（streaming=true）', async () => {
     const lines = await runHarness()
