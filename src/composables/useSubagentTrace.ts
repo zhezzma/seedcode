@@ -5,7 +5,7 @@
  * open()，抽屉组件在 HomeView 挂载一次读状态——避免穿 3 层组件 emit 事件链。
  *
  * open() 传入的 results 是 details 快照（每次 emitUpdate 都是新对象），
- * 抽屉的实时性不依赖它：轨迹增量靠文件轮询，快照仅用于 Tab 标签与状态徽标。
+ * 抽屉的实时性不依赖它：轨迹增量走 ext.subagent_trace 推送线（慢速对账兜底），快照仅用于 Tab 标签与状态徽标。
  */
 import { computed, ref } from 'vue'
 

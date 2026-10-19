@@ -11,14 +11,17 @@
  * （工具展开、路径按钮、markdown、复制、朗读）与主聊天完全一致。
  * 构造的 DisplayMessage 不带 entryId → MessageBubble 的编辑/重试/删除按钮自动隐藏。
  *
- * 轮询策略：抽屉打开期间持续轮询，间隔自适应——有增长立即回到 1.5s，
- * 无增长逐步退避到 8s 封顶（无需感知子代理运行状态；关闭抽屉即停）。
+ * 增量策略：打开时一次性 GET 全量（offset 0），运行中增量由服务端 ext.subagent_trace
+ * 推送线（subagents 扩展在侧车覆写同刻扇出，与只读路由 offset/total 同源）实时到达；
+ * 轮询自旋链已删除，poll 保留为一次性缺口拉平路径（baseOffset 三态判定见 applyTraceDelta）。
  *
  * 布局：桌面右侧滑入面板；移动端（<sm）底部 sheet（拖拽条/遮罩点击关闭）。
  */
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import { apiGet, ApiError } from '../../composables/api-client'
+import { onExtensionEvent } from '../../composables/extension-events'
+import { resolveTraceDelta } from '../../utils/subagent-trace-cursor'
 import { i18n } from '../../i18n'
 import { useSubagentTrace, type SubagentTraceTarget } from '../../composables/useSubagentTrace'
 import { createContentConverter, type DisplayMessage, type DisplayBlock } from '../../composables/useChatMessages'
@@ -74,13 +77,16 @@ const containerRef = ref<HTMLElement | null>(null)
 /** 用户是否在底部附近（决定是否自动滚动跟随新内容） */
 const followTail = ref(true)
 
-let pollTimer: ReturnType<typeof setTimeout> | null = null
-let pollDelay = 1500
-/** 最近一次轮询错误的 HTTP 状态码（0 = 非 HTTP 错误），用于 404 友好提示 */
+/** 最近一次拉取错误的 HTTP 状态码（0 = 非 HTTP 错误），用于 404 友好提示 */
 const lastErrorStatus = ref(0)
+/** 慢速对账定时器（8s 固定，无退避链）：推送线依赖父会话 SSE 在开——切走会话
+ *  （SSE abort）/ attach 失败期间子代理 settle 的终态推送会 no-op 丢失，此定时器
+ *  是独立于 SSE 的对账通道（审核 Important #1）。推送正常到达时 tick 空转零成本。 */
+let reconcileTimer: ReturnType<typeof setInterval> | null = null
+const RECONCILE_INTERVAL_MS = 8000
 /**
  * 轮询代际号：reload / 关闭抽屉 / 组件卸载时递增，作废在途请求与旧轮询链。
- * stopPolling 只能清定时器，作废不了已发出的 fetch——不校验的话，切 tab 时
+ * 代际递增作废不了已发出的 fetch——不校验的话，切 tab 时
  * 旧响应晚到会把上一个 tab 的 entries 追加进当前列表并污染 offset 游标。
  */
 let pollEpoch = 0
@@ -91,64 +97,76 @@ let pollEpoch = 0
  */
 let traceOffset = 0
 
+/** 统一增量应用口（HTTP 初始载入与推送增量两路同游标语义）：三态判定委托
+ *  resolveTraceDelta 纯函数（行为级测试见 tests/subagent-trace-cursor.test.ts）。
+ *  返回 'resync'（缺口/total 收缩）时调用方回退全量重拉。 */
+function applyTraceDelta(delta: TraceEntry[], total: number, baseOffset: number): 'apply' | 'noop' | 'resync' {
+    const r = resolveTraceDelta({ total, baseOffset, traceOffset })
+    if (r.action !== 'apply') return r.action
+    traceOffset = r.nextOffset
+    // 只保留可渲染的消息 entry；其余（compaction/label 等）跳过——游标已按 total 前进，不会重复
+    const renderable = delta.slice(r.sliceStart).filter((e: TraceEntry) => e.type === 'message')
+    if (renderable.length) {
+        entries.value.push(...renderable)
+        if (followTail.value) {
+            void nextTick(() => containerRef.value?.scrollTo({ top: containerRef.value?.scrollHeight }))
+        }
+    }
+    return 'apply'
+}
+
 async function poll() {
+    // 一次性拉取（抽屉打开首载 / 推送缺口拉平），不再自旋轮询——
+    // 运行中增量由 ext.subagent_trace 推送线实时到达
     const t = trace.current.value
     const subId = activeSubId.value
     if (!t || !subId) return
     const epoch = pollEpoch
+    // 发送时刻的游标快照：响应期间游标可能被推送推进，重叠切片依赖它
+    const requestedOffset = traceOffset
     try {
         const res = await apiGet<any>(
-            `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}?offset=${traceOffset}`,
-            true // 轮询静默：失败由内联 loadError 呈现，不弹全局 toast（持续出错时避免刷屏）
+            `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}?offset=${requestedOffset}`,
+            true // 静默：失败由内联 loadError 呈现，不弹全局 toast
         )
-        // 代际已过（切 tab / 重开 / 关闭 / 卸载）：丢弃响应且不再续链，新链由 reload 发起
+        // 代际已过（切 tab / 重开 / 关闭 / 卸载）：丢弃响应，新链由 reload 发起
         if (epoch !== pollEpoch || t !== trace.current.value || subId !== activeSubId.value) return
         loadError.value = ''
         lastErrorStatus.value = 0
-        // 服务端权威游标（全部非 header entry 数），覆盖被过滤掉的非消息条目
-        if (typeof res.total === 'number') traceOffset = res.total
-        if (res.entries?.length) {
-            // 只保留可渲染的消息 entry；其余（compaction/label 等）跳过——游标已按 total 前进，不会重复
-            const renderable = res.entries.filter((e: TraceEntry) => e.type === 'message')
-            if (renderable.length) {
-                entries.value.push(...renderable)
-                pollDelay = 1500 // 有增长：立即恢复快轮询
-                if (followTail.value) {
-                    await nextTick()
-                    containerRef.value?.scrollTo({ top: containerRef.value.scrollHeight })
-                }
-            }
-        } else {
-            // 无增长：退避
-            pollDelay = Math.min(pollDelay * 2, 8000)
+        const total = typeof res.total === 'number' ? res.total : requestedOffset + (res.entries?.length ?? 0)
+        if (applyTraceDelta(res.entries ?? [], total, requestedOffset) === 'resync') {
+            void reload() // total 收缩（compaction）/ 口径异常：全量重拉最简且必然正确
+            return
         }
     } catch (e: any) {
         if (epoch !== pollEpoch || t !== trace.current.value || subId !== activeSubId.value) return
-        // 主 session 删除后目录级联清理 / 服务不可达：显示并退避
+        // 主 session 删除后目录级联清理 / 服务不可达：显示（无轮询重试，下次缺口/重开触发）
         loadError.value = e?.message || (i18n.global as any).t('subagentTrace.loadFailed')
         lastErrorStatus.value = e instanceof ApiError ? e.code : 0
-        pollDelay = Math.min(pollDelay * 2, 8000)
-    }
-    // await 挂起期间代际可能已变（如 nextTick 后切 tab）：旧链不复活，避免与新链并发双写
-    if (epoch !== pollEpoch) return
-    scheduleNext()
-}
-
-function scheduleNext() {
-    stopPolling()
-    if (trace.current.value) {
-        pollTimer = setTimeout(poll, pollDelay)
     }
 }
 
-function stopPolling() {
-    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
-}
+// 推送线：ext.subagent_trace（两仓契约，与服务端 SUBAGENT_TRACE_EVENT 同值）。
+// 服务端在轨迹侧车覆写同刻扇出增量；本订阅覆盖运行中实时增量，缺口回退 poll。
+const unsubscribeTracePush = onExtensionEvent('ext.subagent_trace', (data, key) => {
+    const t = trace.current.value
+    const subId = activeSubId.value
+    if (!t || !subId || !key || key !== t.parentSessionId) return
+    if (!data || typeof data !== 'object') return
+    const d = data as { subId?: unknown; total?: unknown; baseOffset?: unknown; entries?: unknown }
+    if (d.subId !== subId || typeof d.total !== 'number' || typeof d.baseOffset !== 'number' || !Array.isArray(d.entries)) return
+    if (applyTraceDelta(d.entries as TraceEntry[], d.total, d.baseOffset) === 'resync') {
+        void reload() // 缺口（错过事件）/ total 收缩：全量重拉最简且必然正确
+        return
+    }
+    loadError.value = ''
+    lastErrorStatus.value = 0
+})
 
-/** 切 tab / 打开：清空重放（清状态后立即拉一次，后续进入轮询循环） */
+/** 切 tab / 打开：清空重放（清状态后一次性 GET 全量，运行中增量走推送线） */
 async function reload() {
-    stopPolling()
-    pollEpoch++ // 作废在途请求与旧轮询链
+    stopReconcile()
+    pollEpoch++ // 作废在途请求
     entries.value = []
     traceOffset = 0
     // 全局 surface 注册表会被会话切换 clearAllSurfaces 清空，持久 Set 若不同步清理
@@ -157,17 +175,18 @@ async function reload() {
     loadError.value = ''
     lastErrorStatus.value = 0
     followTail.value = true
-    pollDelay = 1500
     loading.value = true
     await poll()
     loading.value = false
+    // 抽屉仍开着才续对账（trace.current 在 reload 期间被清空则不重启）
+    if (trace.current.value) startReconcile()
 }
 
 /** 打开/重开抽屉：定位目标 tab。同 tab 重开时 watch(activeSubId) 不触发，需手动重放 */
 watch(() => trace.current.value, (t) => {
     if (!t) {
         pollEpoch++
-        stopPolling()
+        stopReconcile()
         entries.value = [] // 释放大轨迹内存
         return
     }
@@ -179,12 +198,24 @@ watch(() => trace.current.value, (t) => {
 /** 切 tab：清空重放 */
 watch(activeSubId, () => reload())
 
-/** 组件卸载（HomeView 是路由组件，切页面会连带卸载）：停轮询并作废在途请求。
- *  否则裸 setTimeout 链在 watcher 全停后仍会无限轮询，重挂载时再叠出第二条链。 */
+/** 组件卸载（HomeView 是路由组件，切页面会连带卸载）：作废在途请求 + 停对账 + 退订推送。 */
 onUnmounted(() => {
     pollEpoch++
-    stopPolling()
+    stopReconcile()
+    unsubscribeTracePush()
 })
+
+function startReconcile(): void {
+    stopReconcile()
+    reconcileTimer = setInterval(() => {
+        if (!trace.current.value) { stopReconcile(); return }
+        void poll()
+    }, RECONCILE_INTERVAL_MS)
+}
+
+function stopReconcile(): void {
+    if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null }
+}
 
 /** 用户滚动：离底则暂停跟随，回到底部恢复 */
 function onScroll() {
