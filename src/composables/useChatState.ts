@@ -4,7 +4,7 @@ import { SessionRow, useSessionsState } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
-import { applyAttachMessageState, getLastMessageEntryId, markContentIndex, markLiveStreamBlock, replayPartialBlocks, remountLocalReceipts, shouldAttachSession, type LocalReceipt } from '../utils/chat-attach'
+import { applyAttachMessageState, getLastMessageEntryId, markActiveStreamBlock, markContentIndex, markLiveStreamBlock, replayPartialBlocks, remountLocalReceipts, shouldAttachSession, type LocalReceipt } from '../utils/chat-attach'
 import { blocksTextSignature, hasAssistantTextContent, hasAssistantToolCalls, solidifyAssistantContent } from '../utils/chat-solidify'
 import { findToolBlockInMessages } from '../utils/tool-event-target'
 import { isAbortErrorMessage } from '../utils/chatMessageRender'
@@ -630,9 +630,13 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                         stream.push(targetBlock)
                     }
                 }
-                // 标记当前增长块（唯一）：展示层据此判定「该思考块仍在增长」，
+                // 标记当前增长块（唯一）：展示层据此判定「该思考块仍在增长」,
                 // 走纯文本直播而非 markdown 全量重渲（见 chat-attach.markLiveStreamBlock）
                 markLiveStreamBlock(stream, targetBlock)
+                // 活跃块单标记（覆盖式转移）：三点动画的「正在思考/输出」判定信号，
+                // 见 chat-attach.markActiveStreamBlock——正文 delta 到达即把标记从
+                // 思考块移走，思考三点随思考结束消失，不等 message_end
+                markActiveStreamBlock(stream, targetBlock)
             }
             break
         }

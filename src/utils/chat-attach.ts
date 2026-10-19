@@ -63,6 +63,32 @@ export function isLiveStreamBlock(stream: unknown, block: unknown): boolean {
 }
 
 /**
+ * 流内「最近收到 delta 的块」单标记（覆盖式转移）：三点动画的判定信号。
+ *
+ * 与 __liveBlocks（多标记、不清除）的分工：
+ * - __liveBlocks 服务渲染策略（纯文本直播 vs markdown 定格），语义是「曾经增长过」——
+ *   交错推理防抖需要保守判定，见 markLiveStreamBlock 注释；
+ * - __activeBlock 服务「正在思考/输出」的用户感知（ThinkingBlock 标题 loading-dots），
+ *   语义是「最近一个 delta 落在这里」。若复用 __liveBlocks，单 phase 协议（thinking 与
+ *   正文同一条消息）下思考块的三点会一直转到 message_end——「曾经增长过」被误读为
+ *   「正在思考」（间歇性 bug：多 phase 协议 thinking 的 message_end 固化消息，
+ *   三点恰好随思考结束消失，故表现为有时正常）。
+ *
+ * 覆盖式转移的正确性：text_delta 到达 → 活跃标记移到正文块 → 三点消失（思考已结束）；
+ * 交错推理 thinking_delta 回注 → 标记拉回思考块 → 三点恢复（思考确实又开始了）。
+ * 生命周期同 __liveBlocks：挂在流数组 expando 上，message_end 置 chatStream=null 随数组消失。
+ */
+export function markActiveStreamBlock(stream: object[] | null | undefined, target: object | null | undefined): void {
+    if (!stream || !target) return
+    ;(stream as any).__activeBlock = target
+}
+
+/** 该块是否为所在流中最近收到 delta 的块（历史消息数组无标记 → 恒 false） */
+export function isActiveStreamBlock(stream: unknown, block: unknown): boolean {
+    return !!stream && (stream as any).__activeBlock === block
+}
+
+/**
  * pi partial 消息 content → 流内块数组。两个消费方共用：
  * - attach 快照重放（streamMessage，本文件）；
  * - live assistant message_start 首批播种（useChatState）——pi-durable 语义下首批
@@ -190,6 +216,11 @@ export function applyAttachMessageState(sessionData: ChatSessionData, state: Att
         for (const block of rebuilt) {
             if (block?.type === 'thinking') markLiveStreamBlock(rebuilt, block)
         }
+        // 活跃标记补最后一个块（覆盖式单标记，快照无从得知下一个 delta 落点，
+        // 取「最近增长」的尾块启发）：尾部是 text → 思考三点不闪；尾部是 thinking →
+        // 重连窗口内三点连续。下一个 delta 到达后由真实事件修正
+        const tail = rebuilt[rebuilt.length - 1]
+        if (tail) markActiveStreamBlock(rebuilt, tail)
         sessionData.chatStream = rebuilt
         return
     }

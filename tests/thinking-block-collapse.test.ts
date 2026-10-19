@@ -64,6 +64,10 @@ test('MessageBubble delegates thinking blocks to ThinkingBlock', () => {
     // 合并气泡 + 排队消息（行不在列表末尾）场景下会误判为已定格，增长中的思考块
     // 被错误送进 markdown 全量重渲热路径（每个 delta 双渲染，UI 卡死点击丢失）
     assert.match(bubbleSource, /:streaming="block\.streaming === true"/)
+    // 三点动画判定（渲染策略 streaming 之外的第二信号）：active（最近 delta 落在该块，
+    // chat-attach.__activeBlock）→ 思考结束后正文 delta 即把标记转移走，三点随灭。
+    // 模板绑定拼写回归会让三点退回「转到回复结束才灭」的旧行为，锁住绑定串
+    assert.match(bubbleSource, /:active="block\.active === true"/)
     // hideThinkingBlock 开关已随 Settings 残留清理移除：思考块无条件渲染
     assert.match(bubbleSource, /block\.type === 'thinking'/)
 })

@@ -528,7 +528,8 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                          错误送进 markdown 全量重渲热路径 -->
                     <ThinkingBlock v-else-if="block.type === 'thinking'"
                         :text="block.text || ''"
-                        :streaming="block.streaming === true" />
+                        :streaming="block.streaming === true"
+                        :active="block.active === true" />
                     <!-- 瞬态压缩行（伪消息唯一块）：compaction_start → end 窗口内存在，
                          随窗口消失零痕迹 -->
                     <div v-else-if="block.type === 'compacting'" class="flex items-center gap-2 text-sm opacity-70 select-none py-1">

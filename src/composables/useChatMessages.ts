@@ -4,7 +4,7 @@ import { useUiSettingsStore } from '../stores/setting'
 import type { A2UIComponent } from '../components/a2ui/types'
 import { getOrCreateSurface, updateSurfaceDataModel, deleteSurface } from './useA2UISurfaces'
 import { ensureRenderableBlocks, markErroredToolBlocks, isAbortErrorMessage } from '../utils/chatMessageRender'
-import { isLiveStreamBlock } from '../utils/chat-attach'
+import { isLiveStreamBlock, isActiveStreamBlock } from '../utils/chat-attach'
 import { resolveMediaUrl } from '../utils/media-url'
 import type { PendingItem, PendingSendMode } from '../utils/pending-queue'
 import { i18n } from '../i18n'
@@ -14,8 +14,13 @@ import { isSupportedA2uiMessage, isSurfaceCatalogAllowed, isComponentCatalogAllo
 export interface DisplayBlock {
     type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting'
     text?: string
-    /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染 */
+    /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染。
+     * 语义是「曾经增长过」（保守，交错推理防抖见 chat-attach.markLiveStreamBlock） */
     streaming?: boolean
+    /** thinking 块专用：最近一个 delta 落在该块上（正在思考）→ 三点动画亮。
+     * 覆盖式单标记，正文 delta 到达即转移走（三点随思考结束消失），
+     * 见 chat-attach.markActiveStreamBlock */
+    active?: boolean
     toolCallId?: string
     toolName?: string
     toolArgs?: any
@@ -374,7 +379,11 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
                         blocks.push({
                             type: 'thinking',
                             text: item.thinking,
-                            streaming: isLiveStreamBlock(content, item)
+                            streaming: isLiveStreamBlock(content, item),
+                            // 三点动画判定：该块是否为最近活跃块（正在思考）。
+                            // 与 streaming 分离：streaming 是渲染策略（曾增长过），
+                            // active 是用户感知（正在思考）——见 chat-attach 两标记分工注释
+                            active: isActiveStreamBlock(content, item)
                         })
                     }
                 } else {

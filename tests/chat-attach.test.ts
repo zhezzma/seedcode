@@ -117,7 +117,9 @@ test('applyAttachMessageState restores stream content when attach lands on an ac
     })
 
     assert.equal(sessionData.chatSending, true)
-    assert.deepEqual(sessionData.chatStream, [{ type: 'text', text: 'partial' }])
+    // 注意不比较整个数组（重放路径会在流数组上挂 __activeBlock 活跃块 expando，
+    // 同 __liveBlocks；整组 deepEqual 会看到）；按元素比较块内容
+    assert.deepEqual([...(sessionData.chatStream as any[])], [{ type: 'text', text: 'partial' }])
 })
 
 test('attach replay re-marks thinking blocks live so streaming thinking stays plain text', () => {
