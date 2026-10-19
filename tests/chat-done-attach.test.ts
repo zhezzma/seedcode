@@ -19,7 +19,8 @@ const source = readFileSync(path.resolve(__dirname, '../src/composables/useChatS
 function doneRefreshBody(): string {
     const start = source.indexOf(`apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>`)
     assert.ok(start > -1, 'done 分支的全量重拉（含 isStreaming 类型）丢失')
-    const end = source.indexOf('fetchSessionUsage(targetKey)', start)
+    // 结尾锚 = 重拉链的 catch 行（旧锚 fetchSessionUsage 已随 /usage 端点删除而移除）
+    const end = source.indexOf("}).catch(() => { /* 静默失败不影响使用 */ })", start)
     assert.ok(end > start, '重拉块结尾锚丢失')
     return source.slice(start, end)
 }

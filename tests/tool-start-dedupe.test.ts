@@ -98,7 +98,6 @@ setActivePinia(createPinia())
     if (u.pathname === '/api/sessions') return body({ ok: true, payload: { sessions: [{ id: 'S1', name: 'S1', modelProvider: 'p0', model: 'm0', thinkingLevel: 'off' }] } })
     if (u.pathname === '/api/sessions/S1/info') return sess('S1')
     if (u.pathname === '/api/chat/S1/messages') return body({ ok: true, payload: { messages: ${'${HISTORY_JSON}'}, isStreaming: false } })
-    if (u.pathname === '/api/chat/S1/usage') return body({ ok: true, payload: {} })
     if (u.pathname === '/api/chat/S1/entries') return body({ ok: true, payload: { leafId: null, entries: [] } })
     return body({ ok: true, payload: {} })
 }

@@ -131,7 +131,6 @@ const state = { s1HistoryReady: false }
             { role: 'assistant', content: [{ type: 'text', text: 'final answer' }], timestamp: 3, entryId: 'f-a1', parentEntryId: 'f-abort' },
         ], isStreaming: false } })
     }
-    if (u.pathname === '/api/chat/S1/usage' || u.pathname === '/api/chat/S2/usage') return body({ ok: true, payload: {} })
     if (u.pathname === '/api/chat/S1/entries' || u.pathname === '/api/chat/S2/entries') return body({ ok: true, payload: { leafId: null, entries: [] } })
     return body({ ok: true, payload: {} })
 }

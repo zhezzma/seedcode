@@ -131,7 +131,7 @@ function buildUsageTip(usage: SessionUsage): string {
     const parts: string[] = []
     if (usage.input) parts.push(`↑${formatTokens(usage.input)}`)
     if (usage.output) parts.push(`↓${formatTokens(usage.output)}`)
-    // reasoning 是 output 的子集；非 0 时单独展示，对齐服务端 /usage 与 TUI footer。
+    // reasoning 是 output 的子集；非 0 时单独展示，对齐服务端 usage 扩展推送载荷与 TUI footer。
     if (usage.reasoning) parts.push(`T${formatTokens(usage.reasoning)}`)
     if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`)
     if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`)

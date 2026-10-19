@@ -6,19 +6,19 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// ==================== attach 空闲 done 的全量刷新去重（/messages + /entries + /usage） ====================
+// ==================== attach 空闲 done 的全量刷新去重（/messages + /entries） ====================
 //
 // 根因：切换到未缓存的空闲会话时，loadChatHistory 刚拉完全量数据（/messages +
-// finally 里的 /entries + /usage），紧随其后的 attach 对空闲会话立即回
+// finally 里的 /entries），紧随其后的 attach 对空闲会话立即回
 // message_state -> done，done 分支又把同一批请求原样重拉一遍（间隔仅一个 RTT，
-// 返回数据相同），每次首切一个会话多发 3 个冗余请求。
+// 返回数据相同），每次首切一个会话多发 2 个冗余请求。
 //
 // 修复：精确区分两种 done——
 //   1. attach 空闲 done：全程未见流活动且历史刚全量加载过（historyLoadedAt 新鲜）
-//      → 跳过 done 分支的消息/树重拉（resetStreamState 保留；usage 仍轻量补拉——
-//      它是唯一没有其他追平通道的请求，loadChatHistory finally 里那次失败时靠这里兜底）
+//      → 跳过 done 分支的消息/树重拉（resetStreamState 保留。usage 不在刷新之列：
+//      GET /usage 端点已删，用量由 usage 扩展 ext.usage_state 推送/快照线实时到达）
 //   2. 真实流 done（attach 期间见过流活动，或非 attach 的 chat/retry/edit 流）
-//      → 必须刷新：最后一条消息、树、usage 都在这次落地，任何时间窗都不能压
+//      → 必须刷新：最后一条消息、树都在这次落地，任何时间窗都不能压
 //   3. 空闲 done 但历史非新鲜（缓存会话切回）→ 必须刷新：这是追平离开期间
 //      变化的唯一通道
 //
@@ -63,12 +63,14 @@ test('handleSSEEvent 接受 skipSettledRefresh 选项，done 分支据此跳过�
     const afterGuard = fn.slice(guardIdx)
     assert.match(afterGuard, /apiGet<\{ messages: ChatMessage\[\]; isStreaming\?: boolean \}>/, 'done 分支应保留 /messages 重拉（含 isStreaming：busy 时兜底 attach）')
     assert.match(afterGuard, /fetchSessionTree\(targetKey\)/, 'done 分支应保留 /entries 刷新')
-    assert.match(afterGuard, /fetchSessionUsage\(targetKey\)/, 'done 分支应保留 /usage 刷新')
+    // usage 无客户端拉取通道（端点已删）：done 分支不得残留 fetchSessionUsage——
+    // 用量由 usage 扩展推送线（每条消息后）+ 观察者线（run_end/compaction_end）实时到达
+    assert.doesNotMatch(afterGuard, /fetchSessionUsage/, 'done 分支不得残留 usage 轮询（端点已删）')
 
-    // 跳过分支内仍轻量补拉 usage：/messages + /entries 由 loadChatHistory 的
-    // try/finally 刚刚落地，唯 usage 在 finally 那次失败时没有其他追平通道
+    // 跳过分支纯 break：/messages + /entries 由 loadChatHistory 的 try/finally 刚刚
+    // 落地，usage 由快照线/推送线负责，无事可做
     const skipBranch = fn.slice(guardIdx, fn.indexOf('// 静默刷新消息', guardIdx))
-    assert.match(skipBranch, /fetchSessionUsage\(targetKey\)/, '跳过 done 时应补拉 /usage（唯一无兜底的请求）')
+    assert.doesNotMatch(skipBranch, /fetchSessionUsage|apiGet/, '跳过分支不得发任何请求')
     assert.match(skipBranch, /break/, '跳过分支必须在此截断，不得落到 /messages + /entries 重拉')
 })
 
@@ -122,10 +124,12 @@ test('isHistoryLoadFresh 基于时间窗口判断历史新鲜度', () => {
 
 // ==================== 回归守卫（既有行为，防“顺手简化”破坏） ====================
 
-test('回归：loadChatHistory 的 finally 仍拉 /entries + /usage（流式 attach 的 done 遥遥无期，首屏靠它）', () => {
+test('回归：loadChatHistory 的 finally 仍拉 /entries（流式 attach 的 done 遥遥无期，首屏靠它；usage 走扩展快照线）', () => {
     const load = extractConst(chatStateSource, 'loadChatHistory')
     assert.match(load, /fetchSessionTree\(targetKey\)/)
-    assert.match(load, /fetchSessionUsage\(targetKey\)/)
+    // /usage 端点已删：finally 不得残留 usage 拉取（首屏现态由 attach 快照线
+    // ext.usage_state 同帧恢复）
+    assert.doesNotMatch(load, /fetchSessionUsage/)
 })
 
 test('回归：非 attach 的 SSE 流（sendMessage/retry/edit 共享骨架）不得传 skipSettledRefresh——真实流 done 必须全量刷新', () => {
@@ -146,11 +150,3 @@ test('回归：非 attach 的 SSE 流（sendMessage/retry/edit 共享骨架）�
     assert.match(skeleton, /\n\s*handleSSEEvent\(event\.event, event\.data, targetKey\)\s*\n/, '骨架的 handleSSEEvent 调用不得携带 options（第四参）')
 })
 
-test('回归：fetchSessionUsage 本体保持直接请求（重复抑制只属于 attach 空闲 done 跳过机制）', () => {
-    const fn = extractConst(chatStateSource, 'fetchSessionUsage')
-    assert.ok(
-        !fn.includes('usageFetchAt'),
-        '不得引入时间窗去重门禁（如 usageFetchAt 缓存时间戳）：跳过机制只覆盖 attach 空闲 done，别处去重会让 usage 失去追平通道',
-    )
-    assert.match(fn, /apiGet<SessionUsage>/, 'fetchSessionUsage 本体应保持直接请求')
-})

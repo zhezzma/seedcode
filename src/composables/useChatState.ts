@@ -12,7 +12,7 @@ import { type KnownApi } from './useModelsState'
 import { useToast } from './useToast'
 import { clearAllSurfaces } from './useA2UISurfaces'
 import { createRuntimeId } from '../utils/runtime-id.ts'
-import { emitExtensionEvent, isExtensionEvent } from './extension-events'
+import { emitExtensionEvent, isExtensionEvent, onExtensionEvent } from './extension-events'
 import { onServerMessage } from './notify-server-connection'
 import { i18n } from '../i18n'
 import {
@@ -278,6 +278,36 @@ function getSessionData(key: string): ChatSessionData {
     }
     return data
 }
+
+// ==================== usage 扩展推送（ext.usage_state → sessionUsage 桶） ====================
+// 服务端 usage 扩展（seedagent extensions/usage，两仓契约）双投递线：
+// - 推送线：GenerationTask.afterResponse（每条终态 provider 消息，含工具轮中间消息）实时扇出
+// - 快照线：attach collect（刷新/切会话时随 attach 流恢复现态）
+// 载荷 = 服务端 usage-payload 冻结形状（与 /usage 响应逐字段一致），整体替换入桶后
+// ChatHeader 连接指示器 tooltip（usageTipLines computed）随之实时刷新。
+
+/** ext.usage_state 载荷守卫（SessionUsage 全部必需字段；ext.* 事件是外部输入，
+ *  不得未经校验直入状态桶——同 useGoalState 的 isGoalStatePayload 惯例）。 */
+function isUsagePayload(data: unknown): data is SessionUsage {
+    if (!data || typeof data !== 'object') return false
+    const d = data as Record<string, unknown>
+    return typeof d.input === 'number'
+        && typeof d.output === 'number'
+        && typeof d.cacheRead === 'number'
+        && typeof d.cacheWrite === 'number'
+        && typeof d.cost === 'number'
+        && (d.contextTokens === null || typeof d.contextTokens === 'number')
+        && typeof d.contextWindow === 'number'
+        && (d.percent === null || typeof d.percent === 'number')
+        && typeof d.autoCompactEnabled === 'boolean'
+}
+
+// 订阅（模块级一次）：事件按 sessionKey 入各自会话桶（跨会话事件写自己的桶，
+// 切回时读到的即现态）；无 key 的孤儿事件丢弃。
+onExtensionEvent('ext.usage_state', (data, key) => {
+    if (!key || !isUsagePayload(data)) return
+    getSessionData(key).sessionUsage = data
+})
 
 // ==================== Pending Queue（busy 期间 steer/follow-up 排队可视化） ====================
 // 服务端权威：本地只维护内存视图，三个同步通道（attach 快照 / WS queue_state 广播 /
@@ -905,11 +935,10 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             resetStreamState(sessionData)
             // 空闲 attach 的 done（见 attachToSessionIfNeeded）：历史刚全量加载过，
             // 下面的 /messages + /entries 重拉与 loadChatHistory 完全重复，跳过；
-            // 真实流 done 必须刷新——最后一条消息、树、usage 都在这次落地
+            // 真实流 done 必须刷新——最后一条消息、树都在这次落地（usage 不在此列：
+            // usage 扩展推送线每条消息后已实时到达，run_end/compaction_end 观察者线
+            // 兜住收尾变更，客户端无轮询通道）
             if (options?.skipSettledRefresh) {
-                // usage 是三者中唯一没有其他追平通道的请求（loadChatHistory finally
-                // 里那次若失败，这里就是唯一兜底），跳过重拉时仍轻量补一次
-                fetchSessionUsage(targetKey)
                 break
             }
             // 静默刷新消息，补上 entryId/parentEntryId（不设置 chatLoading，避免页面闪烁）
@@ -936,8 +965,6 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                     attachToSessionIfNeeded(targetKey)
                 }
             }).catch(() => { /* 静默失败不影响使用 */ })
-            // 刷新 usage 统计（消息结束后上下文占比可能已变化）
-            fetchSessionUsage(targetKey)
             break
         default:
             // 扩展事件（ext. 前缀）转发客户端事件总线——各扩展 composable 按事件名
@@ -1043,10 +1070,10 @@ const loadChatHistory = async (sessionKey?: string) => {
     } finally {
         // Only set loading to false, don't touch chatSending if we are streaming
         sd.chatLoading = false
-        // Finally, load the tree structure and usage stats for this session
+        // Finally, load the tree structure for this session（usage 不再在此拉取：
+        // GET /usage 端点已删，attach 快照线 ext.usage_state 同帧恢复现态）
         if (targetKey) {
             fetchSessionTree(targetKey)
-            fetchSessionUsage(targetKey)
         }
     }
 }
@@ -1616,20 +1643,6 @@ const setSessionThinkingLevel = async (level: string): Promise<boolean> => {
 }
 
 
-const fetchSessionUsage = async (sessionKey?: string) => {
-    const targetKey = sessionKey || state.sessionKey
-    if (!targetKey) return
-
-    try {
-        const result = await apiGet<SessionUsage>(`/api/chat/${targetKey}/usage`)
-        if (result) {
-            getSessionData(targetKey).sessionUsage = result
-        }
-    } catch {
-        // 静默失败：usage 是辅助信息，不影响核心功能
-    }
-}
-
 const fetchSessionTree = async (sessionKey?: string): Promise<SessionTreeEntry[] | null> => {
     const targetKey = sessionKey || state.sessionKey
     if (!targetKey) return null
@@ -1728,7 +1741,7 @@ const _methods = {
     sendMessage, steerMessage, followMessage, abortChat, loadChatHistory,
     setSessionModel, setSessionThinkingLevel, patchSessionRowEverywhere,
     setSessionKey, createNewSession, selectAgent, getSessionData,
-    retryMessage, editMessage, fetchSessionTree, fetchSessionUsage, navigateBranch, forkFromEntry,
+    retryMessage, editMessage, fetchSessionTree, navigateBranch, forkFromEntry,
     isForkingEntry,
     isCompacting,
 }

@@ -97,7 +97,6 @@ const serverHistory = ((globalThis as any).__history = [
     if (u.pathname === '/api/sessions/S1/info') return sess('S1')
     if (u.pathname === '/api/sessions/S2/info') return sess('S2')
     if (u.pathname === '/api/chat/S1/messages') return body({ ok: true, payload: { messages: (globalThis as any).__history, isStreaming: false } })
-    if (u.pathname === '/api/chat/S1/usage') return body({ ok: true, payload: {} })
     if (u.pathname === '/api/chat/S1/entries') return body({ ok: true, payload: { leafId: null, entries: [] } })
     return body({ ok: true, payload: {} })
 }
