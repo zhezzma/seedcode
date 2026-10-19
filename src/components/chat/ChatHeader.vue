@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { SessionUsage } from '../../composables/useChatState'
@@ -21,7 +21,8 @@ import { useWorkspacePanel } from '../../composables/useWorkspacePanel'
 import ViewHeader from '../ViewHeader.vue'
 import { NEW_SESSION_ROUTE_NAME } from '../../utils/route-helpers'
 import { useChatState } from '../../composables/useChatState'
-import { apiGet, apiPost } from '../../composables/api-client'
+import { apiPost } from '../../composables/api-client'
+import { onExtensionEvent } from '../../composables/extension-events'
 
 defineProps<{
     sessionName?: string
@@ -51,27 +52,29 @@ const buildNotifyAgentQuery = (agentId: string) => {
     return agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''
 }
 
-const loadNotifyStatus = async () => {
-    const sessionId = chatState.sessionKey
-    const agentId = chatState.agentsSelectedId
-    if (!sessionId) {
+// 会话切换/agent 切换：重置铃铛——现态由 attach 快照线（ext.notify_state）随帧恢复，
+// 不再逐次轮询 GET；重置防上一会话的状态在快照到达前闪现
+watch(
+    () => [chatState.sessionKey, chatState.agentsSelectedId],
+    () => {
         notifyEnabled.value = false
-        return
-    }
+    },
+    { immediate: true }
+)
 
-    try {
-        const result = await apiGet<{ enabled: boolean }>(
-            `/api/extensions/notify/settings/sessions/${encodeURIComponent(sessionId)}${buildNotifyAgentQuery(agentId)}`
-        )
-        if (chatState.sessionKey === sessionId && chatState.agentsSelectedId === agentId) {
-            notifyEnabled.value = Boolean(result?.enabled)
-        }
-    } catch {
-        if (chatState.sessionKey === sessionId && chatState.agentsSelectedId === agentId) {
-            notifyEnabled.value = false
-        }
-    }
-}
+// 推送线 + 快照线：ext.notify_state（两仓契约，与服务端 NOTIFY_STATE_EVENT 同值）
+// → 铃铛状态。POST toggle 的响应仍是最直接的按钮线（toggleNotify 内已有），本订阅
+// 覆盖快照恢复与多窗口同步。
+const unsubscribeNotifyState = onExtensionEvent('ext.notify_state', (data, key) => {
+    if (!key || key !== chatState.sessionKey) return
+    if (!data || typeof data !== 'object') return
+    const d = data as { enabled?: unknown }
+    if (typeof d.enabled !== 'boolean') return
+    notifyEnabled.value = d.enabled
+})
+
+// ChatHeader 随 HomeView 反复装卸：组件级订阅必须退订（模块级总线不随组件清理）
+onUnmounted(() => unsubscribeNotifyState())
 
 const toggleNotify = async () => {
     const sessionId = chatState.sessionKey
@@ -89,17 +92,12 @@ const toggleNotify = async () => {
             notifyEnabled.value = Boolean(result?.enabled)
         }
     } catch {
-        await loadNotifyStatus()
+        // POST 失败：点击未做乐观更新，notifyEnabled 仍是点击前的服务端真值；
+        // 不做本地改写（旧 fallback 是重拉 GET，该轮询端点已删）
     } finally {
         notifyLoading.value = false
     }
 }
-
-watch(
-    () => [chatState.sessionKey, chatState.agentsSelectedId],
-    () => loadNotifyStatus(),
-    { immediate: true }
-)
 
 const createNewSession = () => {
     router.push({ name: NEW_SESSION_ROUTE_NAME })
