@@ -566,6 +566,16 @@ export default {
     },
     chat: {
         you: 'You',
+        permissionMode: 'Permission Mode',
+        permMode: {
+            careful: 'Confirm Changes',
+            carefulCaption: 'Writes, deletes and execution ask first; denies unchanged',
+            autonomous: 'Autonomous',
+            autonomousCaption: 'Follow agent baseline policy (default)',
+            full: 'Full Access',
+            fullCaption: 'Asks become allows; denies stay denied',
+            updateFailed: 'Failed to switch permission mode',
+        },
         reasoning: 'Reasoning Process',
         readAloud: 'Read Aloud',
         retry: 'Retry',

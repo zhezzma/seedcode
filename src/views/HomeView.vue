@@ -7,6 +7,7 @@ import { useUiSettingsStore, type BusySendBehavior } from '../stores/setting'
 import { ChevronDoubleDownIcon, ChevronDownIcon, CheckIcon, FolderIcon, FolderOpenIcon } from '@heroicons/vue/24/outline'
 
 import { useChatMessages, type DisplayMessage } from '../composables/useChatMessages'
+import { usePermissionMode, type PermissionMode } from '../composables/usePermissionMode'
 import { useMediaPreview } from '../composables/useMediaPreview'
 import { useScrollManager } from '../composables/useScrollManager'
 import type { BranchInfo } from '../components/chat/MessageBubble.vue'
@@ -483,6 +484,12 @@ const handleSend = async (mode?: BusySendBehavior) => {
         // updateSessionLocal 是 Object.assign 合并，patch 只放有值的键，
         // 避免 undefined 覆盖服务端返回的默认值，也保证只选思考级别时同样回填
         chatOverrides = chatInputRef.value?.consumePendingOverrides()
+        // 创建期权限模式：本地立即落地（丢创建竞态 GET），随首条消息体由服务端
+        // 在 prompt 前落账——首轮 tool call 即读到所选档
+        const pendingMode = chatOverrides?.permissionMode
+        if (pendingMode) {
+            usePermissionMode().markAppliedMode(targetSessionKey, pendingMode as PermissionMode)
+        }
         const overridePatch: Partial<SessionRow> = {}
         const overrideSplit = chatOverrides?.model ? splitModelId(chatOverrides.model) : null
         if (overrideSplit) {

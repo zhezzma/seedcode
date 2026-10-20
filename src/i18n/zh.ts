@@ -566,6 +566,16 @@ export default {
     },
     chat: {
         you: '你',
+        permissionMode: '权限',
+        permMode: {
+            careful: '询问',
+            carefulCaption: '写/删/执行默认询问；拒绝项不受影响',
+            autonomous: '自主',
+            autonomousCaption: '按智能体项目设置策略执行',
+            full: '完全',
+            fullCaption: '询问项视为允许；拒绝项仍拒绝',
+            updateFailed: '权限模式切换失败',
+        },
         reasoning: '思考过程',
         readAloud: '朗读',
         retry: '重试',

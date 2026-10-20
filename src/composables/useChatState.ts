@@ -336,6 +336,8 @@ export interface ChatSendOverrides {
     /** 'provider/modelId' 格式 */
     model?: string
     thinkingLevel?: string
+    /** permission-gate 会话权限模式（新会话页选择，随首条消息一并生效） */
+    permissionMode?: string
 }
 
 /** 拆分 'provider/modelId'；modelId 本身可含 '/'（如 openrouter 的 vendor 前缀），第一段为 provider */
@@ -417,6 +419,9 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
             body.provider = split.provider
             body.model = split.model
         }
+    }
+    if (overrides?.permissionMode) {
+        body.permissionMode = overrides.permissionMode
     }
     if (overrides?.thinkingLevel) {
         body.thinkingLevel = overrides.thinkingLevel

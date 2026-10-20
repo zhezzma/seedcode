@@ -12,6 +12,7 @@ import {
     ChevronUpIcon,
     CommandLineIcon,
     CpuChipIcon,
+    ShieldCheckIcon,
     LightBulbIcon,
     BoltIcon,
     InboxArrowDownIcon,
@@ -27,6 +28,7 @@ import { isCommandInvocation } from '../../utils/command-invocation'
 import { isClientInterceptedCommand } from '../../composables/clientCommands'
 import { computed } from 'vue'
 import { useMediaPreview } from '../../composables/useMediaPreview'
+import { usePermissionMode, type PermissionMode } from '../../composables/usePermissionMode'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
 import { isNewSession } from '../../utils/route-helpers'
 
@@ -141,6 +143,25 @@ type ThinkingLevel = typeof THINKING_LEVELS[number]
 
 
 const thinkingDropdownOpen = ref(false)
+
+// 会话权限模式（第四下拉）：新会话页仅本地暂存、随首条消息一并提交
+// （服务端 prompt 前落账，首轮 tool call 即生效）；既有会话立即 POST 切档。
+// 下拉恒显示（含旧服务端：切档时 POST 404 toast 直接可见，不静默隐藏）。
+const permState = usePermissionMode()
+const pendingPermissionMode = ref<PermissionMode | null>(null)
+const permissionMode = computed<PermissionMode>(() =>
+    isPendingMode.value ? (pendingPermissionMode.value ?? 'autonomous') : permState.mode.value,
+)
+const permDropdownOpen = ref(false)
+const PERM_MODES: PermissionMode[] = ['careful', 'autonomous', 'full']
+const selectPermissionMode = (m: PermissionMode) => {
+    permDropdownOpen.value = false
+    if (isPendingMode.value) {
+        pendingPermissionMode.value = m
+        return
+    }
+    void permState.setMode(m)
+}
 
 // 新会话（/new）：模型/思考选择不即时下发，只记录到本地，随首条消息一并提交
 const isPendingMode = computed(() => isNewSession(route))
@@ -296,9 +317,11 @@ const consumePendingOverrides = (): ChatSendOverrides => {
     const overrides: ChatSendOverrides = {
         model: pendingModel.value || undefined,
         thinkingLevel: pendingThinkingLevel.value || undefined,
+        permissionMode: pendingPermissionMode.value ?? undefined,
     }
     pendingModel.value = ''
     pendingThinkingLevel.value = null
+    pendingPermissionMode.value = null
     return overrides
 }
 
@@ -347,6 +370,7 @@ const handleToolbarClickOutside = (event: MouseEvent) => {
     if (!target.closest('.dropdown-top')) {
         closeDropdowns()
         thinkingDropdownOpen.value = false
+        permDropdownOpen.value = false
     }
     // 点击外部时关闭命令补全浮层
     if (!target.closest('.command-suggestions-panel') && !target.closest('textarea')) {
@@ -450,10 +474,10 @@ defineExpose({
                     </button>
 
                     <!-- Command（新会话页居中卡片不显示；会话页保持原样） -->
-                    <div v-if="!centered" class="dropdown dropdown-top"
+                    <div v-if="!centered" class="dropdown dropdown-top hidden sm:block"
                         :class="{ 'dropdown-open': commandDropdownOpen }">
                         <button
-                            @click.stop="commandDropdownOpen = !commandDropdownOpen; modelDropdownOpen = false; thinkingDropdownOpen = false"
+                            @click.stop="commandDropdownOpen = !commandDropdownOpen; modelDropdownOpen = false; thinkingDropdownOpen = false; permDropdownOpen = false"
                             class="btn btn-ghost btn-sm  gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300  transition-all"
                             :title="$t('chat.commands')">
                             <CommandLineIcon class="h-4 w-4 hidden sm:inline" />
@@ -487,11 +511,39 @@ defineExpose({
                         </ul>
                     </div>
 
+                    <!-- Permission Mode（第四下拉：新会话页选创建期档位，既有会话即时切档） -->
+                    <div class="dropdown dropdown-top"
+                        :class="{ 'dropdown-open': permDropdownOpen }">
+                        <button
+                            @click.stop="permDropdownOpen = !permDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; thinkingDropdownOpen = false"
+                            class="btn btn-ghost btn-sm gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all"
+                            :title="$t('chat.permissionMode')">
+                            <ShieldCheckIcon class="h-4 w-4 hidden sm:inline" />
+                            <span class="sm:inline">{{ $t('chat.permissionMode') }}<span class="hidden sm:inline">({{ $t(`chat.permMode.${permissionMode}`) }})</span></span>
+                            <ChevronUpIcon class="h-3 w-3 ml-0.5 opacity-50" />
+                        </button>
+                        <ul v-if="permDropdownOpen"
+                            class="dropdown-content menu p-2 shadow-xl bg-base-100 rounded-box w-64 border border-base-300 mb-2 z-[100]">
+                            <li class="menu-title"><span>{{ $t('chat.permissionMode') }}</span></li>
+                            <li v-for="m in PERM_MODES" :key="m">
+                                <a @click="selectPermissionMode(m)" class="flex flex-col items-start gap-0.5 rounded-lg py-1.5"
+                                    :class="{ 'bg-primary/10 text-primary': permissionMode === m }">
+                                    <span class="flex w-full items-center gap-2">
+                                        <span class="flex-1 text-sm">{{ $t(`chat.permMode.${m}`) }}</span>
+                                        <CheckIcon v-if="permissionMode === m" class="h-4 w-4 shrink-0" />
+                                        <span v-else class="w-4 h-4 shrink-0"></span>
+                                    </span>
+                                    <span class="text-xs opacity-60">{{ $t(`chat.permMode.${m}Caption`) }}</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
 
                     <!-- Model -->
                     <div class="dropdown dropdown-top" :class="{ 'dropdown-open': modelDropdownOpen }">
                         <button
-                            @click.stop="() => { modelDropdownOpen = !modelDropdownOpen; commandDropdownOpen = false; thinkingDropdownOpen = false }"
+                            @click.stop="() => { modelDropdownOpen = !modelDropdownOpen; commandDropdownOpen = false; thinkingDropdownOpen = false; permDropdownOpen = false }"
                             class="btn btn-ghost btn-sm gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all"
                             :title="$t('chat.models')">
                             <CpuChipIcon class="h-4 w-4 hidden sm:inline" />
@@ -511,7 +563,7 @@ defineExpose({
                     <!-- Thinking Level -->
                     <div class="dropdown dropdown-top" :class="{ 'dropdown-open': thinkingDropdownOpen }">
                         <button
-                            @click.stop="thinkingDropdownOpen = !thinkingDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false"
+                            @click.stop="thinkingDropdownOpen = !thinkingDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; permDropdownOpen = false"
                             class="btn btn-sm gap-1 font-normal rounded-full transition-all duration-300 border-primary/20 btn-ghost hover:bg-base-300"
                             :title="$t('chat.thinkingLevel')">
                             <LightBulbIcon class="h-4 w-4 hidden sm:inline" />
@@ -533,6 +585,7 @@ defineExpose({
                             </li>
                         </ul>
                     </div>
+
 
                 </div>
 

@@ -35,12 +35,19 @@ const alignClass = computed(() => {
   }
   return map[props.comp.align || 'stretch'] || 'items-stretch'
 })
+
+// 可选 gap 覆写（服务端紧凑排版用）；缺省仍 gap-2，对既有面板零影响。
+// 字面量映射：Tailwind JIT 不编译动态拼接的 gap-${n}
+const gapClass = computed(() => {
+  const map: Record<number, string> = { 0: 'gap-0', 1: 'gap-1', 2: 'gap-2', 3: 'gap-3' }
+  return map[props.comp.gap ?? 2] || 'gap-2'
+})
 </script>
 
 <template>
   <div
-    class="a2ui-column flex flex-col gap-2"
-    :class="[justifyClass, alignClass]"
+    class="a2ui-column flex flex-col"
+    :class="[gapClass, justifyClass, alignClass]"
     :style="comp.weight != null ? { flex: comp.weight } : undefined"
   >
     <template v-for="childId in childIds" :key="childId">

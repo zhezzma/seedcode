@@ -43,6 +43,8 @@ export interface ChatPromptBody {
     provider?: string
     model?: string
     thinkingLevel?: string
+    /** 新会话首条消息携带的会话权限模式（permission-gate 扩展） */
+    permissionMode?: string
 }
 
 /**
