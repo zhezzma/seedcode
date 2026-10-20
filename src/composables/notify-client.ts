@@ -133,3 +133,20 @@ export function disconnectBrowserWs() {
     }
 }
 
+/**
+ * 浏览器模式的 WS 上行原语：把一段 JSON 写进 socket。
+ *
+ * 保留而非随 ui_request/ui_response 协议一并删除：它是**传输原语**（与具体协议无关），
+ * 与 Tauri 模式的 `notify_send` 命令对称；要删的是协议的实现（旧 sendRequest 的
+ * type:'req' + id 配对 + 超时 + 响应匹配分支），不是客户端发消息的能力本身。
+ */
+export function sendBrowserWs(data: any) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data))
+    } else {
+        console.warn('[notify-client] Cannot send message, WebSocket is not open.')
+        // Optional: queue message or throw error
+        throw new Error('WebSocket is not connected')
+    }
+}
+
