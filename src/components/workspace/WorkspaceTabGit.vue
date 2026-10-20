@@ -325,7 +325,7 @@ async function onPrimary() {
                     class="textarea textarea-bordered textarea-xs w-full min-h-[2.5rem] resize-y leading-snug font-mono"
                     :aria-label="$t('workspace.git.messagePlaceholder')"
                     :placeholder="$t('workspace.git.messagePlaceholder')" :disabled="git.mutating.value"
-                    @keydown="onCommitKeydown" />
+                    @keydown="onCommitKeydown" @contextmenu.stop />
                 <div class="flex gap-1 mt-1">
                     <button type="button" class="btn btn-primary btn-sm flex-1 gap-1"
                         :class="{ 'btn-disabled': !canPrimary }" :disabled="!canPrimary"
