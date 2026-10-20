@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CheckIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 
@@ -82,6 +82,24 @@ const unknownCurrent = computed(() => {
 })
 
 const emitSelect = (provider: string, modelId: string) => emit('select', `${provider}/${modelId}`)
+
+const scrollContainerRef = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+    // 用 requestAnimationFrame 而非 nextTick：等待父组件动态 maxHeight 样式应用后再读取布局，
+    // 避免 AgentSubagents 等用 nextTick 延迟设置面板高度时出现时序竞争导致首次滚动失效。
+    requestAnimationFrame(() => {
+        const container = scrollContainerRef.value
+        if (!container) return
+        const item = container.querySelector<HTMLElement>('[data-current]')
+        if (!item) return
+        const containerRect = container.getBoundingClientRect()
+        const itemRect = item.getBoundingClientRect()
+        const offsetWithin = itemRect.top - containerRect.top
+        const target = container.scrollTop + offsetWithin - (container.clientHeight - itemRect.height) / 2
+        container.scrollTop = Math.max(0, Math.min(target, container.scrollHeight - container.clientHeight))
+    })
+})
 </script>
 
 <template>
@@ -104,7 +122,7 @@ const emitSelect = (provider: string, modelId: string) => emit('select', `${prov
             </div>
         </div>
 
-        <div class="min-h-0 overflow-y-auto px-2 pb-2">
+        <div ref="scrollContainerRef" class="min-h-0 overflow-y-auto px-2 pb-2">
             <div class="space-y-1">
                 <button v-if="unknownCurrent" @click="emit('select', unknownCurrent)"
                     class="flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer w-full text-left bg-primary/10 text-primary">
@@ -120,6 +138,7 @@ const emitSelect = (provider: string, modelId: string) => emit('select', `${prov
                         {{ group.provider }}
                     </div>
                     <button v-for="m in group.models" :key="m.id" @click="emitSelect(group.provider, m.id)"
+                        :data-current="currentModel === `${group.provider}/${m.id}` ? '' : null"
                         class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-content/10 transition-colors cursor-pointer w-full text-left"
                         :class="{ 'bg-primary/10 text-primary': currentModel === `${group.provider}/${m.id}` }">
                         <span class="truncate block text-xs flex-1 min-w-0" :title="m.name">
