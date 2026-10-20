@@ -5,8 +5,6 @@ import { useUiSettingsStore } from './stores/setting'
 import MessagePlugin from './components/MessagePlugin.vue'
 import ConfirmPlugin from './components/ConfirmPlugin.vue'
 import WindowControls from './components/WindowControls.vue'
-import ExecApprovalModal from './components/ExecApprovalModal.vue'
-import ElicitationModal from './components/ElicitationModal.vue'
 import { useAppInit } from './composables/useAppInit'
 import { ApiError } from './composables/api-client'
 import { useSessionsState } from './composables/useSessionsState'
@@ -160,8 +158,6 @@ onUnmounted(() => {
         <RouterView />
         <WindowControls />
         <MessagePlugin />
-        <ExecApprovalModal />
-        <ElicitationModal />
         <ConfirmPlugin />
         <!-- 内置服务端启动门控：Starting 时 UI 照常渲染，只盖一层淡磨砂透出内容（数据加载已暂停，无请求报错）；
              初始 Failed 才显示错误与重启入口 -->

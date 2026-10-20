@@ -8,7 +8,6 @@ import { useCronState } from './useCronState'
 import { useModelsState } from './useModelsState'
 import { connectServer } from './notify-server-connection'
 import { ensureLocalServerLoaded, waitForLocalServerReady, isLocalServerBootFailed } from './local-server'
-import { useExecApproval } from './useExecApproval'
 import { useCommandState } from './useCommandState'
 import { isNewSession } from '../utils/route-helpers'
 
@@ -26,7 +25,6 @@ export function useAppInit() {
     const { loadCommands, setCurrentAgent } = useCommandState()
     useCronState()
     useNotify()
-    useExecApproval()
     useUiSettingsStore()
 
     const init = async () => {

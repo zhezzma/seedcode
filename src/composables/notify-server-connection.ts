@@ -1,7 +1,6 @@
 import { ref } from 'vue'
 import { useUiSettingsStore } from '../stores/setting'
-import { createRuntimeId } from '../utils/runtime-id.ts'
-import { connectBrowserWs, disconnectBrowserWs, getWsUrl, sendBrowserWs } from './notify-client'
+import { connectBrowserWs, disconnectBrowserWs, getWsUrl } from './notify-client'
 
 // ==================== Types ====================
 
@@ -20,7 +19,6 @@ const listeners: MessageHandler[] = []
 export const isConnected = ref(false)
 export const clientId = ref<string | null>(null)
 
-const pendingRequests = new Map<number | string, { resolve: (value: any) => void, reject: (reason?: any) => void, timeout: any }>()
 let tauriUnlisteners: (() => void)[] = []
 
 
@@ -76,25 +74,6 @@ function dispatchMessage(msg: WsMessage) {
         clientId.value = msg.payload?.clientId || null
         isConnected.value = true
         // Fall through to notify other listeners (e.g. for logging)
-    }
-
-    // Check if it's a response to a pending request
-    const msgWithId = msg as any
-    if (msgWithId.id && pendingRequests.has(msgWithId.id)) {
-        const requestId = msgWithId.id
-        const { resolve, reject, timeout } = pendingRequests.get(requestId)!
-
-        clearTimeout(timeout)
-        pendingRequests.delete(requestId)
-
-        if (msgWithId.error) {
-            reject(msgWithId.error)
-        } else {
-            // Support various result field names: payload, data, or result
-            const result = msgWithId.payload
-            resolve(result !== undefined ? result : msg)
-        }
-        return
     }
 
     listeners.forEach(handler => handler(msg))
@@ -178,46 +157,4 @@ function cleanupTauriListeners() {
         tauriUnlisteners.forEach(unlisten => unlisten())
         tauriUnlisteners = []
     }
-}
-
-// ==================== Public API: Request ====================
-
-export async function sendRequest(method: string, params: any = {}): Promise<any> {
-    const id = createRuntimeId('notify')
-    const payload = {
-        type: "req",
-        method,
-        id,
-        params
-    }
-
-    return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            if (pendingRequests.has(id)) {
-                pendingRequests.delete(id)
-                reject(new Error('Request timed out'))
-            }
-        }, 10000) // 10s timeout
-
-        pendingRequests.set(id, { resolve, reject, timeout })
-
-        try {
-            if (isTauri) {
-                import('@tauri-apps/api/core').then(({ invoke }) => {
-                    invoke('notify_send', { message: JSON.stringify(payload) })
-                        .catch(err => {
-                            clearTimeout(timeout)
-                            pendingRequests.delete(id)
-                            reject(err)
-                        })
-                })
-            } else {
-                sendBrowserWs(payload)
-            }
-        } catch (err) {
-            clearTimeout(timeout)
-            pendingRequests.delete(id)
-            reject(err)
-        }
-    })
 }

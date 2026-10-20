@@ -133,13 +133,3 @@ export function disconnectBrowserWs() {
     }
 }
 
-export function sendBrowserWs(data: any) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(data))
-    } else {
-        console.warn('[notify-client] Cannot send message, WebSocket is not open.')
-        // Optional: queue message or throw error
-        throw new Error('WebSocket is not connected')
-    }
-}
-

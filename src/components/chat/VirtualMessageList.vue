@@ -19,6 +19,7 @@ import {
 import type { DisplayMessage } from '../../composables/useChatMessages'
 import type { BranchInfo } from './MessageBubble.vue'
 import { computeBranchTailFlags } from '../../utils/chatBranchTail'
+import { computeDisplayTailIndex } from '../../utils/chatDisplayTail'
 import MessageBubble from './MessageBubble.vue'
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -99,11 +100,14 @@ const enrichedItems = computed(() => {
     // 拓扑相关的（死胡同末项 / 续写分支 / 正常回合 / 排队尾 / 瞬态行各有期望值），
     // 独立导出后可逐拓扑表驱动断言，而不是在 SFC 里只能做源码字符串钉子。
     const branchTailFlags = computeBranchTailFlags(props.messages)
+    // 尾锚跳过排队态气泡（见 chatDisplayTail 头注：拿排队气泡当尾锚会让待作答的
+    // A2UI 面板被交互遮罩锁死——排队消息要等 run 边界，而 run 正卡在那张表单上）
+    const tailIndex = computeDisplayTailIndex(props.messages)
     return props.messages.map((msg, i) => ({
         msg,
         key: itemKey(msg, i),
         index: i,
-        isLast: i === props.messages.length - 1,
+        isLast: i === tailIndex,
         isBranchTail: branchTailFlags[i],
     }))
 })
