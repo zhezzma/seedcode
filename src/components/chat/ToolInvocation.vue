@@ -33,6 +33,14 @@ import {
     toSlash,
     toWorkspaceRelative,
 } from '../../utils/tool-file-paths.ts'
+import {
+    diffEdits,
+    extractEdits,
+    extractWriteContent,
+    toAddDiffLines,
+    type DiffLine,
+} from '../../utils/tool-diff.ts'
+import ToolDiffView from './ToolDiffView.vue'
 
 const props = defineProps<{
     toolName: string
@@ -360,6 +368,22 @@ function previewContent(content: string) {
     wsViewer.openText(content)
 }
 
+// ── write/edit 工具卡 diff 视图（纯客户端自算，见 utils/tool-diff.ts）───
+/** edit：args.edits 的 oldText→newText 自算行级 diff；args 不可解析（流式未拼完）为 null */
+const editDiffLines = computed<DiffLine[] | null>(() => {
+    if (props.toolName !== 'edit') return null
+    const edits = extractEdits(props.args)
+    return edits ? diffEdits(edits) : null
+})
+/** write：args.content 整体即新增（全绿 + 行号 1..N）；args 不可解析为 null */
+const writeDiffLines = computed<DiffLine[] | null>(() => {
+    if (props.toolName !== 'write') return null
+    const content = extractWriteContent(props.args)
+    return content === null ? null : toAddDiffLines(content)
+})
+/** 当前卡应显示 diff 视图时的行数据（edit/write 之外恒为 null） */
+const fileDiffLines = computed<DiffLine[] | null>(() => editDiffLines.value ?? writeDiffLines.value)
+
 // ─── 子代理轨迹查看 ─────────────────────────
 /** 任一子代理带回 subagentSessionId 即可查看落盘轨迹 */
 const canViewTrace = computed(() => {
@@ -473,7 +497,10 @@ function onHeaderClick() {
                             {{ basename(p) }}
                         </button>
                     </div>
-                    <pre
+                    <!-- write/edit：diff 视图（客户端自算，替换转义 JSON 的可读性升级）；
+                         args 不可解析（仅流式拼接期间）回退原始 JSON -->
+                    <ToolDiffView v-if="fileDiffLines" :lines="fileDiffLines" />
+                    <pre v-else
                         class="bg-base-300 p-2 rounded text-xs font-mono overflow-x-auto">{{ formatJson(args) }}</pre>
                 </div>
 
