@@ -146,13 +146,26 @@ const thinkingDropdownOpen = ref(false)
 
 // 会话权限模式（第四下拉）：新会话页仅本地暂存、随首条消息一并提交
 // （服务端 prompt 前落账，首轮 tool call 即生效）；既有会话立即 POST 切档。
-// 下拉恒显示（含旧服务端：切档时 POST 404 toast 直接可见，不静默隐藏）。
+// 显隐由 permAvailable 驱动：permission-gate 未启用（全局/agent 级禁用，
+// 或旧服务端无此扩展路由）时选择框整体隐藏；隐藏期间清掉创建期暂存档位，
+// 避免把失效覆盖随首条消息带给新会话。
 const permState = usePermissionMode()
+// 挂载即重探可用性：管理面开关扩展后返回聊天页，选择框显隐立即跟上
+// （watch 只在 agent/会话变化时触发，同会话往返不触发）
+permState.pokeAvailability()
+const permAvailable = permState.available
 const pendingPermissionMode = ref<PermissionMode | null>(null)
 const permissionMode = computed<PermissionMode>(() =>
     isPendingMode.value ? (pendingPermissionMode.value ?? 'autonomous') : permState.mode.value,
 )
 const permDropdownOpen = ref(false)
+// 隐藏时清掉创建期暂存档位并收起下拉：不可用状态下不应残留失效覆盖
+watch(permAvailable, (visible) => {
+    if (!visible) {
+        pendingPermissionMode.value = null
+        permDropdownOpen.value = false
+    }
+})
 const PERM_MODES: PermissionMode[] = ['careful', 'autonomous', 'full']
 const selectPermissionMode = (m: PermissionMode) => {
     permDropdownOpen.value = false
@@ -511,8 +524,9 @@ defineExpose({
                         </ul>
                     </div>
 
-                    <!-- Permission Mode（第四下拉：新会话页选创建期档位，既有会话即时切档） -->
-                    <div class="dropdown dropdown-top"
+                    <!-- Permission Mode（第四下拉：新会话页选创建期档位，既有会话即时切档；
+                         permission-gate 未启用时整体隐藏） -->
+                    <div v-if="permAvailable" class="dropdown dropdown-top"
                         :class="{ 'dropdown-open': permDropdownOpen }">
                         <button
                             @click.stop="permDropdownOpen = !permDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; thinkingDropdownOpen = false"
