@@ -7,6 +7,7 @@ import path from 'node:path'
 const testDir = path.dirname(fileURLToPath(import.meta.url))
 const adaptersPath = path.resolve(testDir, '../src-tauri/resources/seedagent/dist/extensions/image-gen/images-adapters.js')
 const indexPath = path.resolve(testDir, '../src-tauri/resources/seedagent/dist/extensions/image-gen/index.js')
+const runtimePath = path.resolve(testDir, '../src-tauri/resources/seedagent/seedserver.mjs')
 const detailPath = path.resolve(testDir, '../src/components/models/ModelDetail.vue')
 
 /**
@@ -24,11 +25,22 @@ test('images-adapters: 装饰器不得注入 getAllModels（全局目录保持�
         'decorateProviderWithImages 不得覆盖 getAllModels——这会把扩展条目混进 GET /api/models')
 })
 
-test('images-adapters: 装饰器保留 generateImages 能力挂载与实现分派', () => {
+test('images-adapters: images 能力挂载与实现分派保留（扩展注册 + ModelBridge 挂载）', () => {
+    // 2026-10-21 dist 刷新后的接线形态：扩展不再直接装饰 provider，改经窄面桥
+    // modelBridge.registerImagesCapability 提交纯函数能力（appliesTo/resolve）；
+    // generateImages 方法挂载与未命中实现的报错回落移入运行时 ModelBridge
+    // （applyImagesCapabilities，见 seedserver.mjs）——语义未变，实现位置变了。
     const source = readFileSync(adaptersPath, 'utf8')
-    assert.match(source, /generateImages:\s*\(model,\s*context,\s*options\)\s*=>/,
-        '装饰器返回的 provider 需挂载 generateImages 分派')
-    assert.match(source, /imageErrorResult\(model, `Provider \$\{provider\.id\} has no image generation implementation/, '未命中实现时回落/报错语义保留')
+    assert.match(source, /modelBridge\.registerImagesCapability\("image-gen",\s*imageGenImagesCapability\)/,
+        '扩展需经窄面桥注册 images 能力（能力注入，不是目录注入）')
+    assert.match(source, /export function generate(?:Openai|GeminiChat|OpenaiChat)Images\(model,\s*context,\s*options\)/,
+        '适配器需保留 (model, context, options) 分派签名')
+
+    const runtime = readFileSync(runtimePath, 'utf8')
+    assert.match(runtime, /generateImages:\s*\(model,\s*context,\s*options\)\s*=>/,
+        'ModelBridge.applyImagesCapabilities 需挂载 generateImages 分派')
+    assert.match(runtime, /imageErrorResult\(model, `Provider \$\{provider\.id\} has no image generation implementation/,
+        '未命中实现时回落/报错语义保留')
 })
 
 test('index: 生图调度不得走目录查询（getModelOfType）', () => {
