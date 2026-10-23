@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import ToolInvocation from './ToolInvocation.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
+import DeliverablesPanel from './DeliverablesPanel.vue'
 import { A2UIRenderer } from '../a2ui'
 import { handleA2UIAction } from '../../composables/useA2UIActions'
 import { getSurface } from '../../composables/useA2UISurfaces'
@@ -536,6 +537,10 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         <span class="loading loading-dots loading-sm opacity-60"></span>
                         <span>{{ $t('chat.contextCompacting') }}</span>
                     </div>
+                    <!-- 本轮产出物清单（deliverables 回执气泡唯一块）：分组文件列表，
+                         点击开 diff（repo/mode/ref 服务端已解析）/ 直接看文件 -->
+                    <DeliverablesPanel v-else-if="block.type === 'deliverables' && block.deliverableFiles"
+                        :files="block.deliverableFiles" :summary="block.deliverableSummary!" />
                     <div v-else-if="block.type === 'unknown'" class="alert alert-warning text-xs p-2 my-1">
                         <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-4 w-4" fill="none"
                             viewBox="0 0 24 24">

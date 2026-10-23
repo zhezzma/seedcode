@@ -674,6 +674,11 @@ export default {
         compactDone: 'Context compacted: {before} → {after} tokens',
         compactNothingToDo: 'Session too short — nothing to compact',
         compactAlreadyDone: 'This branch is already compacted — nothing new to compact',
+        deliverables: {
+            title: 'Deliverables This Round',
+            viaTool: 'Written directly by tool',
+            viaScript: 'Produced indirectly by script',
+        },
         a2uiAction: 'Interactive Event',
         a2uiActionQuestion: 'Submitted Question',
         a2uiActionQuestionnaire: 'Submitted Questionnaire',

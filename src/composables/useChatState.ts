@@ -956,7 +956,15 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`).then(result => {
                 if (result?.messages) {
                     const sd = getSessionData(targetKey)
-                    sd.chatMessages = result.messages
+                    // 迟到回执防抹守卫（防御性）：服务端现已 done 前排空 run_end 收尾
+                    // 工作（回执先于 done 接序到达），但超时放行/边界路径下仍可能出现
+                    // 「回执已 SSE 追加、而本快照取于其落库之前」的乱序——整体替换会
+                    // 把它抹掉。替换前保留尾部未被快照覆盖的 custom 消息（按 entryId
+                    // 判重；落库后的下轮刷新会正常收录，此处只兑当轮窗口）。无 entryId
+                    // 的本地回执（bash-receipt）由 remountLocalReceipts 负责，不在此列。
+                    const fetchedIds = new Set(result.messages.map(m => m.entryId).filter(Boolean))
+                    const lateReceipts = sd.chatMessages.filter(m => m.role === 'custom' && m.entryId && !fetchedIds.has(m.entryId))
+                    sd.chatMessages = lateReceipts.length > 0 ? [...result.messages, ...lateReceipts] : result.messages
                     // 服务端已持久化全部 toolResult entry，本地临时条目同步清空
                     //（同 loadChatHistory 规则）：不清会与持久化消息双重参与 1.1 合并，
                     // 幂等但永久残留，且随 sessionsMap 永不驱逐

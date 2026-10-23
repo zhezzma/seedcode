@@ -11,8 +11,31 @@ import { i18n } from '../i18n'
 import { isSupportedA2uiMessage, isSurfaceCatalogAllowed, isComponentCatalogAllowed } from './a2uiClient'
 
 // Types for internal display
+
+/** deliverables 载荷形状（服务端 ReportItem 对位；定义在块契约处单点导出，
+ *  DeliverablesPanel type-only 回引——双方 type-only，无运行时环）。
+ *  repo/mode/ref 由服务端 git 验证解析，面板点击直接开 diff */
+export interface DeliverableFile {
+    path: string
+    abs: string
+    repo: string | null
+    change: 'created' | 'modified' | 'renamed' | 'deleted'
+    status: string | null
+    mode: import('./workspace-api').DiffMode | null
+    ref: string | null
+    via: 'tool-input' | 'tool-output' | 'script'
+    tool: string | null
+}
+
+export interface DeliverableSummary {
+    created: number
+    modified: number
+    renamed: number
+    deleted: number
+}
+
 export interface DisplayBlock {
-    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting'
+    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables'
     text?: string
     /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染。
      * 语义是「曾经增长过」（保守，交错推理防抖见 chat-attach.markLiveStreamBlock） */
@@ -44,6 +67,10 @@ export interface DisplayBlock {
     // A2UI User Action 字段
     a2uiEventName?: string
     a2uiPayload?: any
+    // deliverables 块专用：本轮产出物清单（服务端 git 验证后的结构化载荷，
+    // DeliverablesPanel 点击直接开 diff/文件）
+    deliverableFiles?: DeliverableFile[]
+    deliverableSummary?: DeliverableSummary
 }
 
 export interface DisplayMessage {
@@ -413,7 +440,8 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
 
 /** 命令回执类 customType：独立成泡（面板「并入前一条 assistant 气泡」语义不
  *  适用于回执——它是命令执行的产出，不是 AI 回复的内嵌附件；也不吃
- *  assistantMsgMerge）。服务端在 custom_message 里权威标注，客户端只认集合 */
+ *  assistantMsgMerge）。服务端在 custom_message 里权威标注，客户端只认集合。
+ *  （deliverables 不在此列：本轮产出物是该条 AI 回复的内嵌附件，走并入语义） */
 const RECEIPT_CUSTOM_TYPES = new Set(['bash-receipt', 'command-response'])
 
 export function useChatMessages(state: ChatStateShape) {
@@ -496,7 +524,22 @@ export function useChatMessages(state: ChatStateShape) {
             // - 服务端 custom_message 条目（通道归位后 /messages 投影：type==='custom_message'）
             // - 旧引擎/迁移历史的 role==='custom' 消息（含 SSE live 追加的）
             if (msg.type === 'custom_message' || msg.role === 'custom') {
-                const panelBlocks = convertToBlocks(msg.content)
+                // deliverables：结构化载荷（{files, summary}），convertToBlocks 只认
+                // 文本/数组——预构造 deliverables 块后走下方面板并入语义（本轮产出物
+                // 是该条 AI 回复的内嵌附件）；文件数守门，脏载荷静默跳过
+                let panelBlocks: DisplayBlock[]
+                if (msg.customType === 'deliverables') {
+                    const payload = msg.content as { files?: DeliverableFile[]; summary?: DeliverableSummary } | null | undefined
+                    panelBlocks = payload && Array.isArray(payload.files) && payload.files.length > 0
+                        ? [{
+                            type: 'deliverables',
+                            deliverableFiles: payload.files,
+                            deliverableSummary: payload.summary ?? { created: 0, modified: 0, renamed: 0, deleted: 0 },
+                        }]
+                        : []
+                } else {
+                    panelBlocks = convertToBlocks(msg.content)
+                }
                 if (panelBlocks.length === 0) continue
                 // 命令回执（bash-receipt/command-response）：独立成 assistant 文本气泡
                 if (msg.customType && RECEIPT_CUSTOM_TYPES.has(msg.customType)) {
@@ -510,14 +553,24 @@ export function useChatMessages(state: ChatStateShape) {
                     })
                     continue
                 }
-                const lastMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null
-                if (lastMsg && lastMsg.role === 'assistant') {
+                // 合并目标：向前回溯最近的 assistant 气泡（跳过中间的 user 气泡）。
+                // 只看列表尾会被排队消息分割：followUp run 在 endRun 同 commit 启动，
+                // 排队消息的用户回显先于 done 前排空的回执到达（deliverables 面板等），
+                // 「前一条必须是 assistant」恒失败 → 面板被割成独立泡（截图实锤）。
+                // 面板语义上属于刚结束的那轮回复，中间夹的用户回显不打断归属；
+                // 确实无 assistant（会话开头）才兑底独立成泡。
+                const anchor = (() => {
+                    for (let i = displayMessages.length - 1; i >= 0; i--) {
+                        if (displayMessages[i].role === 'assistant') return displayMessages[i]
+                    }
+                    return null
+                })()
+                if (anchor) {
                     // 与工具卡同语义：无条件并入（不受 assistantMsgMerge 开关控制）
-                    lastMsg.blocks.push(...panelBlocks)
+                    anchor.blocks.push(...panelBlocks)
                     // 操作锚点跟随组内最后一条 entry（同 1.2 合并路径语义）
-                    if (msg.entryId) lastMsg.lastEntryId = msg.entryId
+                    if (msg.entryId) anchor.lastEntryId = msg.entryId
                 } else {
-                    // 前面无 assistant 气泡（面板开头/异常序）：兑底独立成 assistant 气泡
                     displayMessages.push({
                         id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
                         role: 'assistant',

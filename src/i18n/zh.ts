@@ -675,6 +675,11 @@ export default {
         compactDone: '上下文已压缩：{before} → {after} tokens',
         compactNothingToDo: '会话太短，没有可压缩的内容',
         compactAlreadyDone: '当前分支已压缩过，没有新内容可压缩',
+        deliverables: {
+            title: '本轮产出物',
+            viaTool: '由工具直接写入',
+            viaScript: '由脚本间接产出',
+        },
         a2uiAction: '交互事件',
         a2uiActionQuestion: '提交了问题',
         a2uiActionQuestionnaire: '提交了问卷',
