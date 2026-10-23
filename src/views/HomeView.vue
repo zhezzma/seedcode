@@ -543,8 +543,7 @@ const handleSend = async (mode?: BusySendBehavior) => {
     const currentSession = targetSessionKey ? sessionsState.findSessionLocal(targetSessionKey) : undefined
     if (targetSessionKey && originalUserText && !isCommand && !currentSession?.titleSet) {
         sessionsState
-            // 单参：标题源在 triggerSessionRename 内直取占位标题（titleSet=false 时
-            // 即会话第一条消息，创建时由 firstMessage 播种），不再传触发时消息
+            // 单参：标题源在服务端转录首条 user 消息，客户端不传触发文本
             .triggerSessionRename(targetSessionKey)
             .catch(err => {
                 console.error('Auto-rename failed', err)
@@ -598,8 +597,8 @@ const retryMessage = async (msg: DisplayMessage) => {
     // retry 逻辑同上，chatState 会接管
 
     // 自动命名补触发：retry 同样把 user 消息重发给模型，titleSet 未置位的会话
-    // 补一次命名机会。标题源由 triggerSessionRename 直取占位标题（retry 不改变
-    // 首条消息），内部自带 titleSet/空占位守卫与在途去重
+    // 补一次命名机会。标题源在服务端转录（retry 不改变首条消息），内部自带
+    // titleSet 守卫与在途去重
     if (chatState.sessionKey) {
         sessionsState
             .triggerSessionRename(chatState.sessionKey)
@@ -623,8 +622,8 @@ const editMessage = async (msg: DisplayMessage, newText: string) => {
     await chatState.editMessage(msg.entryId, newText)
 
     // 自动命名补触发：编辑以新文本重发 user 消息，titleSet 未置位的会话补一次
-    // 命名机会；新文本是命令则跳过（与 handleSend 的命令守卫一致）。标题源仍由
-    // triggerSessionRename 直取占位标题，不传触发文本
+    // 命名机会；新文本是命令则跳过（与 handleSend 的命令守卫一致）。标题源在
+    // 服务端转录，客户端不传触发文本
     // 命令表命令名（与 handleSend 相同）：null 表示未加载，isCommandInvocation 保守回退
     const knownCommandNames = isLoaded.value ? allCommands.value.map(cmd => cmd.name) : null
     if (chatState.sessionKey && newText && !isCommandInvocation(newText.trimStart(), knownCommandNames)) {

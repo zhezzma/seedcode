@@ -178,20 +178,23 @@ const updateSessionLocal = (key: string, patch: Partial<SessionRow>) => {
     }
 }
 
-/** 自动命名触发（守卫 !titleSet）。标题源 = 占位标题 name：titleSet=false 时它
- *  就是会话第一条消息（创建时由 firstMessage 播种 / run_end 按首条 user 消息
- *  派生），直接取用不扫转录；无占位（无可传的首条消息）不触发不置位，等
- *  run_end 回填后下条消息可再触发。 */
+/** 自动命名触发（守卫 !titleSet）。标题源在服务端：generate-title 接口自行
+ *  从转录取首条 user 消息全文（= 创建时 firstMessage 原文，占位标题只存前
+ *  100 字符不可用），客户端不传文本；转录无 user 消息时服务端 400，失败
+ *  回滚下条消息可重试（等首条消息落地后成功）。 */
 const triggerSessionRename = async (targetKey: string) => {
     const target = findSessionLocal(targetKey)
     // 守卫 + 乐观置位同步完成（首次 await 之前）：rename 在途（标题 LLM 调用耗时
     // 数秒）时，后续消息的守卫读到 true 不再重复触发；失败回滚，下条消息可重试
-    if (!target || target.titleSet || !target.name) return
+    if (!target || target.titleSet) return
     target.titleSet = true
     try {
         const result = await apiPost<{ sessionId: string; name: string }>(
             `/api/sessions/${encodeURIComponent(targetKey)}/generate-title`,
-            { text: target.name }
+            undefined,
+            // 预期失败路径（服务端 400：转录尚未落库的竞态 / 空会话）不弹全局
+            // toast，由本地回滚自处，下条消息重试
+            true,
         )
         const name = result?.name
         if (name && target) {

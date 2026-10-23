@@ -109,14 +109,15 @@ export async function apiGet<T = any>(path: string, silent = false): Promise<T> 
     return handleResponse<T>(response, silent)
 }
 
-export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
+/** silent=true 时不弹全局错误 toast（后台自动命名等预期失败自回滚场景） */
+export async function apiPost<T = any>(path: string, body?: any, silent = false): Promise<T> {
     const url = `${getBaseUrl()}${path}`
     const response = await fetchWithToast(url, {
         method: 'POST',
         headers: getHeaders('application/json'),
         body: body !== undefined ? JSON.stringify(body) : undefined,
-    })
-    return handleResponse<T>(response)
+    }, silent)
+    return handleResponse<T>(response, silent)
 }
 
 export async function apiPut<T = any>(path: string, body?: any): Promise<T> {

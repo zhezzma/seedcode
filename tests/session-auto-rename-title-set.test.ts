@@ -71,9 +71,12 @@ setActivePinia(createPinia())
 const RENAME_DELAY_MS = Number(process.env.HARNESS_RENAME_DELAY_MS || 0)
 const RENAME_FAIL = process.env.HARNESS_RENAME_FAIL === '1'
 const calls = []
+const generateTitleBodies: string[] = []
 ;(globalThis as any).fetch = async (url, init) => {
     const u = new URL(url)
     calls.push((init?.method || 'GET') + ' ' + u.pathname)
+    // 标题源已改为服务端转录首条 user 消息：客户端请求不得再携带 text body
+    if (u.pathname.endsWith('/generate-title')) generateTitleBodies.push(String(init?.body ?? 'NO_BODY'))
     const body = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } })
     // 冷启动列表：三个会话均为 titleSet=false（新会话语义——仅占位标题）
     if (u.pathname === '/api/sessions') return body({ ok: true, payload: { sessions: [
@@ -105,9 +108,10 @@ if (RENAME_FAIL) {
     await sessions.triggerSessionRename('S1')
     console.log('C posts=' + calls.filter((c) => c.includes('/generate-title')).length + ' titleSet=' + sessions.findSessionLocal('S1')?.titleSet)
 } else {
-    // 场景A：成功回执置位——守卫就此闭合，后续消息不再触发自动命名
+    // 场景A：成功回执置位——守卫就此闭合，后续消息不再触发自动命名；
+    // 同时钉住请求形状：无 body（标题源在服务端转录，客户端不传文本）
     await sessions.triggerSessionRename('S1')
-    console.log('A titleSet=' + sessions.findSessionLocal('S1')?.titleSet + ' name=' + sessions.findSessionLocal('S1')?.name)
+    console.log('A titleSet=' + sessions.findSessionLocal('S1')?.titleSet + ' name=' + sessions.findSessionLocal('S1')?.name + ' body=' + (generateTitleBodies[0] ?? 'NO_CALL'))
 
     // 场景B：rename 在途（HARNESS_RENAME_DELAY_MS 延迟返回）时并发双触发（用户连发两条消息）——只发一次 POST
     const postsBeforeB = calls.filter((c) => c.includes('/generate-title')).length
@@ -156,8 +160,9 @@ test('triggerSessionRename sets titleSet on success so the auto-rename guard clo
     try {
         const out = await runHarness(outDir, { HARNESS_RENAME_DELAY_MS: '60' })
 
-        // A：成功回执必须置位 titleSet（否则每条消息都重新触发自动命名）
-        assert.match(out, /A titleSet=true name=AI标题/, 'a successful AI rename must mark the local row titleSet=true')
+        // A：成功回执必须置位 titleSet（否则每条消息都重新触发自动命名）；
+        // generate-title 请求不得携带 body（旧实现传 { text }，标题源已改服务端转录）
+        assert.match(out, /A titleSet=true name=AI标题 body=NO_BODY/, 'generate-title must be sent without a client-provided text body')
         // B：rename 在途时的并发双触发只允许发一次 POST（乐观置位必须先于 await 完成）
         assert.match(out, /B posts=1 titleSet=true/, 'a concurrent second message while the rename is in flight must not fire a second generate-title')
         // D：手动 /name 成功后必须置位 titleSet（否则自动命名会覆盖用户手动名）
