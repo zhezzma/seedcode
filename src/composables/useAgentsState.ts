@@ -45,6 +45,11 @@ export interface AgentInfo {
     modelScope?: "session" | "branch"
     steeringMode?: "all" | "one-at-a-time"
     followUpMode?: "all" | "one-at-a-time"
+    /** run 失败后排队输入的处置（pi-durable afterFailedRun，服务端默认 keep：对齐上游 pi） */
+    afterFailedRun?: "keep" | "continue" | "withdraw"
+    /** 后台任务崩溃重启上限（pi-durable restartLimit，服务端默认 5）：同一任务连续被
+     * 崩溃切断此次数无进展即 parked 停车；调大即时解 park。正整数。 */
+    restartLimit?: number
     /** 工具执行模式（pi-durable ToolExecutionMode，缺省 parallel） */
     toolExecution?: "parallel" | "sequential"
     compaction?: CompactionSettings

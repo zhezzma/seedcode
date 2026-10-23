@@ -218,6 +218,22 @@ const followUpMode = computed({
     }
 })
 
+// 回退值对齐服务端 DEFAULT_AGENT_CONFIG（afterFailedRun 缺省 keep：对齐上游 pi 默认，
+// run 失败后排队消息留队等下一条输入到达；可在面板切 continue 自动续跑 / withdraw 撤回）
+const afterFailedRun = computed({
+    get: () => props.agent?.afterFailedRun || 'keep',
+    set: async (val: string) => {
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                afterFailedRun: val
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+        }
+    }
+})
+
 const toolExecution = computed({
     get: () => props.agent?.toolExecution || 'parallel',
     set: async (val: string) => {
@@ -225,6 +241,23 @@ const toolExecution = computed({
             await agentsState.updateAgent({
                 agentId: props.agent.id,
                 toolExecution: val
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+        }
+    }
+})
+
+// 崩溃重启上限（服务端默认 5）。数字输入的清空/非整数值不落盘（v-model.number
+// 清空得 ''，非法输入不发请求，输入框随后由服务端回显值拉回真值）。
+const restartLimit = computed({
+    get: () => props.agent?.restartLimit ?? 5,
+    set: async (val: number | '') => {
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) return
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                restartLimit: val
             })
         } catch (err: any) {
             toast.error(err.message || String(err))
@@ -517,6 +550,23 @@ const handleDeleteAgent = async () => {
                                     <option value="all">{{ $t('agent.modeAll') }}</option>
                                     <option value="one-at-a-time">{{ $t('agent.modeOneAtATime') }}</option>
                                 </select>
+                            </div>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.afterFailedRun') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <select v-model="afterFailedRun" class="select select-bordered select-sm w-full font-sans">
+                                    <option value="keep">{{ $t('agent.afterFailedRunKeep') }}</option>
+                                    <option value="continue">{{ $t('agent.afterFailedRunContinue') }}</option>
+                                    <option value="withdraw">{{ $t('agent.afterFailedRunWithdraw') }}</option>
+                                </select>
+                            </div>
+                        </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.restartLimit') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <input v-model.number="restartLimit" type="number" min="1" step="1"
+                                    class="input input-bordered input-sm w-24 text-right font-sans" />
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
