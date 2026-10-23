@@ -633,6 +633,8 @@ export default {
         inputPlaceholder: "Type a message or '/' to select a command",
         // 新会话欢迎页专用：不支持 / 命令，文案换成更有邀请感的开场
         inputPlaceholderHome: "Tell me your idea and I'll build it",
+        // 回复预测 ghost 建议的填入按钮 tooltip（Tab 同效）
+        suggestionFill: 'Fill suggestion (Tab)',
         uploadAttachment: 'Upload Attachment',
         connected: 'Connected',
         disconnected: 'Disconnected',

@@ -1766,16 +1766,36 @@ const _methods = {
 }
 const _chatState = Object.assign(state, _methods) as unknown as typeof state & UnwrapComputed<typeof _methods>
 
-// ==================== 服务端队列快照同步 ====================
-// 服务端 steer/followUp 影子账本任何变更（入队登记 / 回显出账 / 删除 / abort 清账）
-// 都会广播 queue_state 权威快照：多窗口收敛 + 断线重连后的陈旧视图修正。
+// ==================== 服务端 WS 事件消费（模块级一次注册） ====================
+// 全局 WS 广播的消费点，按事件名分发（与 useNotify 的 notification 监听器
+// 并列，各自订阅自己的事件）。
+//
+// queue_state：服务端 steer/followUp 影子账本任何变更（入队登记 / 回显出账 /
+// 删除 / abort 清账）都广播权威快照：多窗口收敛 + 断线重连后的陈旧视图修正。
 // 本地不再持久化队列（无 localStorage），快照经 queueRev 门禁后整体替换。
+//
+// ext_event：服务端旁路工作（如 reply-prediction 预测）在 SSE 流关闭（done
+// 后）才完成时的迟到通道（两仓同步契约，同 seedagent types.ts
+// WsEventDataMap.ext_event）：转发回扩展事件总线——payload.sessionId 即归属
+// key，各扩展 composable 的会话归属校验照常生效。与 SSE 线幂等共存：快线
+// 先到时同值重复赋值无害。
 onServerMessage((msg: any) => {
-    if (msg?.type !== 'event' || msg?.event !== 'queue_state') return
-    const sessionId = msg.payload?.sessionId
-    const sd = sessionId ? state.sessionsMap.get(sessionId) : undefined
-    if (!sd) return
-    applyQueueSnapshot(sd, msg.payload?.queueRev, msg.payload?.entries)
+    if (msg?.type !== 'event') return
+
+    if (msg.event === 'queue_state') {
+        const sessionId = msg.payload?.sessionId
+        const sd = sessionId ? state.sessionsMap.get(sessionId) : undefined
+        if (!sd) return
+        applyQueueSnapshot(sd, msg.payload?.queueRev, msg.payload?.entries)
+        return
+    }
+
+    if (msg.event === 'ext_event') {
+        const { sessionId, event, data } = msg.payload ?? {}
+        if (typeof sessionId !== 'string' || typeof event !== 'string') return
+        if (!isExtensionEvent(event)) return
+        emitExtensionEvent(event, data, sessionId)
+    }
 })
 
 export function useChatState() {

@@ -634,6 +634,8 @@ export default {
         inputPlaceholder: "发消息或输入'/'选择命令",
         // 新会话欢迎页专用：不支持 / 命令，文案换成更有邀请感的开场
         inputPlaceholderHome: '说说你的想法，我来实现',
+        // 回复预测 ghost 建议的填入按钮 tooltip（Tab 同效）
+        suggestionFill: '填入建议 (Tab)',
         uploadAttachment: '上传附件',
         connected: '已连接',
         disconnected: '未连接',

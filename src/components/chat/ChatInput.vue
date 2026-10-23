@@ -16,9 +16,11 @@ import {
     LightBulbIcon,
     BoltIcon,
     InboxArrowDownIcon,
-    XMarkIcon
+    XMarkIcon,
+    SparklesIcon
 } from '@heroicons/vue/24/outline'
 import { useChatInput, COMMANDS, type CommandItem } from '../../composables/useChatInput'
+import { useReplySuggestion } from '../../composables/useReplySuggestion'
 import { useModelsState } from '../../composables/useModelsState'
 import { useChatState, type ChatSendOverrides } from '../../composables/useChatState'
 import type { CommandInfo } from '../../composables/useCommandState'
@@ -374,7 +376,35 @@ const handlePaste = (e: ClipboardEvent) => {
 }
 
 const handleInputKeydown = (e: KeyboardEvent) => {
+    // ghost 建议填入：唯一新增的 keydown 拦截——仅建议可见且输入为空时 Tab 填入
+    // （否则 Tab 保持原生焦点移动/命令补全路由）；不拦截 Enter，不做 Esc
+    if (e.key === 'Tab' && ghostText.value) {
+        e.preventDefault()
+        applySuggestion()
+        return
+    }
     handleKeydown(e, onSend)
+}
+
+// ——— 回复预测 ghost 建议（reply-prediction 扩展，ext.reply_suggestion 事件驱动） ———
+// 可见条件：有建议 && 输入为空 && 会话空闲（busy 上升沿已在 composable 内清建议，
+// 此处 isBusy 双保险覆盖「busy 已真但建议迟到」的窄窗口）
+const { suggestion, fillSuggestion } = useReplySuggestion()
+const ghostText = computed(() => {
+    if (isBusy.value || inputText.value) return ''
+    return suggestion.value ?? ''
+})
+
+// 填入（Tab 与 sparkles 按钮共用）：填入 → 清状态 → 聚焦 → 光标到尾
+const applySuggestion = () => {
+    if (!fillSuggestion()) return
+    nextTick(() => {
+        const el = textareaRef.value
+        if (!el) return
+        el.focus()
+        const end = el.value.length
+        el.setSelectionRange(end, end)
+    })
 }
 
 // Close dropdowns when clicking outside toolbar
@@ -469,7 +499,7 @@ defineExpose({
 
 
             <textarea ref="textareaRef" v-model="inputText" rows="1"
-                :placeholder="centered ? $t('chat.inputPlaceholderHome') : $t('chat.inputPlaceholder')"
+                :placeholder="ghostText || (centered ? $t('chat.inputPlaceholderHome') : $t('chat.inputPlaceholder'))"
                 class="textarea textarea-ghost w-full resize-none focus:outline-none focus:bg-transparent text-base min-h-[44px] max-h-[200px] px-3 py-3 leading-6 placeholder:text-base-content/40 hide-scrollbar"
                 @keydown="handleInputKeydown" @focus="handleInputFocus" @input="adjustHeight" @paste="handlePaste"
                 :disabled="disabled"></textarea>
@@ -487,7 +517,7 @@ defineExpose({
                     </button>
 
                     <!-- Command（新会话页居中卡片不显示；会话页保持原样） -->
-                    <div v-if="!centered" class="dropdown dropdown-top hidden sm:block"
+                    <div v-if="!centered" class="dropdown dropdown-top "
                         :class="{ 'dropdown-open': commandDropdownOpen }">
                         <button
                             @click.stop="commandDropdownOpen = !commandDropdownOpen; modelDropdownOpen = false; thinkingDropdownOpen = false; permDropdownOpen = false"
@@ -526,7 +556,7 @@ defineExpose({
 
                     <!-- Permission Mode（第四下拉：新会话页选创建期档位，既有会话即时切档；
                          permission-gate 未启用时整体隐藏） -->
-                    <div v-if="permAvailable" class="dropdown dropdown-top"
+                    <div v-if="permAvailable" class="dropdown dropdown-top hidden sm:block"
                         :class="{ 'dropdown-open': permDropdownOpen }">
                         <button
                             @click.stop="permDropdownOpen = !permDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; thinkingDropdownOpen = false"
@@ -612,6 +642,14 @@ defineExpose({
                         :title="$t('chat.voiceInput')">
                         <MicrophoneIcon class="h-5 w-5 relative z-10" />
                         <span v-if="isRecording" class="absolute inset-0 bg-white/20 animate-ping rounded-full"></span>
+                    </button>
+                    <!-- 回复预测填入：随 ghost 建议显隐，发送键左侧，与 Tab 同一填入动作；
+                         全平台显示（触屏无 Tab 键的唯一入口） -->
+                    <button v-if="ghostText" @click="applySuggestion"
+                        class="btn btn-ghost btn-sm rounded-full hover:bg-base-300 transition-colors"
+                        :disabled="disabled"
+                        :title="$t('chat.suggestionFill')" :aria-label="$t('chat.suggestionFill')">
+                        <SparklesIcon class="h-4 w-4" />
                     </button>
                     <!-- Send / Stop / busy 双通道 -->
                     <!-- busy + 输入框有文字 + 非命令文本：显式双选——「插入」立即注入当前回复(steer) /
