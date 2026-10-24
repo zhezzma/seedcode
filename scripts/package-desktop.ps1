@@ -47,7 +47,8 @@ src-tauri\resources\seedagent\ 目录的过程。该目录会被 tauri 打进安
   -NoLaunch      部署后不自动启动新实例（默认部署成功即拉起，见 ⑦）
   -HostUpdateServer 热更新：跳过 ④⑤（tauri 编译/收集产物），只把装配好的 seedagent 镜像到
                  部署目录 resources\seedagent 并重启。覆盖范围 = 服务端 + 移动端隧道 web\；
-                 桌面 webview 前端编译时嵌在 exe 内，改前端必须走全量打包。
+                 桌面 UI 经 seedui:// 协议加载 resources 内 web\，前端改动同样
+                 随热更新生效，无需全量打包。
   注意：-StageOnly 与 -SkipStage 互斥，不要同时传（同时传等于什么也不做直接退出）；
        -HostUpdateServer 与 -Installers / -SkipDeploy 互斥（脚本内显式校验）。
 #>
@@ -209,10 +210,17 @@ else {
     node (Join-Path $SeedagentDir 'scripts\build-desktop.mjs') $staging
     if ($LASTEXITCODE -ne 0) { throw "build-desktop failed" }
 
-    # ③.6 构建前端 SPA → staging web\（移动端隧道同源托管：seedserver 直接服务前端）
-    #     只跑 vite build（tauri build ④ 的 beforeBuildCommand 会另行全量构建 dist\，
-    #     两次构建同源同版本产物一致）；assetsDir=static 避开服务端 /assets 图片端点
-    Write-Host "==> vite build -> staging web\ (tunnel mobile UI)"
+    # ③.6 构建前端 SPA → staging web\（唯一一份：桌面 webview 经 seedui:// 协议加载它，
+    #     移动端隧道由 seedserver 同源托管，exe 不再嵌前端）。
+    #     先跑 tcs 类型检查（原由 tauri beforeBuildCommand 承担，④ 的 overlay 已置空，
+    #     此处承接）；assetsDir=static 避开服务端 /assets 图片端点
+    Write-Host "==> tcs (type check, 原由 beforeBuildCommand 承担)"
+    Push-Location $root
+    try {
+        npm run tcs
+        if ($LASTEXITCODE -ne 0) { throw "tcs failed" }
+    } finally { Pop-Location }
+    Write-Host "==> vite build -> staging web\ (tunnel mobile UI + seedui desktop UI)"
     Push-Location $root
     try {
         npx vite build --outDir "$staging\web" --emptyOutDir
@@ -230,8 +238,9 @@ if ($StageOnly) {
 }
 
 # ③.9 热更新（-HostUpdateServer）：跳过 ④⑤，只把装配好的 seedagent 镜像到部署目录并重启。
-# 覆盖范围 = 服务端（seedserver.mjs/dist/node_modules）+ 移动端隧道 web\；
-# 桌面 webview 前端编译时嵌在 exe 内，不随热更新变化，改前端必须走全量打包。
+# 覆盖范围 = 服务端（seedserver.mjs/dist/node_modules）+ 移动端隧道 web\ + 桌面 UI
+# （桌面 webview 经 seedui:// 协议加载 resources 内 web\，热更新后无需重启即生效）；
+# 唯一需要全量打包的改动 = Rust 代码 / Tauri 配置。
 if ($HostUpdateServer) {
     Write-Host "==> -HostUpdateServer: skip tauri build, hot-update server into $DeployDir"
     $target = Join-Path $DeployDir 'resources\seedagent'
@@ -245,7 +254,10 @@ if ($HostUpdateServer) {
 
 # ④ tauri build：默认 --no-bundle 只出裸 exe（快）；-Installers 才打 MSI/NSIS 安装包
 # --config tauri.bundled.conf.json：本脚本产出"内置服务端"版（保持原 productName/
-# identifier）。服务端 resources glob 只存在于 overlay，不在基础配置——因此
+# identifier）。overlay 额外置空 beforeBuildCommand（staging ③.6 已构建前端并跑过
+# tcs，避免二次构建）并把 frontendDist 指向仓库内占位页 ui-fallback\——exe 不再嵌
+# 前端，窗口 url 改走 seedui:// 协议加载 resources 内 web\（见 src-tauri/src/ui.rs）。
+# 服务端 resources glob 同样只存在于 overlay，不在基础配置——因此
 # build_windows.ps1 / build_android.ps1 等纯客户端构建不会受装配残留影响
 Push-Location $root
 try {

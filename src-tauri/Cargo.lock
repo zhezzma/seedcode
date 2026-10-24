@@ -3628,6 +3628,7 @@ dependencies = [
  "futures-util",
  "log",
  "openssl",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tauri",

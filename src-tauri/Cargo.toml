@@ -28,6 +28,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 url = "2.5"
+# seedui:// 协议 handler 路径 percent 解码（web-static.ts 对齐）；依赖树里 url 已带，零额外编译
+percent-encoding = "2"
 # 通知插件（社区版）：官方版 Android 点击链路不回传 extra（sourceJson 缺陷，plugins-workspace#2150），
 # 该 fork 修复了全平台点击回传（notificationClicked 事件带 extra），供精确跳转 /chat/:id。
 # 必须关闭默认 notify-rust 后端：否则 Windows/macOS 编译到 notify-rust 实现，仅支持进程存活时的

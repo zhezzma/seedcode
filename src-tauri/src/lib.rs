@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use tauri::{Manager, WindowEvent};
 
 #[cfg(desktop)]
@@ -8,6 +9,7 @@ use tauri::{
 
 mod notify;
 mod server;
+mod ui;
 
 // Windows 原生 Toast 的 AUMID 快捷方式自愈注册（仅桌面 Windows 编译）
 #[cfg(target_os = "windows")]
@@ -126,7 +128,31 @@ fn cleanup_stale_share_files(dir: &std::path::Path) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    // seedui:// 协议（bundled 版桌面 UI 入口，实现见 ui.rs）：把窗口请求映射到
+    // resources/seedagent/web 静态文件。Windows WebView2 把自定义协议请求映射为
+    // http://seedui.localhost/...、非 Windows 为 seedui://localhost/...，
+    // http::Uri::path() 对两者统一返回路径部分，无需区分。
+    // 用异步版注册：同步版 handler 在 Windows 上于 UI 线程执行（WebResourceRequested），
+    // monaco 这类几十资源的页面/杀毒扫描/热更新替换文件的窗口期，阻塞式 fs::read
+    // 会卡住整个窗口事件循环；改异步 + 工作线程后，每请求重新解析 web 目录的
+    // 热更新语义不变（线程里解析，无缓存状态）。未打包服务端的构建（纯客户端/
+    // Android）目录不存在，handler 返回 404 提示页，但那些构建的窗口走嵌入资产，
+    // 不会请求本协议。
+    let builder =
+        tauri::Builder::default().register_asynchronous_uri_scheme_protocol("seedui", |ctx, request, responder| {
+            // AppHandle 的 clone 是 Arc 级轻量、UriSchemeResponder 内部为 Send 闭包，
+            // 两者与 request 都可安全 move 进工作线程交付
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || {
+                let resource_dir = app
+                    .path()
+                    .resource_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."));
+                let web_dir =
+                    crate::server::resolve_server_dir(&resource_dir).map(|d| d.join("web"));
+                responder.respond(ui::serve_from_web_dir(web_dir.as_deref(), request.uri().path()));
+            });
+        });
 
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

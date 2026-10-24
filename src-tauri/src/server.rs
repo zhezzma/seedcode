@@ -176,7 +176,7 @@ fn node_binary_name() -> &'static str {
 /// 2. 便携/其他打包布局（<exe_dir>/seedagent）
 /// 3. dev（cwd=仓库根，staging 到 src-tauri/resources/seedagent）
 /// 4. dev（cwd=src-tauri，staging 原地生效 → cwd/resources/seedagent）
-fn resolve_server_dir(resource_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn resolve_server_dir(resource_dir: &Path) -> Option<PathBuf> {
     [
         resource_dir.join("resources").join("seedagent"),
         resource_dir.join("seedagent"),
