@@ -171,12 +171,17 @@ fn node_binary_name() -> &'static str {
     "node"
 }
 
-/// server 目录候选，覆盖四种形态：
+/// seedagent 目录候选，覆盖四种形态：
 /// 1. NSIS 安装目录（tauri.conf resources 映射保留源相对路径 → <install>/resources/seedagent）
 /// 2. 便携/其他打包布局（<exe_dir>/seedagent）
 /// 3. dev（cwd=仓库根，staging 到 src-tauri/resources/seedagent）
 /// 4. dev（cwd=src-tauri，staging 原地生效 → cwd/resources/seedagent）
-pub(crate) fn resolve_server_dir(resource_dir: &Path) -> Option<PathBuf> {
+///
+/// probe 为判定候选有效所需的目录内相对路径，调用方各取所需（服务端查 node
+/// 可执行文件；桌面 seedui:// UI 查 web/index.html）——两者解耦：杀软隔离
+/// node.exe 而 web/ 完好时，UI 不能连坐成"资源缺失"诊断页（前端自身会渲染
+/// 服务端连接失败态，语义准确得多）。
+pub(crate) fn resolve_seedagent_dir(resource_dir: &Path, probe: &str) -> Option<PathBuf> {
     [
         resource_dir.join("resources").join("seedagent"),
         resource_dir.join("seedagent"),
@@ -191,7 +196,12 @@ pub(crate) fn resolve_server_dir(resource_dir: &Path) -> Option<PathBuf> {
             .join("seedagent"),
     ]
     .into_iter()
-    .find(|d| d.join(node_binary_name()).exists())
+    .find(|d| d.join(probe).exists())
+}
+
+/// 服务端视角的 seedagent 目录：以 node 可执行文件存在为准。
+pub(crate) fn resolve_server_dir(resource_dir: &Path) -> Option<PathBuf> {
+    resolve_seedagent_dir(resource_dir, node_binary_name())
 }
 
 impl ServerManager {
@@ -839,5 +849,28 @@ mod tests {
         if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
             assert!(!port_is_open(port));
         }
+    }
+
+    #[test]
+    fn seedagent_dir_probe_decoupled_from_node_binary() {
+        // 杀软隔离 node.exe 而 web/ 完好的形态：UI 探针（web/index.html）应能命中
+        // 同一候选目录，服务端探针补回 node.exe 后也能命中同一目录。候选序固定
+        // （resource_dir 优先），不受 cwd 侧 staging 目录影响，断言只取正路径。
+        let base = std::env::temp_dir().join(format!(
+            "seedcode-server-test-dirprobe-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let resource_dir = base.join("res");
+        let sa = resource_dir.join("resources").join("seedagent");
+        std::fs::create_dir_all(sa.join("web")).unwrap();
+        std::fs::write(sa.join("web").join("index.html"), b"<html/>").unwrap();
+        assert_eq!(
+            resolve_seedagent_dir(&resource_dir, "web/index.html"),
+            Some(sa.clone())
+        );
+        std::fs::write(sa.join(node_binary_name()), b"x").unwrap();
+        assert_eq!(resolve_server_dir(&resource_dir), Some(sa));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

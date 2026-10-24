@@ -135,14 +135,13 @@ pub fn run() {
     // 用异步版注册：同步版 handler 在 Windows 上于 UI 线程执行（WebResourceRequested），
     // monaco 这类几十资源的页面/杀毒扫描/热更新替换文件的窗口期，阻塞式 fs::read
     // 会卡住整个窗口事件循环；改异步 + 工作线程后，每请求重新解析 web 目录的
-    // 热更新语义不变（线程里解析，无缓存状态）。未打包服务端的构建（纯客户端/
-    // Android）目录不存在，handler 返回 404 提示页，但那些构建的窗口走嵌入资产，
-    // 不会请求本协议。
+    // 热更新语义不变（线程里解析，无缓存状态）。UI 目录探针查 web/index.html
+    // 而非 node.exe（与服务端目录判定解耦）：杀软隔离 node.exe 而 web/ 完好时
+    // UI 仍可加载，由前端自身呈现服务端连接失败态，而非误导性的"资源缺失"诊断页。
+    // 未打包服务端的构建（纯客户端/Android）目录不存在，handler 返回 404 提示页，
+    // 但那些构建的窗口走嵌入资产，不会请求本协议。
     let builder =
         tauri::Builder::default().register_asynchronous_uri_scheme_protocol("seedui", |ctx, request, responder| {
-            // 黑屏排查插桩：入口日志证明拦截层已触达（若缺失 = WebView2 拦截失败，
-            // 导航永不完成 → 黑屏）；线程内日志定位 web 目录解析与响应状态
-            log::info!("[seedui] request: {}", request.uri());
             // AppHandle 的 clone 是 Arc 级轻量、UriSchemeResponder 内部为 Send 闭包，
             // 两者与 request 都可安全 move 进工作线程交付
             let app = ctx.app_handle().clone();
@@ -151,11 +150,9 @@ pub fn run() {
                     .path()
                     .resource_dir()
                     .unwrap_or_else(|_| PathBuf::from("."));
-                let web_dir =
-                    crate::server::resolve_server_dir(&resource_dir).map(|d| d.join("web"));
-                log::info!("[seedui] resource_dir={:?} web_dir={:?}", resource_dir, web_dir);
+                let web_dir = crate::server::resolve_seedagent_dir(&resource_dir, "web/index.html")
+                    .map(|d| d.join("web"));
                 let resp = ui::serve_from_web_dir(web_dir.as_deref(), request.uri().path());
-                log::info!("[seedui] respond {} for {}", resp.status(), request.uri().path());
                 responder.respond(resp);
             });
         });

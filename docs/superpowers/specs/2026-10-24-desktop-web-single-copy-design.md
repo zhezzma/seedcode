@@ -63,3 +63,15 @@ bundled 构建的窗口 `url` 指向自定义协议 `seedui://localhost/index.ht
 - 协议 handler 改用 `register_asynchronous_uri_scheme_protocol` + 工作线程：同步版在 Windows 上于 UI 线程执行，大资源页/杀毒扫描/热更新替换窗口期会卡整个窗口事件循环。
 - SPA 回退 index.html 补 `cache-control: no-cache`；seedagent 目录在而 web/ 缺失时也落"UI 资源缺失"诊断页。
 - **F3 已定夺（主人）：接受一次性重置。** origin 由 `http://tauri.localhost` 切换为 `http://seedui.localhost`，WebView 存储按 origin 隔离，现有 bundled 安装升级后老 origin 下 localStorage（设置/输入历史/面板状态）不可见（数据未删）。自用分发场景接受此成本，不做迁移（前端 src/ 零改动约束下无可靠方案；WebView2 存储目录结构无官方搬迁接口）。
+
+## 重新审核轮（2026-10-24，c38190e..HEAD 范围）
+
+黑屏修复验收通过后重新审核，产出 4 条发现（1 medium + 3 low），处置：
+
+- **[medium] `/static/` 前缀判定在原始路径上做，可被变形绕过 → 已修**：`/%73tatic/`（编码 s）、`//static/`（空段）解码后首段是 static，却因前缀检查看的是未解码 raw_path 而落 SPA 回退返回 200+text/html，违反"static 未命中必须 404"不变量。修复：percent-decode 上移到 `serve_from_web_dir` 做一次，解析与前缀判定共用解码态（跳空段取首段）；`resolve_web_file` 契约改为接收已解码路径（防二次解码重解释 %25XX）。回归测试 `static_miss_variants_are_404_not_html_fallback`、`encoded_variants_are_rejected_but_never_leak`。
+- **[low] 词法包含检查不防符号链接/junction 逃逸 → 已修（纵深防御）**：web/ 内被植入指向目录外的链接（如经热更新通道）时，is_file/fs::read 跟随链接可读目录外文件（对已 compromise 的 UI 是新增的任意本地文件读原语）。修复：resolve 内两侧 canonicalize 后组件级比对，仅校验用（返回仍词法路径，长缓存判定不变）。测试 `resolve_web_file_rejects_symlink_escape`（Windows 非开发者模式时优雅跳过）。
+- **[low] UI 可用性与 node.exe 探针耦合 → 已修**：`resolve_server_dir` 以 node.exe 存在性判定候选，杀软隔离 node.exe 而 web/ 完好时整个桌面 UI 变成误导性的"资源缺失"诊断页。修复：候选序抽为 `resolve_seedagent_dir(resource_dir, probe)`，服务端探针 node 可执行、seedui UI 探针 `web/index.html`，二者解耦（与黑屏同属"查找依据耦合到无关运行时状态"类）。测试 `seedagent_dir_probe_decoupled_from_node_binary`。
+- **[low] 每请求一线程无上限 + panic 丢 responder → 呈报不改**：审查者自评"今日可接受"；当前闭包内无 panic 位点（builder expect 均为静态部件），固定 worker 池为单 webview 本地静态服务引入信道/生命周期复杂度，属过度设计（AGENTS.md 禁猜测性工作）。若未来加入可失败逻辑再补 catch_unwind + 500 兜底。
+- **呈报：TS 侧 `web-static.ts` 存在同类前缀绕过**（第 149 行 `pathname.startsWith("/static/")` 在未解码 pathname 上判定，`/%73tatic/miss.js` 同样漏进 SPA 回退）。seedagent 为本任务零改动仓库未动，建议另开任务同步修复。
+- lib.rs 黑屏取证插桩（1b5eb68 的 3 处 log::info + 注释块）已按主承诺移除。
+- 验证：Windows 本机 `cargo test` 26 passed / 0 failed（ui 13 + server 13，含 4 个新回归测试）。

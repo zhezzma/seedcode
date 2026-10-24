@@ -12,6 +12,10 @@
 ///   其余（含 index.html）no-cache
 /// - /static/* 未命中 → 直接 404：返回 200+text/html 会让模块脚本报 MIME 错误，
 ///   掩盖"发版后旧 chunk 已清理"的真实原因
+/// - /static/* 未命中判定在 percent-decode 后的路径上做：只看原始路径会被
+///   /%73tatic/、//static/ 等变形绕过（解码后首段是 static 却走了 SPA 回退，
+///   违反不变量）。TS 侧 web-static.ts 仍在原始 pathname 上判定、存在同类
+///   变形绕过，seedagent 属零改动仓库，另行呈报
 /// - 其余未命中路径 → index.html（SPA history 路由回退）
 /// - web 目录缺失（占位页兜底场景）→ 404 提示页
 /// 服务端 web-static.ts 的 /api、/assets、/ws 保留前缀在此不适用：那些路径只走
@@ -50,24 +54,27 @@ const MISSING_WEB_DIR_PAGE: &str = r#"<!doctype html>
 <p>未找到前端资源目录（resources/seedagent/web）。请重新运行打包脚本或重装应用。</p>
 </body></html>"#;
 
-/// percent-decode 后安全解析 web 目录内文件；越界/非文件/不存在返回 None。
+/// 在 web 目录内安全解析**已 percent-decode** 的请求路径；越界/非文件/不存在返回 None。
+/// 解码统一在 serve_from_web_dir 做一次，解析与前缀判定共用同一形态，
+/// 防止二次解码重新解释 %25XX。
 ///
 /// 防穿越（对齐 web-static.ts 并加 Windows 特有防御）：
-/// - 解码后含 NUL / 反斜杠 → 拒绝（反斜杠在 Windows 是分隔符，`/a%5C..%5C..` 类
+/// - 含 NUL / 反斜杠 → 拒绝（反斜杠在 Windows 是分隔符，`/a\..\..` 类
 ///   变形必须拦在解析前）
 /// - 逐段拼接，任一段为 `..` → 拒绝；段内含 `:` → 拒绝：Windows 上 `Path::join`
 ///   遇到 `C:` 这类盘符前缀段会**清空已有路径整体替换**（std 对 prefix 组件的特殊
 ///   处理），光靠 starts_with 终检不够直觉，这里显式拒绝更稳；段尾以 `.`/空格结尾
 ///   → 拒绝：Win32 规范化会剥离段尾这两类字符（".. "/"..." 在 OS 层等价 ".."）
 /// - 拼接结果必须仍以 web_dir 为前缀（组件级 starts_with，兜底双保险）
-fn resolve_web_file(web_dir: &Path, raw_path: &str) -> Option<PathBuf> {
-    // 非法 %XX 序列 percent-encoding 会原样保留（不报错），后续按不存在文件处理即可
-    let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
-    if decoded.contains('\0') || decoded.contains('\\') {
+/// - 符号链接/junction 防御：is_file 与 fs::read 都会跟随链接，web/ 内被植入的
+///   链接（如经热更新通道）可指向目录外；canonicalize 解析真实路径后组件级
+///   比对，仅用于校验——返回仍用词法路径（上层 static/ 长缓存判定依赖词法形态）
+fn resolve_web_file(web_dir: &Path, path: &str) -> Option<PathBuf> {
+    if path.contains('\0') || path.contains('\\') {
         return None;
     }
     let mut candidate = web_dir.to_path_buf();
-    for segment in decoded.trim_start_matches('/').split('/') {
+    for segment in path.trim_start_matches('/').split('/') {
         if segment.is_empty() || segment == "." {
             continue;
         }
@@ -86,6 +93,13 @@ fn resolve_web_file(web_dir: &Path, raw_path: &str) -> Option<PathBuf> {
     // 兜底：拼接结果必须仍在 web_dir 内（组件级比较，非字符串前缀）
     if !candidate.starts_with(web_dir) {
         return None;
+    }
+    // 符号链接/junction 防御：两侧 canonicalize 后组件级比对（Windows 上
+    // canonicalize 产生设备路径前缀形态，两侧一致、比较自洽）；校验与读取间
+    // 文件消失的竞态按不存在处理
+    match (candidate.canonicalize(), web_dir.canonicalize()) {
+        (Ok(c), Ok(w)) if c.starts_with(&w) => {}
+        _ => return None,
     }
     if !candidate.is_file() {
         return None;
@@ -110,7 +124,11 @@ fn build_response(status: StatusCode, content_type: &'static str, body: Vec<u8>)
 /// `http://seedui.localhost/...`、非 Windows 形如 `seedui://localhost/...`，
 /// `Uri::path()` 对两者统一返回路径部分，本函数无需区分来源形态。
 pub fn serve_from_web_dir(web_dir: Option<&Path>, raw_path: &str) -> Response<Cow<'static, [u8]>> {
-    // resolve_server_dir 只看 seedagent 根（node.exe 等），不校验 web/ 本身：
+    // 解码一次，解析与 /static/ 前缀判定共用同一形态（非法 %XX 序列原样保留、
+    // 不报错，后续按不存在文件处理）：只看原始路径会被 /%73tatic/、//static/
+    // 等变形绕过 static 未命中不回退 HTML 的不变量
+    let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
+    // 上游（lib.rs）目录探针已按 web/index.html 判定，此处 filter 仍是独立兜底：
     // 部分热更新/运行中被清等状态下目录对但 web 缺失，必须也落到诊断页，
     // 否则用户只看到裸 "404 Not Found"，不知道是资源丢了（多一次 stat，可忽略）
     let Some(web_dir) = web_dir.filter(|d| d.join("index.html").is_file()) else {
@@ -125,7 +143,7 @@ pub fn serve_from_web_dir(web_dir: Option<&Path>, raw_path: &str) -> Response<Co
     // web_dir/static/ 下才打 immutable 长缓存（意图对齐 web-static.ts；注意本实现
     // 遇 `..` 段直接拒绝走 404/SPA 分支，不像 TS 侧那样把 /static/../x 解析成真实路径，
     // 防止变形路径绕过长缓存判定）
-    if let Some(file) = resolve_web_file(web_dir, raw_path) {
+    if let Some(file) = resolve_web_file(web_dir, &decoded) {
         let ext = file
             .extension()
             .map(|e| format!(".{}", e.to_string_lossy()))
@@ -157,8 +175,9 @@ pub fn serve_from_web_dir(web_dir: Option<&Path>, raw_path: &str) -> Response<Co
         }
     }
 
-    // /static/ 前缀未命中 → 404（不走 SPA 回退，见模块头注释）
-    if raw_path.starts_with("/static/") {
+    // /static/ 路径未命中 → 404（不走 SPA 回退，见模块头注释）。判定用解码后
+    // 跳过空段的首段，与 resolve_web_file 的解析形态一致
+    if decoded.trim_start_matches('/').split('/').next() == Some("static") {
         return build_response(
             StatusCode::NOT_FOUND,
             "text/plain; charset=utf-8",
@@ -252,14 +271,86 @@ mod tests {
     }
 
     #[test]
+    fn static_miss_variants_are_404_not_html_fallback() {
+        // 前缀判定用解码后路径：/%73tatic/、//static/、/static// 等变形的未命中
+        // 绝不能落进 SPA 回退（否则模块脚本拿到 200+text/html 报 MIME 错误）
+        let (root, web) = temp_web("static-variant");
+        for path in [
+            "/%73tatic/missing.HASH.js",
+            "//static/missing.HASH.js",
+            "/static//missing.HASH.js",
+        ] {
+            let resp = serve_from_web_dir(Some(&web), path);
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "path={}", path);
+            assert!(
+                !header(&resp, "content-type").starts_with("text/html"),
+                "path={}",
+                path
+            );
+        }
+        // 变形命中的哈希产物仍直出 + immutable（空段跳过不影响解析与缓存键）
+        let resp = serve_from_web_dir(Some(&web), "//static/app.HASH.js");
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            header(&resp, "cache-control"),
+            "public, max-age=31536000, immutable"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn encoded_variants_are_rejected_but_never_leak() {
+        // 解码职责已上移 serve 层：编码穿越/非法序列在整链路上被拒绝，
+        // 非 static 未命中落 SPA 回退，secret 内容绝不出现在任何响应体
+        let (root, web) = temp_web("encoded");
+        assert!(root.join("secret.txt").is_file());
+        for path in [
+            "/%2e%2e/secret.txt",
+            "/..%5Csecret.txt",
+            "/index.html%00.txt",
+            "/..%2E/secret.txt",
+        ] {
+            let resp = serve_from_web_dir(Some(&web), path);
+            assert_ne!(resp.body().as_ref(), b"secret", "path={}", path);
+        }
+        // 解码后落在 /static/ 的穿越变形：按 static 未命中 404，不回退 HTML
+        let resp = serve_from_web_dir(Some(&web), "/static/%2e%2e%2f..%2fsecret.txt");
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(!header(&resp, "content-type").starts_with("text/html"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_web_file_rejects_symlink_escape() {
+        // web/ 内被植入指向目录外的符号链接：词法包含检查拦不住（is_file/read
+        // 都跟随链接），必须 canonicalize 后比对真实路径
+        let (root, web) = temp_web("symlink");
+        let link = web.join("leak.txt");
+        #[cfg(unix)]
+        let created = std::os::unix::fs::symlink(root.join("secret.txt"), &link).is_ok();
+        #[cfg(windows)]
+        let created = std::os::windows::fs::symlink_file(root.join("secret.txt"), &link).is_ok();
+        if !created {
+            // Windows 非开发者模式/管理员创建符号链接被拒：环境限制，跳过
+            eprintln!("symlink 创建被拒（权限不足），跳过 symlink_escape 测试");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        assert!(link.is_file()); // 场景成立：链接可读且指向 secret
+        assert!(resolve_web_file(&web, "/leak.txt").is_none());
+        let resp = serve_from_web_dir(Some(&web), "/leak.txt");
+        assert_ne!(resp.body().as_ref(), b"secret");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn resolve_web_file_rejects_traversal_and_encoded_traversal() {
         let (root, web) = temp_web("traversal");
         // secret.txt 在 web 目录外真实存在：返回 None 才证明是"拒绝"而非"未找到"
         assert!(root.join("secret.txt").is_file());
         assert!(resolve_web_file(&web, "/../secret.txt").is_none());
-        assert!(resolve_web_file(&web, "/%2e%2e/secret.txt").is_none());
-        assert!(resolve_web_file(&web, "/static/%2e%2e%2f..%2fsecret.txt").is_none());
         assert!(resolve_web_file(&web, "//..//secret.txt").is_none());
+        // 编码变形（%2e%2e 等）的拒统能力在 serve 层端到端验证（解码职责已上移）
         // 正常路径不受影响
         assert_eq!(resolve_web_file(&web, "/index.html"), Some(web.join("index.html")));
         let _ = std::fs::remove_dir_all(&root);
@@ -268,9 +359,10 @@ mod tests {
     #[test]
     fn resolve_web_file_rejects_backslash_and_nul() {
         let (root, web) = temp_web("backslash");
-        // %5C = 反斜杠（Windows 分隔符变形）、%00 = NUL
-        assert!(resolve_web_file(&web, "/..%5Csecret.txt").is_none());
-        assert!(resolve_web_file(&web, "/index.html%00.txt").is_none());
+        // 反斜杠（Windows 分隔符变形）、NUL；编码形态（%5C/%00）的端到端
+        // 拒绝在 serve 层测试（encoded_variants）覆盖
+        assert!(resolve_web_file(&web, "/..\\secret.txt").is_none());
+        assert!(resolve_web_file(&web, "/index.html\0.txt").is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -290,9 +382,8 @@ mod tests {
         assert!(root.join("secret.txt").is_file());
         // Win32 路径规范化会剥离段尾 '.'/' '：".. "/"..." 在 OS 层等价 ".."，
         // 字面量 == ".." 检查拦不住，必须按段尾字符拒绝
-        assert!(resolve_web_file(&web, "/..%20/secret.txt").is_none());
+        assert!(resolve_web_file(&web, "/.. /secret.txt").is_none());
         assert!(resolve_web_file(&web, "/.../secret.txt").is_none());
-        assert!(resolve_web_file(&web, "/..%2E/secret.txt").is_none()); // 解码后 "..."
         let _ = std::fs::remove_dir_all(&root);
     }
 
