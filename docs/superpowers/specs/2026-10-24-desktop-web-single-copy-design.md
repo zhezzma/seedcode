@@ -73,5 +73,6 @@ bundled 构建的窗口 `url` 指向自定义协议 `seedui://localhost/index.ht
 - **[low] UI 可用性与 node.exe 探针耦合 → 已修**：`resolve_server_dir` 以 node.exe 存在性判定候选，杀软隔离 node.exe 而 web/ 完好时整个桌面 UI 变成误导性的"资源缺失"诊断页。修复：候选序抽为 `resolve_seedagent_dir(resource_dir, probe)`，服务端探针 node 可执行、seedui UI 探针 `web/index.html`，二者解耦（与黑屏同属"查找依据耦合到无关运行时状态"类）。测试 `seedagent_dir_probe_decoupled_from_node_binary`。
 - **[low] 每请求一线程无上限 + panic 丢 responder → 呈报不改**：审查者自评"今日可接受"；当前闭包内无 panic 位点（builder expect 均为静态部件），固定 worker 池为单 webview 本地静态服务引入信道/生命周期复杂度，属过度设计（AGENTS.md 禁猜测性工作）。若未来加入可失败逻辑再补 catch_unwind + 500 兜底。
 - **呈报：TS 侧 `web-static.ts` 存在同类前缀绕过**（第 149 行 `pathname.startsWith("/static/")` 在未解码 pathname 上判定，`/%73tatic/miss.js` 同样漏进 SPA 回退）。seedagent 为本任务零改动仓库未动，建议另开任务同步修复。
+  → **已闭环（后续轮）**：seedagent 侧已修（aacf7c4c，解码上移 + 入口∪落点守卫 + lossy 解码）；复审发现桌面端同被点段潜入 `/x%2f..%2fstatic%2fx`、反斜杠 `/static%5c` 变形绕过（入口首段判定与 resolve 解析形态分叉），ui.rs 守卫同步改 `is_hashed_asset_miss`（入口 ∪ 落点，对齐 TS isHashedAssetMiss），变形矩阵回归测试扩充，两端对齐。
 - lib.rs 黑屏取证插桩（1b5eb68 的 3 处 log::info + 注释块）已按主承诺移除。
 - 验证：Windows 本机 `cargo test` 26 passed / 0 failed（ui 13 + server 13，含 4 个新回归测试）。

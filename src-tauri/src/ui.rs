@@ -14,8 +14,10 @@
 ///   掩盖"发版后旧 chunk 已清理"的真实原因
 /// - /static/* 未命中判定在 percent-decode 后的路径上做：只看原始路径会被
 ///   /%73tatic/、//static/ 等变形绕过（解码后首段是 static 却走了 SPA 回退，
-///   违反不变量）。TS 侧 web-static.ts 仍在原始 pathname 上判定、存在同类
-///   变形绕过，seedagent 属零改动仓库，另行呈报
+///   违反不变量）；判定 = 入口（解码后首段）∪ 落点（反斜杠归一 + 词法折叠
+///   后首段，见 is_hashed_asset_miss），点段潜入 /x%2f..%2fstatic%2fx、
+///   反斜杠 /static%5cx 变形一并堵住。TS 侧 web-static.ts 已同步修复
+///   （isHashedAssetMiss 同语义），两端对齐
 /// - 其余未命中路径 → index.html（SPA history 路由回退）
 /// - web 目录缺失（占位页兜底场景）→ 404 提示页
 /// 服务端 web-static.ts 的 /api、/assets、/ws 保留前缀在此不适用：那些路径只走
@@ -117,6 +119,40 @@ fn build_response(status: StatusCode, content_type: &'static str, body: Vec<u8>)
         .expect("static response parts are always valid")
 }
 
+/// static 未命中守卫：入口或落点任一命中即算（对齐 web-static.ts isHashedAssetMiss）。
+/// 入口 = 解码后首段：/static/..%2f.. 向上逃逸的变形入口即 static、词法归一化后
+/// 已逃出 web/，只看落点会漏；落点 = 反斜杠归一为 / 后逐段折叠 . / .. 的首段：
+/// /x%2f..%2fstatic%2fx 点段潜入、/static%5c 反斜杠变形入口非 static 但落点在
+/// static/，只看入口会漏。两形态都与 resolve_web_file 的解析语义共享。
+fn is_hashed_asset_miss(decoded: &str) -> bool {
+    if decoded.trim_start_matches('/').split('/').next() == Some("static") {
+        return true;
+    }
+    // 常规 SPA 未命中（无反斜杠、无 . / .. 段）是导航回退高频路径：词法折叠
+    // 只删空段、不改变首段，入口判定已覆盖，直接放行避免每请求分配
+    let has_backslash = decoded.contains('\\');
+    if !has_backslash && !decoded.split('/').any(|s| s == "." || s == "..") {
+        return false;
+    }
+    let slashes_normalized: Cow<'_, str> = if has_backslash {
+        Cow::Owned(decoded.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(decoded)
+    };
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in slashes_normalized.split('/') {
+        match segment {
+            // 空段与当前段跳过；.. 弹出上一段（弹到根即丢弃，镜像 path::normalize）
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    segments.first() == Some(&"static")
+}
+
 /// seedui 协议请求入口。
 ///
 /// `raw_path` 是请求 URL 的路径部分（含 percent 编码）。lib.rs 的协议闭包传入
@@ -175,9 +211,10 @@ pub fn serve_from_web_dir(web_dir: Option<&Path>, raw_path: &str) -> Response<Co
         }
     }
 
-    // /static/ 路径未命中 → 404（不走 SPA 回退，见模块头注释）。判定用解码后
-    // 跳过空段的首段，与 resolve_web_file 的解析形态一致
-    if decoded.trim_start_matches('/').split('/').next() == Some("static") {
+    // /static/ 路径未命中 → 404（不走 SPA 回退，见模块头注释）。入口或词法
+    // 归一化落点任一落在 static/（见 is_hashed_asset_miss），与 resolve_web_file
+    // 的解析形态一致
+    if is_hashed_asset_miss(&decoded) {
         return build_response(
             StatusCode::NOT_FOUND,
             "text/plain; charset=utf-8",
@@ -275,19 +312,32 @@ mod tests {
         // 前缀判定用解码后路径：/%73tatic/、//static/、/static// 等变形的未命中
         // 绝不能落进 SPA 回退（否则模块脚本拿到 200+text/html 报 MIME 错误）
         let (root, web) = temp_web("static-variant");
+        let mut fell_through: Vec<&str> = Vec::new();
         for path in [
             "/%73tatic/missing.HASH.js",
             "//static/missing.HASH.js",
             "/static//missing.HASH.js",
+            // 点段潜入：首段不是 static 但词法归一化后落在 static/（入口 ∪ 落点，
+            // 对齐 web-static.ts isHashedAssetMiss）
+            "/x%2f..%2fstatic%2fmissing.HASH.js",
+            // 反斜杠变形：resolve 拒 \，守卫须按 / 语义归一判定落点
+            "/static%5Cmissing.HASH.js",
+            // 非法 %XX + 编码斜杠：percent_decode 逐序列 lossy（可解照解、
+            // 非法保留），%2f 照解后首段即 static
+            "/static%2f%zz.js",
         ] {
             let resp = serve_from_web_dir(Some(&web), path);
-            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "path={}", path);
-            assert!(
-                !header(&resp, "content-type").starts_with("text/html"),
-                "path={}",
-                path
-            );
+            if resp.status() != StatusCode::NOT_FOUND
+                || header(&resp, "content-type").starts_with("text/html")
+            {
+                fell_through.push(path);
+            }
         }
+        // 变形矩阵一次暴露全部违规，不在首个失败处短路
+        assert!(
+            fell_through.is_empty(),
+            "static 变形未命中落进 SPA 回退: {fell_through:?}"
+        );
         // 变形命中的哈希产物仍直出 + immutable（空段跳过不影响解析与缓存键）
         let resp = serve_from_web_dir(Some(&web), "//static/app.HASH.js");
         assert_eq!(resp.status(), StatusCode::OK);
@@ -317,6 +367,18 @@ mod tests {
         let resp = serve_from_web_dir(Some(&web), "/static/%2e%2e%2f..%2fsecret.txt");
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         assert!(!header(&resp, "content-type").starts_with("text/html"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn malformed_percent_encoding_on_non_static_paths_still_falls_back_to_spa() {
+        // 非法 %XX 不可能来自正常浏览器/webview：lossy 解码「可解照解、非法
+        // 保留」语义下，普通 SPA 路径仍回退 index.html，不因解码失败变 404
+        //（对齐 web-static.ts decodePathLossy 回归测试）
+        let (root, web) = temp_web("malformed-spa");
+        let resp = serve_from_web_dir(Some(&web), "/spa%zz-route");
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(header(&resp, "content-type").starts_with("text/html"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
