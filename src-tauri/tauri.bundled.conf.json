@@ -11,7 +11,7 @@
                 "height": 600,
                 "maximized": true,
                 "decorations": false,
-                "url": "seedui://localhost/index.html"
+                "url": "seedui://localhost/"
             }
         ]
     },

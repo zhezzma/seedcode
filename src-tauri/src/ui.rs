@@ -1,7 +1,9 @@
 /// ui.rs — seedui:// 自定义协议：桌面 webview 从 resources/seedagent/web 加载前端。
 ///
 /// bundled 桌面构建不再把前端嵌进 exe（frontendDist 指向仓库内占位页 ui-fallback/，
-/// 仅为满足 tauri 必填），窗口 url 指向 seedui://localhost/index.html。本模块把该
+/// 仅为满足 tauri 必填），窗口 url 指向根路径 seedui://localhost/（不能带
+/// /index.html：前端是 history 路由，/index.html 无对应路由会渲染空壳黑屏；
+/// 根路径经本模块 SPA 回退拿到 index.html，地址栏 path=/ 与路由表对齐）。
 /// 协议的请求映射到 staging/部署目录的 web/ 静态文件，桌面 webview 与内置服务端
 /// （移动端隧道）共用同一份前端产物，-HostUpdateServer 热更新因此同时覆盖桌面 UI。
 ///
