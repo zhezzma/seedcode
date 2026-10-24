@@ -140,6 +140,9 @@ pub fn run() {
     // 不会请求本协议。
     let builder =
         tauri::Builder::default().register_asynchronous_uri_scheme_protocol("seedui", |ctx, request, responder| {
+            // 黑屏排查插桩：入口日志证明拦截层已触达（若缺失 = WebView2 拦截失败，
+            // 导航永不完成 → 黑屏）；线程内日志定位 web 目录解析与响应状态
+            log::info!("[seedui] request: {}", request.uri());
             // AppHandle 的 clone 是 Arc 级轻量、UriSchemeResponder 内部为 Send 闭包，
             // 两者与 request 都可安全 move 进工作线程交付
             let app = ctx.app_handle().clone();
@@ -150,7 +153,10 @@ pub fn run() {
                     .unwrap_or_else(|_| PathBuf::from("."));
                 let web_dir =
                     crate::server::resolve_server_dir(&resource_dir).map(|d| d.join("web"));
-                responder.respond(ui::serve_from_web_dir(web_dir.as_deref(), request.uri().path()));
+                log::info!("[seedui] resource_dir={:?} web_dir={:?}", resource_dir, web_dir);
+                let resp = ui::serve_from_web_dir(web_dir.as_deref(), request.uri().path());
+                log::info!("[seedui] respond {} for {}", resp.status(), request.uri().path());
+                responder.respond(resp);
             });
         });
 
