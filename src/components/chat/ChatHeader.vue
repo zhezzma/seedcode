@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import type { SessionUsage } from '../../composables/useChatState'
 import {
     Bars3Icon,
     SunIcon,
@@ -38,11 +36,10 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const chatState = useChatState()
-const { t } = useI18n()
 const panel = useWorkspacePanel()
 
 
-const showUsageTip = ref(false)
+const showStatusTip = ref(false)
 const notifyEnabled = ref(false)
 const notifyLoading = ref(false)
 
@@ -113,67 +110,14 @@ const refreshPage = () => {
 
 // Close tooltip when clicking outside
 const handleClickOutside = (event: MouseEvent) => {
-    showUsageTip.value = false
+    showStatusTip.value = false
 }
 
-// ---- Token usage formatting (mirrors TUI footer logic) ----
-function formatTokens(count: number): string {
-    if (count < 1000) return count.toString()
-    if (count < 10000) return `${(count / 1000).toFixed(1)}k`
-    if (count < 1000000) return `${Math.round(count / 1000)}k`
-    if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`
-    return `${Math.round(count / 1000000)}M`
-}
-
-function buildUsageTip(usage: SessionUsage): string {
-    const parts: string[] = []
-    if (usage.input) parts.push(`↑${formatTokens(usage.input)}`)
-    if (usage.output) parts.push(`↓${formatTokens(usage.output)}`)
-    // reasoning 是 output 的子集；非 0 时单独展示，对齐服务端 usage 扩展推送载荷与 TUI footer。
-    if (usage.reasoning) parts.push(`T${formatTokens(usage.reasoning)}`)
-    if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`)
-    if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`)
-    if (usage.cost) parts.push(`$${usage.cost.toFixed(3)}`)
-
-    // Context window usage
-    const auto = usage.autoCompactEnabled ? ` (${t('common.autoCompact')})` : ''
-    if (usage.percent !== null) {
-        parts.push(`${usage.percent.toFixed(1)}%/${formatTokens(usage.contextWindow)}${auto}`)
-    } else if (usage.contextWindow > 0) {
-        parts.push(`?/${formatTokens(usage.contextWindow)}${auto}`)
-    }
-    return parts.join(' ')
-}
+// ---- 状态 tooltip 行（服务端 status 扩展拼好的展示行，纯渲染零拼接：token 统计 /
+// 模型与思考等级 / CPU·内存·磁盘，显示段由服务端设置表单控制） ----
 
 /** Tooltip 各行内容（空数组 = 只显示连接状态） */
-const usageTipLines = computed<string[]>(() => {
-    const usage = chatState.sessionUsage
-    if (!usage) return []
-
-    const lines: string[] = []
-
-    // 第一行：token 统计
-    const usageLine = buildUsageTip(usage)
-    if (usageLine) lines.push(usageLine)
-
-    // 第二行：提供商/模型 + 思考级别
-    const session = chatState.currentSession
-    const provider = session?.modelProvider || ''
-    const model = session?.model || ''
-    const thinking = session?.thinkingLevel
-    const modelLabel = provider && model ? `${provider}/${model}` : model || provider
-    if (modelLabel) {
-        if (thinking && thinking !== 'off') {
-            lines.push(`${modelLabel} · ${thinking}`)
-        } else if (thinking === 'off') {
-            lines.push(`${modelLabel} · ${t('common.thinkingOff')}`)
-        } else {
-            lines.push(modelLabel)
-        }
-    }
-
-    return lines
-})
+const statusTipLines = computed<string[]>(() => chatState.sessionStatus?.lines ?? [])
 
 defineExpose({
     handleClickOutside
@@ -209,11 +153,11 @@ defineExpose({
         <template #actions>
             <div class="flex items-center lg:gap-5">
                 <!-- Connection Status Indicator -->
-                <div class="relative group flex items-center" @click.stop="showUsageTip = !showUsageTip" role="button"
-                    tabindex="0" :aria-expanded="showUsageTip"
+                <div class="relative group flex items-center" @click.stop="showStatusTip = !showStatusTip" role="button"
+                    tabindex="0" :aria-expanded="showStatusTip"
                     :aria-label="isConnected ? $t('common.connected') : $t('common.disconnected')"
-                    @keydown.enter.prevent.stop="showUsageTip = !showUsageTip"
-                    @keydown.space.prevent.stop="showUsageTip = !showUsageTip" @keydown.escape="showUsageTip = false">
+                    @keydown.enter.prevent.stop="showStatusTip = !showStatusTip"
+                    @keydown.space.prevent.stop="showStatusTip = !showStatusTip" @keydown.escape="showStatusTip = false">
                     <div class="w-3 h-3 rounded-full transition-colors duration-300 cursor-pointer" aria-hidden="true"
                         :class="isConnected ? 'bg-success' : 'bg-error/50'"></div>
                     <!-- Multi-line tooltip: hover (PC) + click (mobile) -->
@@ -221,9 +165,9 @@ defineExpose({
                                 transition-opacity duration-200
                                 bg-neutral text-neutral-content text-xs rounded-lg px-3 py-2
                                 shadow-lg whitespace-nowrap z-50"
-                        :class="showUsageTip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-events-none'">
+                        :class="showStatusTip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-events-none'">
                         <div>{{ isConnected ? $t('common.connected') : $t('common.disconnected') }}</div>
-                        <div v-for="(line, i) in usageTipLines" :key="i" class="text-neutral-content/70">{{ line }}
+                        <div v-for="(line, i) in statusTipLines" :key="i" class="text-neutral-content/70">{{ line }}
                         </div>
                     </div>
                 </div>

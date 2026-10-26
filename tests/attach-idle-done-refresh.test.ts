@@ -15,8 +15,8 @@ const __dirname = path.dirname(__filename)
 //
 // 修复：精确区分两种 done——
 //   1. attach 空闲 done：全程未见流活动且历史刚全量加载过（historyLoadedAt 新鲜）
-//      → 跳过 done 分支的消息/树重拉（resetStreamState 保留。usage 不在刷新之列：
-//      GET /usage 端点已删，用量由 usage 扩展 ext.usage_state 推送/快照线实时到达）
+//      → 跳过 done 分支的消息/树重拉（resetStreamState 保留。状态不在刷新之列：
+//      GET /usage 端点已删，状态由 status 扩展 ext.status_state 推送/快照线实时到达）
 //   2. 真实流 done（attach 期间见过流活动，或非 attach 的 chat/retry/edit 流）
 //      → 必须刷新：最后一条消息、树都在这次落地，任何时间窗都不能压
 //   3. 空闲 done 但历史非新鲜（缓存会话切回）→ 必须刷新：这是追平离开期间
@@ -63,12 +63,12 @@ test('handleSSEEvent 接受 skipSettledRefresh 选项，done 分支据此跳过�
     const afterGuard = fn.slice(guardIdx)
     assert.match(afterGuard, /apiGet<\{ messages: ChatMessage\[\]; isStreaming\?: boolean \}>/, 'done 分支应保留 /messages 重拉（含 isStreaming：busy 时兜底 attach）')
     assert.match(afterGuard, /fetchSessionTree\(targetKey\)/, 'done 分支应保留 /entries 刷新')
-    // usage 无客户端拉取通道（端点已删）：done 分支不得残留 fetchSessionUsage——
-    // 用量由 usage 扩展推送线（每条消息后）+ 观察者线（run_end/compaction_end）实时到达
+    // 状态无客户端拉取通道（端点已删）：done 分支不得残留 fetchSessionUsage——
+    // 状态由 status 扩展推送线（每条消息后）+ 观察者线（run_end/compaction_end）实时到达
     assert.doesNotMatch(afterGuard, /fetchSessionUsage/, 'done 分支不得残留 usage 轮询（端点已删）')
 
     // 跳过分支纯 break：/messages + /entries 由 loadChatHistory 的 try/finally 刚刚
-    // 落地，usage 由快照线/推送线负责，无事可做
+    // 落地，状态由快照线/推送线负责，无事可做
     const skipBranch = fn.slice(guardIdx, fn.indexOf('// 静默刷新消息', guardIdx))
     assert.doesNotMatch(skipBranch, /fetchSessionUsage|apiGet/, '跳过分支不得发任何请求')
     assert.match(skipBranch, /break/, '跳过分支必须在此截断，不得落到 /messages + /entries 重拉')
@@ -127,8 +127,8 @@ test('isHistoryLoadFresh 基于时间窗口判断历史新鲜度', () => {
 test('回归：loadChatHistory 的 finally 仍拉 /entries（流式 attach 的 done 遥遥无期，首屏靠它；usage 走扩展快照线）', () => {
     const load = extractConst(chatStateSource, 'loadChatHistory')
     assert.match(load, /fetchSessionTree\(targetKey\)/)
-    // /usage 端点已删：finally 不得残留 usage 拉取（首屏现态由 attach 快照线
-    // ext.usage_state 同帧恢复）
+    // /usage 端点已删：finally 不得残留状态拉取（首屏现态由 attach 快照线
+    // ext.status_state 同帧恢复）
     assert.doesNotMatch(load, /fetchSessionUsage/)
 })
 

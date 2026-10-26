@@ -74,8 +74,6 @@ export default {
         system: '系统',
         connected: '已连接',
         disconnected: '未连接',
-        autoCompact: '自动',
-        thinkingOff: '关闭思考',
         processing: '处理中...',
     },
     sidebar: {

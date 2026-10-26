@@ -61,19 +61,11 @@ export interface ChatAttachment {
     content?: string
 }
 
-export interface SessionUsage {
-    input: number
-    output: number
-    cacheRead: number
-    cacheWrite: number
-    /** pi 0.80.x 起 usage 可单独累计 reasoning tokens（output 的子集）；缺省时按 0 处理 */
-    reasoning?: number
-    cost: number
-    /** 当前上下文占用的 token 数（预留字段，前端暂未使用，后端在 compaction 后可能返回 null） */
-    contextTokens: number | null
-    contextWindow: number
-    percent: number | null
-    autoCompactEnabled: boolean
+/** 服务端 status 扩展拼好的展示行（ext.status_state 载荷，两仓契约）：
+ *  客户端纯渲染零拼接——token 统计 / 模型与思考等级 / CPU·内存·磁盘均由服务端组装 */
+export interface SessionStatus {
+    /** tooltip 展示行（空数组 = 无状态行，tooltip 只显示连接状态） */
+    lines: string[]
 }
 
 export interface ChatSessionData {
@@ -104,7 +96,7 @@ export interface ChatSessionData {
     /** 上下文压缩进行中（compaction_start/end 事件驱动；手动 /compact、阈值自动压缩、
      * 扩展触发的在线压缩均适用）。瞬态：随 resetStreamState 兑底清零防断连残留 */
     compacting?: boolean
-    sessionUsage: SessionUsage | null
+    sessionStatus: SessionStatus | null
 }
 
 export interface ChatState {
@@ -272,41 +264,34 @@ function getSessionData(key: string): ChatSessionData {
             chatRunId: null,
             chatLoading: false,
             compacting: false,
-            sessionUsage: null,
+            sessionStatus: null,
         })
         state.sessionsMap.set(key, data)
     }
     return data
 }
 
-// ==================== usage 扩展推送（ext.usage_state → sessionUsage 桶） ====================
-// 服务端 usage 扩展（seedagent extensions/usage，两仓契约）双投递线：
+// ==================== status 扩展推送（ext.status_state → sessionStatus 桶） ====================
+// 服务端 status 扩展（seedagent extensions/status，两仓契约）双投递线：
 // - 推送线：GenerationTask.afterResponse（每条终态 provider 消息，含工具轮中间消息）实时扇出
 // - 快照线：attach collect（刷新/切会话时随 attach 流恢复现态）
-// 载荷 = 服务端 usage-payload 冻结形状（与 /usage 响应逐字段一致），整体替换入桶后
-// ChatHeader 连接指示器 tooltip（usageTipLines computed）随之实时刷新。
+// 载荷 = 服务端拼好的展示行数组（token 统计 / 模型与思考等级 / CPU·内存·磁盘，
+// 显示段由服务端设置表单控制），客户端纯渲染零拼接；整体替换入桶后
+// ChatHeader 连接指示器 tooltip（statusTipLines computed）随之实时刷新。
 
-/** ext.usage_state 载荷守卫（SessionUsage 全部必需字段；ext.* 事件是外部输入，
+/** ext.status_state 载荷守卫（lines 为字符串数组；ext.* 事件是外部输入，
  *  不得未经校验直入状态桶——同 useGoalState 的 isGoalStatePayload 惯例）。 */
-function isUsagePayload(data: unknown): data is SessionUsage {
+function isStatusPayload(data: unknown): data is SessionStatus {
     if (!data || typeof data !== 'object') return false
-    const d = data as Record<string, unknown>
-    return typeof d.input === 'number'
-        && typeof d.output === 'number'
-        && typeof d.cacheRead === 'number'
-        && typeof d.cacheWrite === 'number'
-        && typeof d.cost === 'number'
-        && (d.contextTokens === null || typeof d.contextTokens === 'number')
-        && typeof d.contextWindow === 'number'
-        && (d.percent === null || typeof d.percent === 'number')
-        && typeof d.autoCompactEnabled === 'boolean'
+    const lines = (data as Record<string, unknown>).lines
+    return Array.isArray(lines) && lines.every((line) => typeof line === 'string')
 }
 
 // 订阅（模块级一次）：事件按 sessionKey 入各自会话桶（跨会话事件写自己的桶，
 // 切回时读到的即现态）；无 key 的孤儿事件丢弃。
-onExtensionEvent('ext.usage_state', (data, key) => {
-    if (!key || !isUsagePayload(data)) return
-    getSessionData(key).sessionUsage = data
+onExtensionEvent('ext.status_state', (data, key) => {
+    if (!key || !isStatusPayload(data)) return
+    getSessionData(key).sessionStatus = data
 })
 
 // ==================== Pending Queue（busy 期间 steer/follow-up 排队可视化） ====================
@@ -946,8 +931,8 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
             resetStreamState(sessionData)
             // 空闲 attach 的 done（见 attachToSessionIfNeeded）：历史刚全量加载过，
             // 下面的 /messages + /entries 重拉与 loadChatHistory 完全重复，跳过；
-            // 真实流 done 必须刷新——最后一条消息、树都在这次落地（usage 不在此列：
-            // usage 扩展推送线每条消息后已实时到达，run_end/compaction_end 观察者线
+            // 真实流 done 必须刷新——最后一条消息、树都在这次落地（状态不在此列：
+            // status 扩展推送线每条消息后已实时到达，run_end/compaction_end 观察者线
             // 兜住收尾变更，客户端无轮询通道）
             if (options?.skipSettledRefresh) {
                 break
@@ -1089,8 +1074,8 @@ const loadChatHistory = async (sessionKey?: string) => {
     } finally {
         // Only set loading to false, don't touch chatSending if we are streaming
         sd.chatLoading = false
-        // Finally, load the tree structure for this session（usage 不再在此拉取：
-        // GET /usage 端点已删，attach 快照线 ext.usage_state 同帧恢复现态）
+        // Finally, load the tree structure for this session（状态数据不再在此拉取：
+        // GET /usage 端点已删，attach 快照线 ext.status_state 同帧恢复现态）
         if (targetKey) {
             fetchSessionTree(targetKey)
         }
@@ -1733,7 +1718,7 @@ const chatSending = computed(() => getSessionData(state.sessionKey).chatSending)
 const chatRunId = computed(() => getSessionData(state.sessionKey).chatRunId)
 const chatStreamStartedAt = computed(() => getSessionData(state.sessionKey).chatStreamStartedAt)
 const chatLoading = computed(() => getSessionData(state.sessionKey).chatLoading)
-const sessionUsage = computed(() => getSessionData(state.sessionKey).sessionUsage)
+const sessionStatus = computed(() => getSessionData(state.sessionKey).sessionStatus)
 const compacting = computed(() => getSessionData(state.sessionKey).compacting === true)
 const pendingQueue = computed(() => getSessionData(state.sessionKey).pendingQueue)
 const currentAgent = computed(() => {
@@ -1754,7 +1739,7 @@ type UnwrapComputed<T extends object> = {
 const _methods = {
     chatMessages, chatToolMessages, sessionTree, sessionLeafId, chatStream,
     currentSession,
-    chatSending, chatRunId, chatStreamStartedAt, chatLoading, sessionUsage, currentAgent,
+    chatSending, chatRunId, chatStreamStartedAt, chatLoading, sessionStatus, currentAgent,
     compacting,
     pendingQueue, removePendingItem,
     sendMessage, steerMessage, followMessage, abortChat, loadChatHistory,

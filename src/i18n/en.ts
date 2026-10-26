@@ -70,8 +70,6 @@ export default {
         system: 'System',
         connected: 'Connected',
         disconnected: 'Disconnected',
-        autoCompact: 'auto',
-        thinkingOff: 'thinking off',
         processing: 'Processing...',
         selectAll: 'Select All',
         deselectAll: 'Deselect All',
