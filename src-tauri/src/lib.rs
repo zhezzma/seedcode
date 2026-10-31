@@ -126,6 +126,131 @@ fn cleanup_stale_share_files(dir: &std::path::Path) {
     }
 }
 
+// 在系统终端中打开指定目录（桌面端专属）。文件由前端传其所在父目录（终端只能 cd 进目录）。
+// 仅 local 网关模式下展示：此时 workspace/agent 目录就在本机，remote 模式路径不在本机无意义。
+#[tauri::command]
+fn open_in_terminal(path: String) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        open_terminal_at(&path)
+    }
+    #[cfg(mobile)]
+    {
+        let _ = path;
+        Err("open_in_terminal is only supported on desktop".into())
+    }
+}
+
+// 仅桌面编译。各平台终端启动器与「起始目录」参数不同，分平台实现。
+#[cfg(desktop)]
+fn open_terminal_at(path: &str) -> Result<(), String> {
+    let dir = std::path::Path::new(path);
+    if !dir.is_dir() {
+        return Err(format!("not a directory: {path}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：中间 cmd.exe 自身不闪黑框；`start` 仍会用
+        // CREATE_NEW_CONSOLE 为目标 cmd 开新窗口，不受该标志影响。
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        // PowerShell 本体就是最终可见窗口（不同于 wt/cmd start 的“秒退中间层”）——
+        // 挂 CREATE_NO_WINDOW 会把交互式 PS 藏进不可见控制台，用户点了毫无反应。
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+        // MSVC 命令行规则的手动引号包裹：raw_arg 原样拼接，路径尾部若有反斜杠
+        // 必须翻倍，否则收尾的 \" 会被解析成字面引号而非参数结束（如 C:\ 盘根）。
+        fn quote_msvc(s: &str) -> String {
+            let trailing = s.len() - s.trim_end_matches('\\').len();
+            format!("\"{}{}\"", s, "\\".repeat(trailing))
+        }
+        // Windows Terminal 优先（Win11 默认终端，遵循用户默认 profile，如 PowerShell）；
+        // wt 不在 PATH（典型 Win10 / 未安装）时 spawn 失败 → 回落经典 cmd 窗口。
+        // 路径必须手动引号包住（raw_arg）：wt 会按自家规则二次解析命令行，`;` 是其命令
+        // 分隔符（NTFS 目录名合法字符），不引号会被拆成两条 wt 命令；双引号在 Windows
+        // 文件名中非法，手动包裹无歧义。
+        if std::process::Command::new("wt")
+            .arg("-d")
+            .raw_arg(quote_msvc(path))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+        // cmd.exe 无法以 UNC 目录（\\server\share / \\wsl.localhost\…）为工作目录：
+        // 静默退回 %WINDIR%，终端开在错误位置。wt 已缺席才走到这里（wt 对 UNC 没问题），
+        // UNC 路径改回落 PowerShell（支持 UNC cwd）；单引号字面量 + PS 转义防空格/分号拆词。
+        if path.starts_with("\\\\") {
+            let located = format!("Set-Location -LiteralPath '{}'", path.replace('\'', "''"));
+            std::process::Command::new("powershell")
+                .args(["-NoExit", "-Command"])
+                .raw_arg(quote_msvc(&located))
+                .creation_flags(CREATE_NEW_CONSOLE)
+                .spawn()
+                .map_err(|err| err.to_string())?;
+            return Ok(());
+        }
+        std::process::Command::new("cmd")
+            .current_dir(dir)
+            .args(["/C", "start", "", "cmd"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // open -a Terminal <dir>：Terminal.app 新开窗口并 cd 到该目录。
+        // open 自身是个秒退的 LaunchServices 委托客户端：detach 线程 wait() 回收，
+        // 否则变僵尸进程活到应用退出。
+        match std::process::Command::new("open")
+            .args(["-a", "Terminal", path])
+            .spawn()
+        {
+            Ok(child) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                Ok(())
+            }
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // Linux：按市占常见终端逐个尝试（各家的「起始目录」参数不同），
+        // spawn 成功即用；全部缺失时报错由前端 toast 提示。
+        const CANDIDATES: &[(&str, &[&str])] = &[
+            ("gnome-terminal", &["--working-directory"]),
+            ("konsole", &["--workdir"]),
+            ("xfce4-terminal", &["--working-directory"]),
+            ("alacritty", &["--working-directory"]),
+            ("kitty", &["--directory"]),
+            ("wezterm", &["start", "--cwd"]),
+            ("tilix", &["--working-directory"]),
+        ];
+        for (program, args) in CANDIDATES {
+            // spawn 成功 ≠ 窗口出现：gnome-terminal 这类 D-Bus 客户端会秒退委托，
+            // 无 DISPLAY/损坏安装也会 spawn 成功后立刻退出。detach 线程 wait() 回收
+            // 子进程防僵尸；秒退场景用户看不到窗口，属可接受降级（逐个候选已尽力）。
+            if let Ok(child) = std::process::Command::new(program)
+                .args(*args)
+                .arg(path)
+                .spawn()
+            {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+        }
+        Err("no supported terminal emulator found in PATH".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // seedui:// 协议（bundled 版桌面 UI 入口，实现见 ui.rs）：把窗口请求映射到
@@ -247,6 +372,7 @@ pub fn run() {
             write_clipboard_image,
             write_clipboard_html,
             write_share_cache_file,
+            open_in_terminal,
             notify::notify_connect,
             notify::notify_disconnect,
             notify::notify_send,

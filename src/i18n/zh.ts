@@ -1105,6 +1105,7 @@ export default {
             openFile: '打开文件',
             openLocally: '用本地程序打开',
             revealInFileManager: '在文件管理器中显示',
+            openInTerminal: '在终端中打开',
             copyAbsolutePath: '复制绝对路径',
             copyRelativePath: '复制相对路径',
             copyName: '复制文件名',

@@ -1103,6 +1103,7 @@ export default {
             openFile: 'Open File',
             openLocally: 'Open with Local Program',
             revealInFileManager: 'Reveal in File Manager',
+            openInTerminal: 'Open in Terminal',
             copyAbsolutePath: 'Copy Absolute Path',
             copyRelativePath: 'Copy Relative Path',
             copyName: 'Copy Name',

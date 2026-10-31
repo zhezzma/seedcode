@@ -36,6 +36,7 @@ import {
     ArrowPathIcon,
     ArrowTopRightOnSquareIcon,
     EyeIcon,
+    CommandLineIcon,
 } from '@heroicons/vue/24/outline'
 import { useWorkspaceRefresh } from './useWorkspaceRefresh'
 
@@ -263,6 +264,21 @@ export function shouldShowLocalOpenItems(isTauriEnv: boolean, mode: 'local' | 'r
     return isTauriEnv && mode === 'local'
 }
 
+/** 在系统终端中打开指定目录（绝对路径）。文件行菜单（所在目录）与面板空白菜单（workspace 根）共用。
+ *  终端启动器随平台各异（wt/cmd、Terminal.app、gnome-terminal/konsole/…），
+ *  opener 插件没有该能力，走自家 Rust 命令 open_in_terminal（见 src-tauri/src/lib.rs）。
+ *  null/空路径视为不可用（root 未加载），静默 return——上游菜单项 disabled 已拦，这里双保险。 */
+export async function openInTerminalAt(dirAbsPath: string | null): Promise<void> {
+    const toast = useToast()
+    if (!dirAbsPath) return
+    try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('open_in_terminal', { path: dirAbsPath })
+    } catch (e: any) {
+        toast.error(`${tr('workspace.menu.openInTerminal')}: ${e?.message || String(e)}`)
+    }
+}
+
 export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
     const { entry, scope, agentId, root, onMutated, onDeleted } = args
     const isFile = entry.type === 'file'
@@ -303,6 +319,9 @@ export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
     /** 打开所在目录并选中该项（文件 / 目录皆可）。 */
     const revealInFileManager = () => runOpener('workspace.menu.revealInFileManager', o => o.revealItemInDir(absPath))
 
+    /** 文件行入口：目录 → 它自身；文件 → 其父目录（终端只能 cd 进目录）。 */
+    const openInTerminal = () => openInTerminalAt(root ? buildAbsolutePath(root, parentOf(entry)) : null)
+
     return [
         // 本地打开两项置于顶部（最高频动作）；root 拿不到时禁用（无法拼绝对路径）。
         ...(showLocalOpen ? [{
@@ -315,6 +334,11 @@ export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
             icon: EyeIcon,
             disabled: !root,
             action: revealInFileManager,
+        }, {
+            label: tr('workspace.menu.openInTerminal'),
+            icon: CommandLineIcon,
+            disabled: !root,
+            action: openInTerminal,
         }] as ContextMenuItem[] : []),
         {
             label: tr('workspace.menu.copyAbsolutePath'),

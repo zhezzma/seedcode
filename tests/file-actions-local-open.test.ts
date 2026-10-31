@@ -78,6 +78,75 @@ test('useFileActions: 本地打开 i18n 双侧补齐', () => {
     assert.match(zh, /revealInFileManager: '在文件管理器中显示'/, 'zh must define revealInFileManager')
 })
 
+test('useFileActions: 在终端中打开 —— 走自家 Rust 命令，与本地打开同 gating、同 root 依赖', () => {
+    // 终端启动器随平台各异，opener 插件无此能力：动态 import api/core invoke 自家命令
+    assert.match(src, /await import\('@tauri-apps\/api\/core'\)/, 'terminal action must dynamically import tauri core api')
+    assert.match(
+        src,
+        /export async function openInTerminalAt\(dirAbsPath: string \| null\): Promise<void>/,
+        'terminal action must be exported so the panel blank menu can reuse it',
+    )
+    assert.match(
+        src,
+        /invoke\('open_in_terminal', \{ path: dirAbsPath \}\)/,
+        'shared action must invoke the custom rust command with the absolute dir path',
+    )
+    // 文件行入口：目录 → 它自身；文件 → 其父目录（parentOf 语义）
+    assert.match(
+        src,
+        /openInTerminalAt\(root \? buildAbsolutePath\(root, parentOf\(entry\)\) : null\)/,
+        'file row menu must open the containing dir via the shared action',
+    )
+    assert.match(
+        src,
+        /label: tr\('workspace\.menu\.openInTerminal'\),\s*\n\s*icon: CommandLineIcon,\s*\n\s*disabled: !root,\s*\n\s*action: openInTerminal,/,
+        'row menu item must sit in the local-open group (same gating) and stay disabled without root',
+    )
+    // 面板空白处（Files tab）入口：终端开在 workspace 根，root 未加载时禁用
+    const panelSrc = read('src/components/workspace/WorkspacePanel.vue')
+    assert.match(
+        panelSrc,
+        /const rootDir = tree\.entriesAt\(''\)\?\.root \?\? null/,
+        'panel blank menu must resolve the workspace root the same way as the file rows',
+    )
+    // 空白菜单与文件行同一 gating：remote/浏览器下 root 是远端机器路径，开本地终端无意义
+    assert.match(
+        panelSrc,
+        /shouldShowLocalOpenItems\(isDesktopTauri, effectiveGatewayMode\(\)\)/,
+        'panel blank menu must share the local-open gating (Tauri desktop + local gateway only)',
+    )
+    // gating 依赖的 import 存在性（防“清理未使用导入”删掉后测试仍绿而编译挂）
+    assert.match(panelSrc, /import \{ isDesktopTauri \} from '\.\.\/\.\.\/utils\/environment'/, 'panel must import isDesktopTauri')
+    assert.match(panelSrc, /from '\.\.\/\.\.\/composables\/local-server'/, 'panel must import effectiveGatewayMode from local-server')
+    assert.match(
+        panelSrc,
+        /label: t\('workspace\.menu\.openInTerminal'\),\s*\n\s*icon: CommandLineIcon,\s*\n\s*disabled: !rootDir,\s*\n\s*action: \(\) => openInTerminalAt\(rootDir\),/,
+        'panel blank menu must expose open-in-terminal at workspace root, disabled without root',
+    )
+})
+
+test('useFileActions: 在终端中打开 —— Rust 命令存在且已注册，分平台启动器齐全', () => {
+    const lib = read('src-tauri/src/lib.rs')
+    assert.match(lib, /fn open_in_terminal\(path: String\) -> Result<\(\), String>/, 'command fn must exist')
+    assert.match(lib, /open_in_terminal,/, 'command must be registered in invoke_handler')
+    // Windows：wt 优先 + cmd start 回落；UNC 路径回落 PowerShell（cmd 不支持 UNC cwd）。
+    // 注意 PowerShell 本体就是目标窗口，必须 CREATE_NEW_CONSOLE（CREATE_NO_WINDOW 会藏成静默无反应）。
+    assert.match(lib, /Command::new\("wt"\)/, 'windows branch must prefer Windows Terminal')
+    assert.match(lib, /args\(\["\/C", "start", "", "cmd"\]\)/, 'windows fallback must open a classic cmd window')
+    assert.match(lib, /Command::new\("powershell"\)/, 'UNC fallback must use PowerShell')
+    assert.match(lib, /Set-Location -LiteralPath/, 'UNC fallback must cd via -LiteralPath')
+    assert.match(lib, /CREATE_NEW_CONSOLE/, 'UNC fallback must spawn a VISIBLE console')
+    assert.match(lib, /args\(\["-a", "Terminal", path\]\)/, 'macos branch must open Terminal.app at the dir')
+    assert.match(lib, /CANDIDATES: &\[\(&str, &\[&str\]\)\]/, 'linux branch must try a candidate list of terminals')
+})
+
+test('useFileActions: 在终端中打开 i18n 双侧补齐', () => {
+    const en = read('src/i18n/en.ts')
+    const zh = read('src/i18n/zh.ts')
+    assert.match(en, /openInTerminal: 'Open in Terminal'/, 'en must define openInTerminal')
+    assert.match(zh, /openInTerminal: '在终端中打开'/, 'zh must define openInTerminal')
+})
+
 test('capabilities: opener open-path 授权必须带 scope 条目（空 scope 运行时全拒）', () => {
     const cap = read('src-tauri/capabilities/default.json')
     // open_path 运行时经 tauri::fs::Scope（glob 匹配）检查：裸 allow-open-path 无 scope 条目

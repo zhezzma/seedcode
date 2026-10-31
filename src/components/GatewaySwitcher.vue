@@ -342,9 +342,9 @@ const openLink = (link: ExternalLinkItem) => {
                     </button>
                     <!-- 链接子面板：桌面 lg: 飞出右侧（锚 li 底沿向上长，扫避视口下缘）；
                          移动端无 hover，叠在主菜单上方（抽屉 w-80 内右侧放不下）。
-                         max-h 封顶内部滚动，同账号列表策略 -->
+                         max-h 封顶内部滚动，同账号列表策略；PC 端可视高度加大到 96（移动端维持 64） -->
                     <div v-if="linksSubmenuOpen" class="external-links-submenu block absolute z-50 w-56 rounded-2xl border border-base-300 bg-base-100 p-1 shadow-lg
-                             max-h-64 overflow-y-auto max-lg:left-0 max-lg:right-0 max-lg:w-auto max-lg:bottom-full max-lg:mb-1
+                             max-h-64 lg:max-h-96 overflow-y-auto max-lg:left-0 max-lg:right-0 max-lg:w-auto max-lg:bottom-full max-lg:mb-1
                              lg:left-full lg:bottom-0 lg:ml-1"
                         role="menu" @mouseenter="cancelLinksSubmenuClose" @mouseleave="scheduleLinksSubmenuClose" @click.stop>
                         <div v-if="linksLoading" class="flex items-center gap-2 px-3 py-2 text-sm text-base-content/50">

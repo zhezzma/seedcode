@@ -13,12 +13,13 @@
  * `display:contents` 让 wrapper 不参与布局，splitter 与 aside 仍是父 flex 的 item。
  */
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, CommandLineIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
 import { useContextMenu, type ContextMenuItem } from '../../composables/useContextMenu'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
 import { isDesktopTauri } from '../../utils/environment'
-import { runNewFileFlow, runNewDirFlow, runUploadFlow } from '../../composables/useFileActions'
+import { runNewFileFlow, runNewDirFlow, runUploadFlow, openInTerminalAt, shouldShowLocalOpenItems } from '../../composables/useFileActions'
+import { effectiveGatewayMode } from '../../composables/local-server'
 import { useWorkspacePanel, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../../composables/useWorkspacePanel'
 import { useWorkspaceTree } from '../../composables/useWorkspaceTree'
 import { useWorkspaceGit } from '../../composables/useWorkspaceGit'
@@ -134,6 +135,18 @@ function onPanelContextMenu(e: MouseEvent) {
         action: () => refreshAll(props.agentId, () => props.agentId),
     }]
     if (panel.activeTab.value === 'files') {
+        // 空白处即 workspace 根：终端直接开在根目录；root 未加载时禁用（无法拼绝对路径）。
+        // 与文件行菜单同一 gating（buildFileMenuItems 的 showLocalOpen）：仅 Tauri 桌面 + local
+        // 网关展示——remote/浏览器下 root 是远端机器的路径，开本地终端无意义且必然报错。
+        const rootDir = tree.entriesAt('')?.root ?? null
+        if (shouldShowLocalOpenItems(isDesktopTauri, effectiveGatewayMode())) {
+            items.push({
+                label: t('workspace.menu.openInTerminal'),
+                icon: CommandLineIcon,
+                disabled: !rootDir,
+                action: () => openInTerminalAt(rootDir),
+            })
+        }
         items.push(
             {
                 label: t('workspace.menu.newFile'),
