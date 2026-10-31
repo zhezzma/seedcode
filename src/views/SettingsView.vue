@@ -24,6 +24,7 @@ import {
     ClockIcon,
     ChatBubbleLeftRightIcon,
     PlusIcon,
+    QrCodeIcon,
     QueueListIcon,
 } from '@heroicons/vue/24/outline'
 import ViewHeader from '@/components/ViewHeader.vue'
@@ -31,6 +32,8 @@ import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { writeClipboard } from '../utils/clipboard'
 import { localServer, restartLocalServer, switchGateway, gatewaySwitchBlockReason } from '../composables/local-server'
+import { parseGatewayShareQr } from '../utils/gateway-qr'
+import QrScannerModal from '../components/QrScannerModal.vue'
 import type { GatewayProfile } from '../stores/setting'
 
 const router = useRouter()
@@ -127,6 +130,25 @@ const startNewGatewayDraft = () => {
     editForm.value.name = ''
     editForm.value.apiBaseUrl = ''
     editForm.value.token = ''
+}
+
+const qrScannerRef = ref<InstanceType<typeof QrScannerModal> | null>(null)
+
+const openQrScan = () => qrScannerRef.value?.open()
+
+/**
+ * 扫码导入：语义 = 先点「添加服务器」开新草稿，再把二维码里的地址/令牌填进表单。
+ * 刻意不保存——与手动填写一致，由用户核对后自行点「保存」。
+ */
+const onQrDecoded = (text: string) => {
+    const info = parseGatewayShareQr(text)
+    if (!info) {
+        toast.warning(t('gateway.scanInvalid'))
+        return
+    }
+    startNewGatewayDraft()
+    editForm.value.apiBaseUrl = info.apiBaseUrl
+    editForm.value.token = info.token
 }
 
 /**
@@ -546,10 +568,16 @@ const logout = async () => {
                     </button>
                 </li>
             </ul>
-            <button type="button" class="btn btn-outline btn-sm btn-block gap-2 mb-4" @click="startNewGatewayDraft">
-                <PlusIcon class="h-4 w-4" />
-                {{ $t('gateway.addServer') }}
-            </button>
+            <div class="mb-4 flex gap-2">
+                <button type="button" class="btn btn-outline btn-sm flex-1 gap-2" @click="startNewGatewayDraft">
+                    <PlusIcon class="h-4 w-4" />
+                    {{ $t('gateway.addServer') }}
+                </button>
+                <button type="button" class="btn btn-outline btn-sm flex-1 gap-2" @click="openQrScan">
+                    <QrCodeIcon class="h-4 w-4" />
+                    {{ $t('gateway.scanServer') }}
+                </button>
+            </div>
 
             <div class="divider my-0 mb-4">{{ editorTitle }}</div>
 
@@ -617,6 +645,8 @@ const logout = async () => {
             <button>close</button>
         </form>
     </dialog>
+
+    <QrScannerModal ref="qrScannerRef" @decoded="onQrDecoded" />
 
     <dialog id="asr_settings_modal" class="modal">
         <div class="modal-box">

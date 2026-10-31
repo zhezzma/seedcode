@@ -3,6 +3,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 网关设置「扫码导入」：WebView getUserMedia 视频采集需要 CAMERA（含运行时授权） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- TV 盒子等多无摄像头：声明为可选，避免安装器按 hardware.camera 特性过滤设备 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- CAMERA 权限隐含要求自动对焦特性（安装器按 manifest 隐含特性过滤）：显式声明可选，否则 TV 盒子/固定对焦外接摄像头被筛掉 -->
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />

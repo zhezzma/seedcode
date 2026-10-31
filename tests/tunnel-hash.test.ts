@@ -23,10 +23,21 @@ test.beforeEach(() => {
 
 test('parseTunnelHash extracts token from #token=...', () => {
     assert.deepEqual(parseTunnelHash('#token=abc123'), { token: 'abc123' })
-    assert.deepEqual(parseTunnelHash('#token=abc%20123'), { token: 'abc 123' })
     assert.deepEqual(parseTunnelHash('#foo=1&token=xyz'), { token: 'xyz' })
     // token 前后空白裁剪
     assert.deepEqual(parseTunnelHash('#token=%20%20pw%20'), { token: 'pw' })
+    // 白名单收紧后的新语义（与 gateway-qr 的 isValidShareToken 同一实现）：
+    // 内含空格不在可打印 ASCII（0x21-0x7e）白名单内——典型的链接被改坏（+ 未编码）产物，整单拒收
+    assert.equal(parseTunnelHash('#token=abc%20123'), null)
+})
+
+test('parseTunnelHash rejects tokens outside the shared printable-ASCII whitelist', () => {
+    // 非 Latin-1 / C1 控制区令牌会让 Authorization 头构造 TypeError（该网关全站「网络错误」）：
+    // 坏链接整体作废（null）→ main.ts 不引导入、不写 settings
+    assert.equal(parseTunnelHash('#token=%E4%BB%A4'), null)
+    assert.equal(parseTunnelHash('#token=abc%C2%85'), null)
+    // 控制字符放在中间：首尾会被 trim 抹掉（#token=abc%0A 等价于 abc，仍属合法令牌）
+    assert.equal(parseTunnelHash('#token=a%0Ab'), null)
 })
 
 test('parseTunnelHash returns null for missing/empty token or non-hash input', () => {
