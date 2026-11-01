@@ -41,8 +41,52 @@ export interface TunnelFullState {
 
 /**
  * provider 展示顺序（并发语义：ssh 为 VPS 自管，devbridge/cloudflare 为托管通道）。
- * 面板 v-for 与 per-provider rev/busy 簿记均以此数组驱动。
+ * 面板 tab 栏与 per-provider rev/busy 簿记均以此数组驱动。
  */
 export const TUNNEL_PROVIDER_IDS = ['ssh', 'devbridge', 'cloudflare'] as const
 
 export type TunnelProviderId = (typeof TUNNEL_PROVIDER_IDS)[number]
+
+/** 面板 tab：局域网直连 + 各 provider（局域网在首位，与历史视觉顺序一致） */
+export type TunnelTabId = 'lan' | TunnelProviderId
+
+/** tab 短标签：品牌名语言无关，完整 label 在四联 tab 里会折行 */
+export const TUNNEL_PROVIDER_TAB_LABELS: Record<TunnelProviderId, string> = {
+    ssh: 'SSH',
+    devbridge: 'DevBridge',
+    cloudflare: 'Cloudflare',
+}
+
+/** 状态徽标样式（面板区块 badge）：入口收敛到 model，与 tab 圆点同源单一映射 */
+export function providerBadgeClass(
+    state: TunnelStateEx | null,
+    starting: boolean,
+    stopping: boolean,
+): string {
+    if (starting) return 'badge-info'
+    if (stopping) return 'badge-warning'
+    switch (state?.status) {
+        case 'ready': return 'badge-success'
+        case 'connecting': return 'badge-info'
+        case 'failed': return 'badge-error'
+        default: return 'badge-ghost'
+    }
+}
+
+/** tab 栏状态圆点（紧凑版）：轮询持续跑，未选中的 provider tab 也能实时看到通道状态；
+ *  请求窗（start/stop 在途）优先于快照状态，否则点击连接的瞬间圆点会滞后一拍 */
+export function providerDotClass(
+    state: TunnelStateEx | null,
+    starting = false,
+    stopping = false,
+): string {
+    if (starting) return 'bg-info animate-pulse'
+    if (stopping) return 'bg-warning animate-pulse'
+    switch (state?.status) {
+        case 'ready': return 'bg-success'
+        case 'connecting': return 'bg-info'
+        case 'failed': return 'bg-error'
+        case 'idle': return 'bg-base-content/30'
+        default: return 'bg-base-content/20'
+    }
+}

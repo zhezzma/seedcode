@@ -17,7 +17,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
 import { writeClipboard } from '../../../utils/clipboard'
-import type { TunnelStateEx } from './tunnel-panel-model'
+import { providerBadgeClass, type TunnelStateEx } from './tunnel-panel-model'
 
 const props = defineProps<{
     /** provider 机器标识（同时驱动 i18n 前缀键与元素 id 唯一化） */
@@ -56,16 +56,7 @@ const statusKey = computed(() => {
     }
 })
 
-const badgeClass = computed(() => {
-    if (props.starting) return 'badge-info'
-    if (props.stopping) return 'badge-warning'
-    switch (props.state?.status) {
-        case 'ready': return 'badge-success'
-        case 'connecting': return 'badge-info'
-        case 'failed': return 'badge-error'
-        default: return 'badge-ghost'
-    }
-})
+const badgeClass = computed(() => providerBadgeClass(props.state, props.starting, props.stopping))
 
 /** 未配置：显示指引文案（去对应 provider 设置页），连接控件一并隐藏 */
 const unconfigured = computed(() => !!props.state && !props.state.configured)

@@ -791,11 +791,11 @@ export default {
             tokenLabel: 'Token: ',
             urlLabel: 'URL: ',
             appConnectHint: 'Phone App → tap the server switcher at the bottom of the sidebar → Add server, then enter the URL and token above',
+            lanTab: 'LAN',
             lanReady: 'LAN direct access (always available): phone on the same network as the PC; no VPS needed',
             lanNoIp: 'No LAN address detected (check network connection)',
             lanFirewallHint: 'If the phone cannot connect: check Windows Firewall allows this app/port',
             tokenMissing: 'Server access token is not configured; cannot build the share link',
-            remoteTitle: 'Remote tunnels (internet access)',
             providers: {
                 ssh: {
                     label: 'SSH reverse tunnel',

@@ -4,23 +4,27 @@
  * 端点契约（多 provider 并发）：GET /state → {serverPort, lanIps, providers}、
  * POST /api/extensions/:extensionId/start/:id | stop/:id。
  *
- * 结构（回应「每个 provider 视图大部分内容相同」的优雅性要求）：
- * - 局域网直连（始终可用）：常驻本机真实局域网地址二维码，与 provider 无关，
- *   手机与 PC 同网络即达，无需任何开关；
- * - 远程隧道：provider 元数据数组（TUNNEL_PROVIDER_IDS）驱动 v-for，每个 provider
- *   渲染同一份 TunnelProviderSection——状态徽标/二维码/连接断开/error/未配置指引
- *   等全部共享，差异仅来自 props（per-provider 状态与请求窗标记）与 i18n 前缀键。
- *   旧版单远程视图（视图切换 + 单份远程区块）已移除：多 provider 并发后
- *   「选中一个远程视图」不再成立，列表化让三条通道互不遮挡、各自可控。
+ * 结构（回应「面板要一个 tab 栏，每个 tab 下大部分内容相同」的优雅性要求）：
+ * - tab 栏 = 局域网 + provider 元数据数组（TUNNEL_PROVIDER_IDS）驱动，每个 tab 右侧
+ *   一颗实时状态圆点（轮询持续跑，未选中的通道也能一眼看到状态）；
+ * - 内容区 = 一张同构「连接卡」：局域网 tab → TunnelLanSection，provider tab →
+ *   TunnelProviderSection。状态徽标/二维码/连接断开/error/未配置指引等差异全部
+ *   收敛在两个 Section 组件内部，面板只负责 tab 切换与全局轮询/守卫簿记。
  */
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import QRCode from 'qrcode'
 import { apiGet, apiPost } from '../../../composables/api-client'
 import { useUiSettingsStore } from '../../../stores/setting'
-import { writeClipboard } from '../../../utils/clipboard'
+import TunnelLanSection from './TunnelLanSection.vue'
 import TunnelProviderSection from './TunnelProviderSection.vue'
-import { TUNNEL_PROVIDER_IDS, type TunnelFullState, type TunnelStateEx } from './tunnel-panel-model'
+import {
+    TUNNEL_PROVIDER_IDS,
+    TUNNEL_PROVIDER_TAB_LABELS,
+    providerDotClass,
+    type TunnelFullState,
+    type TunnelStateEx,
+    type TunnelTabId,
+} from './tunnel-panel-model'
 
 const props = defineProps<{
     extensionId: string
@@ -33,7 +37,10 @@ const state = ref<TunnelFullState | null>(null)
 /** per-provider 请求窗标记（reactive 簿记使各 provider 的按钮/徽标独立联动） */
 const starting = reactive<Record<string, boolean>>({})
 const stopping = reactive<Record<string, boolean>>({})
-/** 多真实网卡时选中的局域网 IP */
+/** 当前选中的 tab：默认局域网直连（与历史视觉顺序一致） */
+const selected = ref<TunnelTabId>('lan')
+
+/** 多真实网卡时选中的局域网 IP：挂在面板层，切 tab 往返不丢失用户显式选择 */
 const selectedLanIp = ref('')
 
 const POLL_INTERVAL_MS = 3000
@@ -48,39 +55,13 @@ const bumpRev = (id: string) => {
 }
 
 const token = computed(() => settings.token?.trim() ?? '')
-const tokenMissing = computed(() => !token.value)
-
-/** 当前生效的局域网 IP：选中项已不在最新列表（网卡变化/列表清空）时回落首个，避免残留失效地址 */
-const activeLanIp = computed(() => {
-    const ips = state.value?.lanIps ?? []
-    return ips.includes(selectedLanIp.value) ? selectedLanIp.value : ips[0] ?? ''
-})
-
-/** 局域网直连分享链接（二维码渲染目标） */
-const lanShareUrl = computed(() => {
-    const tok = token.value
-    const ip = activeLanIp.value
-    if (!tok || !ip || !state.value?.serverPort) return null
-    return `http://${ip}:${state.value.serverPort}/#token=${encodeURIComponent(tok)}`
-})
-
-/** App 连接要填的局域网裸地址（无 hash）；远程地址由各 provider 区块自带，不在此处 */
-const appConnectUrl = computed(() => {
-    const ip = activeLanIp.value
-    return ip && state.value?.serverPort ? `http://${ip}:${state.value.serverPort}` : ''
-})
 
 /**
- * per-provider 状态切片：v-for 的数据源是元数据 TUNNEL_PROVIDER_IDS（固定顺序），
+ * per-provider 状态切片：tab 栏与内容区的数据源是元数据 TUNNEL_PROVIDER_IDS（固定顺序），
  * 此处只负责按 id 从最新快照里取该 provider 的那一片（首帧未返回时为 null）
  */
 function providerState(id: string): TunnelStateEx | null {
     return state.value?.providers[id] ?? null
-}
-
-/** 选中局域网 IP */
-function selectLan(ip: string) {
-    selectedLanIp.value = ip
 }
 
 async function refreshState(silent = true) {
@@ -104,6 +85,7 @@ async function refreshState(silent = true) {
             lanIps: next.lanIps ?? prev?.lanIps ?? [],
             providers: merged,
         }
+        // 网卡列表变化时同步局域网选中项（选中项已不在最新列表则回落首个）
         if (state.value.lanIps.length && !state.value.lanIps.includes(selectedLanIp.value)) {
             selectedLanIp.value = state.value.lanIps[0]
         }
@@ -136,18 +118,6 @@ async function control(id: string, action: 'start' | 'stop') {
     }
 }
 
-async function copyText(text: string | null, elementId?: string) {
-    if (!text) return
-    try {
-        await writeClipboard(text)
-    } catch {
-        // 剪贴板权限失败时退化选中文本，由用户手动复制
-        if (!elementId) return
-        const el = document.getElementById(elementId)
-        if (el) globalThis.getSelection()?.selectAllChildren(el)
-    }
-}
-
 function schedulePoll() {
     pollTimer = globalThis.setTimeout(async () => {
         await refreshState()
@@ -166,81 +136,37 @@ onUnmounted(() => {
         pollTimer = null
     }
 })
-
-const qrDataUrl = ref('')
-
-async function renderQr(text: string) {
-    const dataUrl = await QRCode.toDataURL(text, { margin: 1, width: 320 })
-    // 时序守护：await 期间分享地址可能又变了（快速切 IP/令牌就绪），旧二维码不得写入
-    if (lanShareUrl.value === text) qrDataUrl.value = dataUrl
-}
-
-// 分享地址变化（IP 切换 / token 就绪 / 网卡变化）时重渲染二维码
-watch(lanShareUrl, (url) => {
-    if (url) {
-        renderQr(url).catch((e) => console.error('[tunnel] qr render failed', e))
-    } else {
-        qrDataUrl.value = ''
-    }
-}, { immediate: true })
 </script>
 
 <template>
     <div class="text-center">
-        <!-- ── 局域网直连（始终可用，无需开关，与 provider 无关）────────────── -->
-        <p class="text-sm text-base-content/60 mb-4">{{ t('extensions.tunnel.lanReady') }}</p>
-
-        <template v-if="state?.lanIps?.length && !tokenMissing">
-            <!-- 地址切换：多真实网卡时并列展示（单网卡也常驻，与旧版行为一致） -->
-            <div class="flex flex-wrap justify-center gap-1.5 mb-4">
-                <button v-for="ip in state.lanIps" :key="ip" class="btn btn-xs"
-                    :class="ip === activeLanIp ? 'btn-primary' : 'btn-outline'"
-                    @click="selectLan(ip)">{{ ip }}</button>
-            </div>
-
-            <!-- 未就绪（令牌缺失/地址缺失）无码可展示：二维码、链接与提示整体隐藏 -->
-            <template v-if="lanShareUrl">
-                <div class="flex justify-center mb-4">
-                    <img :src="qrDataUrl" :alt="t('extensions.tunnel.qrAlt')"
-                        class="w-64 h-64 rounded-2xl border border-base-300 bg-white object-contain p-3" />
-                </div>
-                <p id="tunnel-share-url" class="text-xs text-base-content/60 mb-3 break-all select-all">{{ lanShareUrl }}</p>
-                <button class="btn btn-outline btn-sm mb-2" @click="copyText(lanShareUrl, 'tunnel-share-url')">{{ t('extensions.tunnel.copyUrl') }}</button>
-                <p class="text-xs text-base-content/40">{{ t('extensions.tunnel.hint') }}</p>
-                <p class="text-[10px] text-base-content/30 mt-1">{{ t('extensions.tunnel.lanFirewallHint') }}</p>
-            </template>
-        </template>
-
-        <!-- 首帧未返回（state 为 null）时前两个分支不命中；tokenMissing 分支仍会命中且这是有意的——
-             令牌缺失与加载时序无关，无需等快照就能给出缺失指引 -->
-        <div v-else-if="state && !state.lanIps?.length" class="text-sm text-warning mb-4">
-            {{ t('extensions.tunnel.lanNoIp') }}
-        </div>
-        <div v-else-if="tokenMissing" class="text-sm text-warning mb-4">
-            {{ t('extensions.tunnel.tokenMissing') }}
+        <!-- ── tab 栏：局域网 + 三 provider，一个 tab 一张同构「连接卡」──────────────
+             圆点 = 该通道实时状态（含请求窗）；轮询对全部 provider 持续进行，与选中与否无关。
+             daisyUI 5 类名：tabs-border（v4 旧写法已弃用，用错指示条不渲染） -->
+        <div role="tablist" class="tabs tabs-border tabs-sm justify-center mb-4">
+            <button type="button" role="tab" class="tab"
+                :class="{ 'tab-active': selected === 'lan' }" @click="selected = 'lan'">
+                {{ t('extensions.tunnel.lanTab') }}
+            </button>
+            <button v-for="id in TUNNEL_PROVIDER_IDS" :key="id" type="button" role="tab" class="tab gap-1.5"
+                :class="{ 'tab-active': selected === id }" @click="selected = id">
+                <span class="inline-block h-1.5 w-1.5 rounded-full align-middle"
+                    :class="providerDotClass(providerState(id), !!starting[id], !!stopping[id])"></span>
+                {{ TUNNEL_PROVIDER_TAB_LABELS[id] }}
+            </button>
         </div>
 
-        <!-- App 局域网连接信息（令牌缺失/无地址不渲染）：远程模式连接信息由各 provider 区块自带 -->
-        <div v-if="appConnectUrl && !tokenMissing" class="mt-4 rounded-xl bg-base-200/40 p-3 text-left">
-            <p class="text-xs font-medium mb-2 text-base-content/70">{{ t('extensions.tunnel.appConnectTitle') }}</p>
-            <div class="text-xs font-mono space-y-1">
-                <p class="break-all">{{ t('extensions.tunnel.urlLabel') }}<span class="select-all text-primary">{{ appConnectUrl }}</span></p>
-                <p class="break-all">{{ t('extensions.tunnel.tokenLabel') }}<span class="select-all text-primary">{{ token }}</span></p>
-            </div>
-            <p class="text-[10px] text-base-content/40 mt-2">{{ t('extensions.tunnel.appConnectHint') }}</p>
-        </div>
-
-        <!-- ── 远程隧道：provider 列表（元数据数组驱动 v-for，共享 TunnelProviderSection）── -->
-        <p class="text-sm text-base-content/60 mt-6 mb-3">{{ t('extensions.tunnel.remoteTitle') }}</p>
-        <div class="space-y-3">
-            <TunnelProviderSection v-for="id in TUNNEL_PROVIDER_IDS" :key="id"
-                :provider-id="id"
-                :state="providerState(id)"
-                :starting="!!starting[id]"
-                :stopping="!!stopping[id]"
-                :token="token"
-                @start="control(id, 'start')"
-                @stop="control(id, 'stop')" />
-        </div>
+        <!-- 共享内容区：每个 tab 一张连接卡，差异全部收敛在 Section 组件内部 -->
+        <TunnelLanSection v-if="selected === 'lan'"
+            :state="state" :token="token" :selected-ip="selectedLanIp"
+            @select="selectedLanIp = $event" />
+        <TunnelProviderSection v-else :key="selected"
+            :provider-id="selected"
+            :state="providerState(selected)"
+            :starting="!!starting[selected]"
+            :stopping="!!stopping[selected]"
+            :token="token"
+            @start="control(selected, 'start')"
+            @stop="control(selected, 'stop')" />
     </div>
 </template>

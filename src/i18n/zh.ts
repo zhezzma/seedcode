@@ -792,11 +792,11 @@ export default {
             tokenLabel: '令牌：',
             urlLabel: 'URL：',
             appConnectHint: '手机 App → 点侧边栏底部的服务器切换菜单 → 添加服务器，再填入上面的 URL 和令牌',
+            lanTab: '局域网',
             lanReady: '局域网直连（始终可用）：手机与 PC 连同一网络即可访问，无需 VPS',
             lanNoIp: '未检测到局域网地址（请检查网络连接）',
             lanFirewallHint: '手机打不开时：检查 Windows 防火墙是否放行了本应用/端口',
             tokenMissing: '服务端未配置访问令牌，无法生成分享链接',
-            remoteTitle: '远程隧道（外网访问）',
             providers: {
                 ssh: {
                     label: 'SSH 反向隧道',
