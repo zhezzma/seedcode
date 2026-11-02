@@ -5,6 +5,7 @@ import md from '../../utils/markdown/markdown'
 import { resolveMarkdownResourceUrls } from '../../utils/media-url'
 import { useUiSettingsStore } from '../../stores/setting'
 import { useMediaPreview } from '../../composables/useMediaPreview'
+import { reservedImageStyle, recordImageElementDimensions } from '../../utils/imageDimensions'
 
 const props = defineProps<{
     content: string
@@ -24,6 +25,23 @@ const enhanceRenderedImages = () => {
     if (!container) return
 
     container.querySelectorAll<HTMLImageElement>('img').forEach(image => {
+        // 尺寸缓存：v-html 每次重渲染都是全新 <img>，从 0 高度重新异步加载——
+        // 不预留空间会让行高在 0 → 全高之间跳变（图片密集会话滚动被拽的根因）。
+        // 已加载完的记录尺寸；未加载的挂一次性 load 记录；命中缓存立即预留。
+        if (image.complete && image.naturalWidth > 0) {
+            recordImageElementDimensions(image)
+        } else {
+            image.addEventListener('load', () => {
+                recordImageElementDimensions(image)
+                // 同 src 被复用但内容重生成（自然尺寸变化）：用新比率即时修正
+                // inline 预留，避免过期 aspect-ratio 拉伸变形直到下次重渲染
+                const fresh = reservedImageStyle(image.currentSrc || image.src)
+                image.style.aspectRatio = fresh ? fresh.aspectRatio : ''
+            }, { once: true })
+        }
+        const reserved = reservedImageStyle(image.currentSrc || image.src)
+        if (reserved) image.style.aspectRatio = reserved.aspectRatio
+
         if (image.closest('.markdown-image-preview')) return
 
         const linkedImage = image.closest('a')

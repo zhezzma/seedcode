@@ -20,6 +20,7 @@ import type { DisplayMessage } from '../../composables/useChatMessages'
 import type { BranchInfo } from './MessageBubble.vue'
 import { computeBranchTailFlags } from '../../utils/chatBranchTail'
 import { computeDisplayTailIndex } from '../../utils/chatDisplayTail'
+import { shouldKeepCachedRowHeight } from '../../utils/imageDimensions'
 import MessageBubble from './MessageBubble.vue'
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -180,12 +181,50 @@ const setupRO = () => {
                 entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
 
             if (newH > 0 && heights.value[key] !== newH) {
-                heights.value[key] = newH
-                changed = true
+                // 行内图片未加载完时禁止把缓存高度改小：此刻真实高度是「加载中」
+                // 的临时值，写回会让该行卸载后的 spacer 塌缩，scrollHeight 骤降
+                // 触发浏览器钳制（用户视口被甩向底部）
+                const rowEl = entry.target as HTMLElement
+                const hasIncompleteImages = Array.from(rowEl.querySelectorAll('img')).some(img => !img.complete)
+                if (shouldKeepCachedRowHeight(heights.value[key], newH, hasIncompleteImages)) {
+                    // 拦截期间可能发生真实收缩（折叠思考块/工具卡）：图片全部
+                    // 加载完成后强制重测一次，防止缓存冻结在偏大值（spacer 持续
+                    // 偏高、下方行偏移漂移）
+                    scheduleRowRemeasure(rowEl)
+                } else {
+                    heights.value[key] = newH
+                    changed = true
+                }
             }
         }
         if (changed) updateVisibleRange()
     })
+}
+
+/**
+ * RO 守卫拦截更新后：行内图片全部加载完成（含 error——error 也算 complete）
+ * 时通过 unobserve+observe 触发 RO 初始回调，走正常路径补录真实高度。
+ * __vl_remeasure 标记防止重复挂监听。
+ */
+const scheduleRowRemeasure = (rowEl: HTMLElement) => {
+    if ((rowEl as any).__vl_remeasure) return
+    ;(rowEl as any).__vl_remeasure = true
+    const settle = () => {
+        if (Array.from(rowEl.querySelectorAll('img')).some(img => !(img as HTMLImageElement).complete)) return
+        ;(rowEl as any).__vl_remeasure = false
+        if (ro) {
+            ro.unobserve(rowEl)
+            ro.observe(rowEl)
+        }
+    }
+    rowEl.querySelectorAll('img').forEach(node => {
+        const img = node as HTMLImageElement
+        if (!img.complete) {
+            img.addEventListener('load', settle, { once: true })
+            img.addEventListener('error', settle, { once: true })
+        }
+    })
+    settle()
 }
 
 const observeEl = (el: HTMLElement, key: string) => {

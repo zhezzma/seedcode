@@ -18,6 +18,7 @@ import ThinkingBlock from './ThinkingBlock.vue'
 import DeliverablesPanel from './DeliverablesPanel.vue'
 import { A2UIRenderer } from '../a2ui'
 import { handleA2UIAction } from '../../composables/useA2UIActions'
+import { reservedImageStyle, recordImageElementDimensions } from '../../utils/imageDimensions'
 import { getSurface } from '../../composables/useA2UISurfaces'
 import { useChatState } from '../../composables/useChatState'
 import { useTTS } from '../../composables/useTTS'
@@ -148,6 +149,18 @@ const getImageSrc = (source: any): string => {
 }
 
 // 当前 Agent 信息直接从 chatState 获取，无需额外 watch 和查询
+/** 图片首次加载完成时记录自然尺寸（尺寸缓存），供后续渲染 aspect-ratio 预留空间
+ *  （虚拟列表行重挂载时 <img> 全新 DOM，不预留会从 0 高度重新长高，行高跳变） */
+const onBubbleImageLoad = (e: Event) => {
+    const img = e.target as HTMLImageElement
+    if (!img?.naturalWidth) return
+    recordImageElementDimensions(img)
+    // 同 src 被复用但内容重生成（自然尺寸变化）：用新比率即时修正 inline 预留
+    //（:style 绑定无渲染不会重求值，变形会一直持续到下次重渲染）
+    const fresh = reservedImageStyle(img.currentSrc || img.src)
+    img.style.aspectRatio = fresh ? fresh.aspectRatio : ''
+}
+
 const currentAgent = computed(() => chatState.currentAgent)
 const assistantName = computed(() => props.agentName || currentAgent.value?.name || 'Assistant')
 const assistantAvatar = computed(() => {
@@ -363,7 +376,8 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                             class="attachment-card group/att relative rounded-lg overflow-hidden border border-white/20 bg-black/20 cursor-pointer hover:border-white/40 transition-all duration-200"
                             :class="userImages.length > 1 ? 'aspect-square' : ''">
                             <img :src="imgBlock.src" class="w-full h-full"
-                                :class="userImages.length === 1 ? 'max-w-full max-h-[300px] object-contain bg-white/10 flex-none' : 'object-cover'" />
+                                :class="userImages.length === 1 ? 'max-w-full max-h-[300px] object-contain bg-white/10 flex-none' : 'object-cover'"
+                                :style="reservedImageStyle(imgBlock.src)" @load="onBubbleImageLoad" />
                             <!-- Hover overlay -->
                             <div
                                 class="absolute inset-0 bg-black/0 group-hover/att:bg-black/20 transition-all duration-200 flex items-center justify-center pointer-events-none">
@@ -506,7 +520,8 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                             :class="block.images.length > 1 ? 'aspect-square' : ''"
                             @click="openLightbox(getImageSrc(imgBlock.source))">
                             <img :src="getImageSrc(imgBlock.source)" class="w-full h-full"
-                                :class="block.images.length === 1 ? 'max-w-full max-h-[300px] object-contain flex-none' : 'object-cover'" />
+                                :class="block.images.length === 1 ? 'max-w-full max-h-[300px] object-contain flex-none' : 'object-cover'"
+                                :style="reservedImageStyle(getImageSrc(imgBlock.source))" @load="onBubbleImageLoad" />
                             <div
                                 class="absolute inset-0 bg-base-content/0 group-hover/att:bg-base-content/10 transition-all duration-200 flex items-center justify-center pointer-events-none">
                             </div>
