@@ -226,9 +226,15 @@ if (Test-Path $gradleSignedApk) {
     Write-Host "`n✅ 发现 Gradle 已签名的 APK：$gradleSignedApk" -ForegroundColor Green
     Copy-Item $gradleSignedApk $signedApk -Force
     Write-Host "   已复制到：$signedApk"
-    
+
+    # 归档到根目录 dist-android（.gitignore 已忽略）：固定出口，免每次翻 gen 目录找包
+    $distDir = "$projectRoot\dist-android"
+    New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    Copy-Item $signedApk "$distDir\app-release-signed.apk" -Force
+    Write-Host "   已归档到：$distDir\app-release-signed.apk"
+
     Write-Host "`n✅ 成功！已签名 APK 准备就绪 (跳过手动签名)。" -ForegroundColor Green
-    explorer $apkDir
+    explorer $distDir
     # 【重点】如果已经有签名包了，直接退出！不再执行后续的手动签名步骤
     exit 
 }
@@ -264,9 +270,14 @@ Write-Host "使用 apksigner：$($apksigner.FullName)"
 & $apksigner.FullName sign --ks $keystore --ks-pass pass:$keystorePass --key-pass pass:$keyPass --out $signedApk $unsignedApk
 
 if ($LASTEXITCODE -eq 0) {
+    # 同 Gradle 已签名分支：归档到根目录 dist-android 固定出口
+    $distDir = "$projectRoot\dist-android"
+    New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    Copy-Item $signedApk "$distDir\app-release-signed.apk" -Force
     Write-Host "`n✅ 成功！已创建签名 APK：" -ForegroundColor Green
     Write-Host $signedApk
-    explorer $apkDir
+    Write-Host "   已归档到：$distDir\app-release-signed.apk"
+    explorer $distDir
 } else {
     Write-Host "`n❌ 手动签名失败！" -ForegroundColor Red
 }
