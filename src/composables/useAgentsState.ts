@@ -20,10 +20,12 @@ export interface RetrySettings {
     maxAgentDelayMs?: number;
 }
 
-/** 进度提交频率（pi DEFAULT_PROGRESS_POLICY 默认 100/100） */
+/** 进度提交频率（pi DEFAULT_PROGRESS_POLICY 默认 100/100/1000） */
 export interface ProgressSettings {
     partialIntervalMs?: number;
     outputIntervalMs?: number;
+    /** 延迟提交最迟落盘间隔（1.5.0 新增，默认 1000）：崩溃最多丢失约该时长内容 */
+    persistWithinMs?: number;
 }
 
 /** 启动策略（agent 句柄 open 时的崩溃恢复行为，缺省 resume） */
@@ -50,6 +52,10 @@ export interface AgentInfo {
     /** 后台任务崩溃重启上限（pi-durable restartLimit，服务端默认 5）：同一任务连续被
      * 崩溃切断此次数无进展即 parked 停车；调大即时解 park。正整数。 */
     restartLimit?: number
+    /** 会话级轮数上限（pi-durable 1.5.0 maxTurns，会话级 AgentState.maxTurns）：单个
+     * run 的工具轮数达上限即结束（turn_limit），「continue」可凭本轮工具结果续跑；
+     * 缺省 undefined = 不限。仅影响新建会话，改动对存量会话不追溯。正整数。 */
+    maxTurns?: number
     /** 工具执行模式（pi-durable ToolExecutionMode，缺省 parallel） */
     toolExecution?: "parallel" | "sequential"
     compaction?: CompactionSettings

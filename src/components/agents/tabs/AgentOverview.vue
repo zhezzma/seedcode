@@ -265,6 +265,48 @@ const restartLimit = computed({
     }
 })
 
+// 会话级轮数上限（pi-durable 1.5.0，缺省 = 不限；与 goal 的自动轮数封顶是两个
+// 概念）。关键差异：留空是合法终态——清空输入框发 null 哨兵显式解除上限
+//（deepMerge 跳过 undefined，清除意图必须经 null 到服务端 merge 站点 delete）。
+// 由此三个必须：
+// 1) .lazy：中间态不提交。type=number 对 "1."/"-" 等未完成输入在 DOM 层规范为
+//    空串，逐击键（input 事件）会把「正在输入」误读成「主动清空」而误发 null
+//    （敲 1.5："1"→设 1，"."→解除上限）。change（失焦/回车）才触达 setter。
+// 2) 0/负/非整数宁拒不吞，toast 明示——与 restartLimit 的静默拒绝不同：那里有
+//    服务端回显把框拉回真值，本字段的成功路径才回显，失败路径不拉。
+// 3) 失败回拉：PATCH 失败时 agentsList 不变、无重渲染，输入框会停在错误的空态
+//    （显示「不限」而上限仍在），故 catch 里重拉列表回到服务端真值。
+const maxTurns = computed({
+    get: () => props.agent?.maxTurns ?? '',
+    set: async (val: number | '') => {
+        if (val === '') {
+            try {
+                await agentsState.updateAgent({
+                    agentId: props.agent.id,
+                    maxTurns: null
+                })
+            } catch (err: any) {
+                toast.error(err.message || String(err))
+                agentsState.loadAgents().catch(() => { })
+            }
+            return
+        }
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+            toast.error(t('agent.maxTurnsInvalid'))
+            return
+        }
+        try {
+            await agentsState.updateAgent({
+                agentId: props.agent.id,
+                maxTurns: val
+            })
+        } catch (err: any) {
+            toast.error(err.message || String(err))
+            agentsState.loadAgents().catch(() => { })
+        }
+    }
+})
+
 // 模型/思考档位生效范围：session = 切换后全部分支生效；branch = 各分支独立记忆
 const modelScope = computed({
     get: () => props.agent?.modelScope || 'session',
@@ -394,17 +436,21 @@ const progressModal = ref<HTMLDialogElement | null>(null)
 const progressSettings = ref<{
     partialIntervalMs: number;
     outputIntervalMs: number;
+    persistWithinMs: number;
 }>({
     partialIntervalMs: 100,
-    outputIntervalMs: 100
+    outputIntervalMs: 100,
+    persistWithinMs: 1000
 })
 
 const openProgressModal = () => {
-    // 回退值对齐 pi DEFAULT_PROGRESS_POLICY（100/100）
+    // 回退值对齐 pi DEFAULT_PROGRESS_POLICY（100/100/1000；persistWithinMs 为
+    // 1.5.0 新增的延迟提交最迟落盘间隔，与两个节流间隔不同类）
     const p = props.agent?.progress;
     progressSettings.value = {
         partialIntervalMs: p?.partialIntervalMs ?? 100,
-        outputIntervalMs: p?.outputIntervalMs ?? 100
+        outputIntervalMs: p?.outputIntervalMs ?? 100,
+        persistWithinMs: p?.persistWithinMs ?? 1000
     }
     progressModal.value?.showModal()
 }
@@ -414,11 +460,13 @@ const saveProgress = async () => {
         // 主字段归一：清空 = 省略该字段（服务端 deepMerge 保持已存值；从未存过则框架默认生效）
         const partialIntervalMs = toNumOrUndefined(progressSettings.value.partialIntervalMs)
         const outputIntervalMs = toNumOrUndefined(progressSettings.value.outputIntervalMs)
+        const persistWithinMs = toNumOrUndefined(progressSettings.value.persistWithinMs)
         await agentsState.updateAgent({
             agentId: props.agent.id,
             progress: {
                 ...(partialIntervalMs !== undefined ? { partialIntervalMs } : {}),
-                ...(outputIntervalMs !== undefined ? { outputIntervalMs } : {})
+                ...(outputIntervalMs !== undefined ? { outputIntervalMs } : {}),
+                ...(persistWithinMs !== undefined ? { persistWithinMs } : {})
             }
         })
         toast.success(t('common.savedSuccess'))
@@ -569,6 +617,14 @@ const handleDeleteAgent = async () => {
                                     class="input input-bordered input-sm w-24 text-right font-sans" />
                             </div>
                         </li>
+                        <li class="flex items-center justify-between p-4 bg-base-200" :title="$t('agent.maxTurnsHint')">
+                            <span class="font-medium text-base-content/90">{{ $t('agent.maxTurns') }}</span>
+                            <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
+                                <input v-model.number.lazy="maxTurns" type="number" min="1" step="1"
+                                    :placeholder="$t('agent.maxTurnsUnlimited')"
+                                    class="input input-bordered input-sm w-24 text-right font-sans" />
+                            </div>
+                        </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="font-medium text-base-content/90">{{ $t('agent.toolExecution') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
@@ -713,11 +769,19 @@ const handleDeleteAgent = async () => {
                             class="input input-bordered w-full" />
                     </div>
 
-                    <div class="form-control w-full mb-6">
+                    <div class="form-control w-full mb-4">
                         <label class="label">
                             <span class="label-text">{{ $t('agent.progressOutputIntervalMs') }}</span>
                         </label>
                         <input type="number" v-model.number="progressSettings.outputIntervalMs"
+                            class="input input-bordered w-full" />
+                    </div>
+
+                    <div class="form-control w-full mb-6">
+                        <label class="label">
+                            <span class="label-text">{{ $t('agent.progressPersistWithinMs') }}</span>
+                        </label>
+                        <input type="number" v-model.number="progressSettings.persistWithinMs"
                             class="input input-bordered w-full" />
                     </div>
 
