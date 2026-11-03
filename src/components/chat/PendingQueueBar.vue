@@ -13,7 +13,7 @@ const { t } = useI18n()
 const expanded = ref(false)
 
 /** 后台子代理报告回执（busy 期入队：对话流不渲染为用户气泡，仅本条可见且不可删） */
-const isSubagent = (item: PendingItem) => item.source === 'subagent'
+const isProtectedReceipt = (item: PendingItem) => item.source === 'extension'
 
 /** 报告条目预览：机器格式解析为人话（名 + 状态 + 答案摘录）；解析失败回退原文 */
 const reportPreview = (item: PendingItem) => {
@@ -44,16 +44,16 @@ const reportPreview = (item: PendingItem) => {
             <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1">
                 <div v-for="item in chatState.pendingQueue" :key="item.id"
                     class="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200 px-2 py-1">
-                    <span v-if="isSubagent(item)" class="badge badge-ghost badge-xs shrink-0 font-normal border-dashed border-base-content/20">
+                    <span v-if="isProtectedReceipt(item)" class="badge badge-ghost badge-xs shrink-0 font-normal border-dashed border-base-content/20">
                         {{ t('chat.pendingQueue.subagentBadge') }}
                     </span>
                     <span v-else class="badge badge-ghost badge-xs shrink-0 font-normal">
                         {{ item.mode === 'follow' ? t('chat.pendingQueue.followBadge') : t('chat.pendingQueue.steerBadge') }}
                     </span>
                     <span class="min-w-0 flex-1 truncate text-base-content/70" :title="item.text">
-                        {{ isSubagent(item) ? reportPreview(item) : item.text }}
+                        {{ isProtectedReceipt(item) ? reportPreview(item) : item.text }}
                     </span>
-                    <button v-if="!isSubagent(item)" type="button"
+                    <button v-if="!isProtectedReceipt(item)" type="button"
                         class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-error"
                         :title="t('chat.pendingQueue.removeHint')" :aria-label="t('chat.pendingQueue.removeHint')"
                         @click="chatState.removePendingItem(item.id)">

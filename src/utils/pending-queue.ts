@@ -33,9 +33,9 @@ export interface PendingItem {
     mode: PendingSendMode
     /** 本地展示用时间戳（快照下发时不携带，落地时取当下） */
     timestamp: number
-    /** 来源标记（服务端 queue_state 广播）：subagent = 后台子代理报告回执（
+    /** 来源标记（服务端 queue_state 广播）：extension = 扩展注入的受保护回执（
      *  busy 期入队，对话流不渲染为用户气泡、状态条可见但不可删）；缺省 user */
-    source?: 'user' | 'subagent'
+    source?: 'user' | 'extension'
 }
 
 /** 服务端队列条目载荷（queue-registry.QueueEntryView / queue_state 广播） */
@@ -44,8 +44,8 @@ export interface ServerQueueEntry {
     mode: 'steer' | 'followUp'
     text: string
     /** 来源标记（seedagent sse-adapter projectInbox：[bg-subagent-report] 前缀
-     *  标 subagent）；缺省 user */
-    source?: 'user' | 'subagent'
+     *  注册表命中标 extension）；缺省 user */
+    source?: 'user' | 'extension'
 }
 
 /**
@@ -205,6 +205,6 @@ export function toPendingItems(entries: ServerQueueEntry[] | null | undefined): 
             mode: entry.mode === 'followUp' ? 'follow' as const : 'steer' as const,
             text: entry.text,
             timestamp: Date.now(),
-            ...(entry.source === 'subagent' ? { source: 'subagent' as const } : {}),
+            ...(entry.source === 'extension' ? { source: 'extension' as const } : {}),
         }))
 }

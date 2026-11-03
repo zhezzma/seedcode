@@ -769,10 +769,10 @@ export function useChatMessages(state: ChatStateShape) {
         //    回显命中（message_start 消费）或服务端 queue_state 快照修正后无缝转正为正式气泡
         const pendingQueue = state.pendingQueue || []
         for (const entry of pendingQueue) {
-            // 后台子代理报告回执（source:'subagent'）：busy 期不渲染为用户气泡——
+            // 后台子代理报告回执（source:'extension'，服务端通用受保护标记）：busy 期不渲染为用户气泡——
             // 排空回显走消息流时由 1.15 前缀识别转报告气泡；排队期间仅在
             // PendingQueueBar 状态条可见（且不可删）
-            if (entry.source === 'subagent') continue
+            if (entry.source === 'extension') continue
             // 与历史同规则过 convertToBlocks：/a2ui-event 面板提交渲染为动作 chip
             //（a2ui-action），不再裸显整段 JSON 文本——提交后在排队/运行中与消费后
             //（历史回显）同一观感，不因排队态裸奔

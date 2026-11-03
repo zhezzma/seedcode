@@ -121,14 +121,14 @@ test('toPendingItems returns empty array for empty/invalid input', () => {
 })
 
 test('toPendingItems 透传子代理报告回执的 source 标记（用户条目不带 source 键）', () => {
-    // 服务端 projectInbox 对 [bg-subagent-report] 前缀条目标 source:'subagent'
+    // 服务端 projectInbox 对受保护前缀（subagents 注册的 [bg-subagent-report]）标 source:'extension'
     //（busy 期入队的后台报告回执）；客户端据此区分：对话流不渲染为用户气泡、
     // 状态条可见但不可删
     const result = toPendingItems([
-        { id: 'srv-bg', mode: 'followUp', text: '[bg-subagent-report] name=bg-1 status=completed\n答案', source: 'subagent' },
+        { id: 'srv-bg', mode: 'followUp', text: '[bg-subagent-report] name=bg-1 status=completed\n答案', source: 'extension' },
         { id: 'srv-user', mode: 'followUp', text: '用户追加' },
     ])
-    assert.equal(result[0].source, 'subagent')
+    assert.equal(result[0].source, 'extension')
     assert.equal('source' in result[1], false)
 })
 

@@ -132,7 +132,7 @@ test('useChatState: WS queue_state 快照经 queueRev 门禁整体替换本地�
 })
 
 test('子代理报告排队条目：对话流不渲染为用户气泡 + 状态条可见但不可删', () => {
-    // 服务端 projectInbox 对 [bg-subagent-report] 前缀条目标 source:'subagent'（两仓
+    // 服务端 projectInbox 对 [bg-subagent-report] 前缀条目标 source:'extension'（两仓
     // 契约，seedagent sse-adapter）：busy 期入队的后台报告回执不得当用户消息渲染在
     // 对话流（排空回显走消息流时由前缀识别转报告气泡）；仅在 PendingQueueBar
     // 状态条可见（解析为人话预览）且不可删（用户排队消息维持可删）
@@ -141,11 +141,11 @@ test('子代理报告排队条目：对话流不渲染为用户气泡 + 状态�
     const sectionEnd = chatMessagesSource.indexOf('return displayMessages', sectionStart)
     assert.ok(sectionEnd > sectionStart, 'pending projection section end not found')
     const section = chatMessagesSource.slice(sectionStart, sectionEnd)
-    assert.match(section, /if \(entry\.source === 'subagent'\) continue/)
+    assert.match(section, /if \(entry\.source === 'extension'\) continue/)
     const bar = read('src/components/chat/PendingQueueBar.vue')
-    assert.match(bar, /const isSubagent = \(item: PendingItem\) => item\.source === 'subagent'/)
+    assert.match(bar, /const isProtectedReceipt = \(item: PendingItem\) => item\.source === 'extension'/)
     // 删除钮仅用户条目渲染（子代理回执删除即永久丢失，服务端 deleteQueued 同步守卫）
-    assert.match(bar, /v-if="!isSubagent\(item\)"/)
+    assert.match(bar, /v-if="!isProtectedReceipt\(item\)"/)
     // 报告机器文本解析为人话预览（name + 状态 + 答案摘录）
     assert.match(bar, /parseSubagentReport/)
 })
