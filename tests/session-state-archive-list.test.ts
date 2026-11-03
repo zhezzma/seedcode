@@ -75,7 +75,7 @@ test('moveSessionToRouteState removes stale archived copies when a session becom
 
 test('moveSessionToRouteState keeps task sessions in the task bucket even when archived', () => {
   // task 优先于 archived：归档的计划会话留在计划桶（带 archived 标志），
-  // 与后端 /api/sessions/tasks 含归档项、/api/sessions/archived 仅 default 的语义一致
+  // 与后端任务会话列表（/api/extensions/scheduler/tasks）含归档项、/api/sessions/archived 仅 default 的语义一致
   const taskSession = { id: 'sess-task', sessionCategory: 'task' as const, archived: false }
   const nextState = moveSessionToRouteState(
     {

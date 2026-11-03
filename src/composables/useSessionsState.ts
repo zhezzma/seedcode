@@ -114,7 +114,7 @@ let deletedSessionsRequestId = 0
 const loadTaskSessions = async (page = 1, pageSize = 50): Promise<SessionsResult | null> => {
     const requestId = ++taskSessionsRequestId
     try {
-        const result = await apiGet<SessionsResult>(`/api/sessions/tasks?page=${page}&pageSize=${pageSize}`)
+        const result = await apiGet<SessionsResult>(`/api/extensions/scheduler/tasks?page=${page}&pageSize=${pageSize}`)
         // 过期响应直接丢弃（内容可能不含期间发生的本地搬运），但按成功返回让 loadedTabs 正常落盘
         if (requestId !== taskSessionsRequestId) return result || { sessions: [] }
         state.taskSessionsResult = result || { sessions: [] }
