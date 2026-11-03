@@ -723,11 +723,12 @@ const handleNavClick = (item: any) => {
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-    background: oklch(var(--bc) / 0.2);
+    /* daisyUI 5 主题变量是 --color-base-*（旧版 --bc 已不存在） */
+    background: color-mix(in oklab, var(--color-base-content) 20%, transparent);
     border-radius: 3px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-    background: oklch(var(--bc) / 0.3);
+    background: color-mix(in oklab, var(--color-base-content) 30%, transparent);
 }
 </style>

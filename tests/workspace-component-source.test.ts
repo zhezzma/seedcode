@@ -124,6 +124,21 @@ test('WorkspaceTabGit: 空白区点击刷新（无节流，每次点击都重拉
     assert.match(src, /Math\.hypot\(e\.clientX - down\.x, e\.clientY - down\.y\) > 4/, 'must ignore drag-release (>4px) as click')
 })
 
+test('WorkspaceTabGit: status 报「不是 git 仓库」时自动清除失效的持久化仓库选择', () => {
+    const src = read('src/components/workspace/WorkspaceTabGit.vue')
+    // 监听 statusError：仓库目录被删后 loadStatus 是唯一能证明选择失效的信号
+    // （嵌套仓库不在 /repos 列表，不能按列表缺席误清）
+    assert.match(src, /watch\(\s*\(\)\s*=>\s*git\.statusError/, 'must watch git.statusError for stale-repo errors')
+    // 仅对后端 resolveRepo 的 400 「Not a git repository」恢复；网络/5xx 瞬态错误不误清
+    assert.match(src, /not a git repository/i, 'must match the backend "Not a git repository" error')
+    assert.match(src, /panel\.clearRepoForAgent/, 'must clear the persisted repo selection')
+    assert.match(src, /git\.clearStatusView\(\)/, 'must clear the stale status view so the ghost entry disappears')
+    // 回退仓库不得是已证实失效的那些（仅排除当前仓，≥2 仓被删时会乒乓循环重拉）
+    assert.match(src, /failedRepos = new Set/, 'must track all failed repos per lifetime')
+    assert.match(src, /failedRepos\.add\(repo\)/, 'must record the repo on each failure')
+    assert.match(src, /\.find\(r\s*=>\s*r\.path !== repo && !failedRepos\.has\(r\.path\)\)/, 'fallback must skip the invalidated repo itself and all previously failed ones')
+})
+
 test('CollapsibleSection: header + body + maxHeight + count + actions slot', () => {
     const src = read('src/components/workspace/CollapsibleSection.vue')
     assert.match(src, /ChevronRightIcon/, 'must render collapsed chevron')

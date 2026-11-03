@@ -517,6 +517,44 @@ const localizeCompactError = (raw: string): string => {
     if (/already compacted/i.test(raw)) return (i18n.global as any).t('chat.compactAlreadyDone')
     return raw
 }
+/** settled 刷新（SSE done 与 WS 报告通知共用收敛）：静默重拉 /messages 补齐
+ *  entryId / 落盘终态（不设置 chatLoading，避免页面闪烁）；服务端发起的 run
+ *  仍在进行（后台报告消化、goal 续跑）则附着 SSE 流——无流附着时续跑回复对
+ *  客户端不可见，直到手动刷新。 */
+const refreshSettledMessages = (targetKey: string): void => {
+    apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`).then(result => {
+        if (result?.messages) {
+            const sd = getSessionData(targetKey)
+            // 迟到回执防抹守卫（防御性）：服务端现已 done 前排空 run_end 收尾
+            // 工作（回执先于 done 接序到达），但超时放行/边界路径下仍可能出现
+            // 「回执已 SSE 追加、而本快照取于其落库之前」的乱序——整体替换会
+            // 把它抹掉。替换前保留尾部未被快照覆盖的 custom 消息（按 entryId
+            // 判重；落库后的下轮刷新会正常收录，此处只兑当轮窗口）。无 entryId
+            // 的本地回执（bash-receipt）由 remountLocalReceipts 负责，不在此列。
+            const fetchedIds = new Set(result.messages.map(m => m.entryId).filter(Boolean))
+            const lateReceipts = sd.chatMessages.filter(m => m.role === 'custom' && m.entryId && !fetchedIds.has(m.entryId))
+            sd.chatMessages = lateReceipts.length > 0 ? [...result.messages, ...lateReceipts] : result.messages
+            // 服务端已持久化全部 toolResult entry，本地临时条目同步清空
+            //（同 loadChatHistory 规则）：不清会与持久化消息双重参与 1.1 合并，
+            // 幂等但永久残留，且随 sessionsMap 永不驱逐
+            sd.chatToolMessages = []
+            // 本地回执（!!）不在 durable 内，替换后重挂
+            remountLocalReceipts(sd)
+            // Messages reloaded -> Tree structure definitely valid now
+            fetchSessionTree(targetKey)
+        }
+        // 服务端发起的 run 仍在进行（如 /goal start|restart|resume：命令流
+        // streamCommand 只发回执不订阅 run 事件，任务 run 是服务端 startRun
+        // 另开的——无流附着则续跑回复/轮数推进对客户端全部不可见，直到手动
+        // 刷新）。重拉发现 busy 即附着：快照线补回扩展状态（如 GoalBar），
+        // 推送线接上后续所有轮次。已持活跃连接时幂等跳过；期间用户已开新流
+        // （sendMessage）同样跳过，无副作用。
+        if (result?.isStreaming) {
+            attachToSessionIfNeeded(targetKey)
+        }
+    }).catch(() => { /* 静默失败不影响使用 */ })
+}
+
 // 处理 SSE 事件，更新会话状态
 // 【重要】服务器协议说明：
 // - 每次对话开始时，服务器会先通过 message_start/message_end 回显用户发送的消息（role: user）
@@ -938,37 +976,7 @@ const handleSSEEvent = (eventType: string, data: any, targetKey: string, options
                 break
             }
             // 静默刷新消息，补上 entryId/parentEntryId（不设置 chatLoading，避免页面闪烁）
-            apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`).then(result => {
-                if (result?.messages) {
-                    const sd = getSessionData(targetKey)
-                    // 迟到回执防抹守卫（防御性）：服务端现已 done 前排空 run_end 收尾
-                    // 工作（回执先于 done 接序到达），但超时放行/边界路径下仍可能出现
-                    // 「回执已 SSE 追加、而本快照取于其落库之前」的乱序——整体替换会
-                    // 把它抹掉。替换前保留尾部未被快照覆盖的 custom 消息（按 entryId
-                    // 判重；落库后的下轮刷新会正常收录，此处只兑当轮窗口）。无 entryId
-                    // 的本地回执（bash-receipt）由 remountLocalReceipts 负责，不在此列。
-                    const fetchedIds = new Set(result.messages.map(m => m.entryId).filter(Boolean))
-                    const lateReceipts = sd.chatMessages.filter(m => m.role === 'custom' && m.entryId && !fetchedIds.has(m.entryId))
-                    sd.chatMessages = lateReceipts.length > 0 ? [...result.messages, ...lateReceipts] : result.messages
-                    // 服务端已持久化全部 toolResult entry，本地临时条目同步清空
-                    //（同 loadChatHistory 规则）：不清会与持久化消息双重参与 1.1 合并，
-                    // 幂等但永久残留，且随 sessionsMap 永不驱逐
-                    sd.chatToolMessages = []
-                    // 本地回执（!!）不在 durable 内，替换后重挂
-                    remountLocalReceipts(sd)
-                    // Messages reloaded -> Tree structure definitely valid now
-                    fetchSessionTree(targetKey)
-                }
-                // 服务端发起的 run 仍在进行（如 /goal start|restart|resume：命令流
-                // streamCommand 只发回执不订阅 run 事件，任务 run 是服务端 startRun
-                // 另开的——无流附着则续跑回复/轮数推进对客户端全部不可见，直到手动
-                // 刷新）。重拉发现 busy 即附着：快照线补回扩展状态（如 GoalBar），
-                // 推送线接上后续所有轮次。已持活跃连接时幂等跳过；期间用户已开新流
-                // （sendMessage）同样跳过，无副作用。
-                if (result?.isStreaming) {
-                    attachToSessionIfNeeded(targetKey)
-                }
-            }).catch(() => { /* 静默失败不影响使用 */ })
+            refreshSettledMessages(targetKey)
             break
         default:
             // 扩展事件（ext. 前缀）转发客户端事件总线——各扩展 composable 按事件名
@@ -1778,6 +1786,20 @@ onServerMessage((msg: any) => {
     if (msg.event === 'ext_event') {
         const { sessionId, event, data } = msg.payload ?? {}
         if (typeof sessionId !== 'string' || typeof event !== 'string') return
+        // 后台子代理报告已注入会话（服务端 submit 后广播，两仓契约 ext.subagent_report）：
+        // 主会话 idle（SSE 已断）时对话列表无人拉新——面板状态有 subagent_state 慢线，
+        // 消息面靠本通知触发 settled 刷新让报告气泡落位；消化 run 进行中
+        // （isStreaming）则附着流实时观看（goal 续跑同收敛机制）。有活跃 SSE 时跳过：
+        // 报告回显走流内 message_start 自己落位，流中整体替换 chatMessages 会闪
+        // 工具临时条目（done 才是安全替换点）。未打开过的会话不刷（无会话数据；
+        // 打开时 attach 全量拉，与 queue_state 同门禁）。
+        if (
+            event === 'ext.subagent_report'
+            && state.sessionsMap.has(sessionId)
+            && !sseConnections.has(sessionId)
+        ) {
+            refreshSettledMessages(sessionId)
+        }
         if (!isExtensionEvent(event)) return
         emitExtensionEvent(event, data, sessionId)
     }

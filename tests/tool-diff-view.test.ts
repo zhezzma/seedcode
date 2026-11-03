@@ -176,3 +176,14 @@ test('ToolDiffView 组件文件存在', () => {
     const comp = path.join(repoRoot, 'src/components/chat/ToolDiffView.vue')
     assert.ok(readFileSync(comp, 'utf8').includes('<script'), 'ToolDiffView.vue 应存在')
 })
+
+// ─── status 清单行：排序 + bg 名徽标（bg-17 提问对得上号的守护） ───────────────
+
+test('ToolInvocation: status 行展示走排序 computed（运行中置顶，同 BgAgentsBar 规则）+ bgName 徽标', () => {
+    // 单一事实源 utils/background-agents-sort；数据源仍 subagentResults（抽屉定位顺序无关）
+    assert.match(toolInvocationSource, /import \{ sortBackgroundAgents \} from '[^']*background-agents-sort(?:\.ts)?'/)
+    assert.match(toolInvocationSource, /const subagentRows = computed\(\(\) => sortBackgroundAgents\(subagentResults\.value as any\[\]\)\)/)
+    assert.match(toolInvocationSource, /v-for="\(r, idx\) in subagentRows"/)
+    // bg-N 徽标：status 清单行随行 bgName，用户问 bg-17 时行上对得上号
+    assert.match(toolInvocationSource, /v-if="r\.bgName"/)
+})

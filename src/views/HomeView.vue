@@ -35,6 +35,7 @@ import { useChatInput } from '../composables/useChatInput'
 import { useCommandState } from '../composables/useCommandState'
 import { useTaskBarState } from '../composables/useTaskBarState'
 import { useGoalState } from '../composables/useGoalState'
+import { useBackgroundAgents } from '../composables/useBackgroundAgents'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
@@ -57,6 +58,7 @@ const { setSessionKeyResolver, restoreSessionDraft } = useChatInput()
 setSessionKeyResolver(() => chatState.sessionKey)
 const taskBarState = useTaskBarState()
 const goalbarState = useGoalState()
+const bgAgentsState = useBackgroundAgents()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
 const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState()
@@ -379,6 +381,20 @@ const handleSend = async (mode?: BusySendBehavior) => {
         }
         if (!goalbarState.restore()) {
             useToast().info(t('home.noGoalRunning'))
+        }
+        return
+    }
+
+    // /bgagents：客户端命令——切换后台子代理面板（输入框上方 BgAgentsBar 的浮出清单），
+    // 不经服务端。纯 UI 操作 busy 时也放行（同 /taskbar——恰恰是工人跑着、最需要看的时刻）。
+    // 正则字面量被 tests/busy-send-pills.test.ts 注册表↔HomeView 对齐测试锚定。
+    const bgAgentsCommand = /^\/bgagents(?:\s|$)/i.test(inputText)
+    if (bgAgentsCommand && !hasAttachments) {
+        if (chatInputRef.value) {
+            chatInputRef.value.inputText = ''
+        }
+        if (!bgAgentsState.togglePanel()) {
+            useToast().info(t('home.noBackgroundAgents'))
         }
         return
     }

@@ -474,11 +474,12 @@ const submitForm = async () => {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: var(--fallback-bc, oklch(var(--bc)/0.2));
+    /* daisyUI 5 主题变量是 --color-base-*（旧版 --bc/--fallback-bc 已不存在） */
+    background-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
     border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: var(--fallback-bc, oklch(var(--bc)/0.3));
+    background-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
 }
 </style>

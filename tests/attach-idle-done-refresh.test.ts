@@ -59,13 +59,17 @@ test('handleSSEEvent 接受 skipSettledRefresh 选项，done 分支据此跳过�
     assert.ok(guardIdx >= 0, 'done 分支应有 skipSettledRefresh 守卫')
     assert.ok(resetIdx < guardIdx, 'resetStreamState 必须在跳过判断之前（无条件执行）')
 
-    // 守卫之后的完整刷新链路仍在（真实流 done 依赖它）
+    // 守卫之后的完整刷新链路仍在（真实流 done 依赖它）——重构后收口进
+    // refreshSettledMessages（done 与 WS 报告通知共用收敛），done 分支调用它
     const afterGuard = fn.slice(guardIdx)
-    assert.match(afterGuard, /apiGet<\{ messages: ChatMessage\[\]; isStreaming\?: boolean \}>/, 'done 分支应保留 /messages 重拉（含 isStreaming：busy 时兜底 attach）')
-    assert.match(afterGuard, /fetchSessionTree\(targetKey\)/, 'done 分支应保留 /entries 刷新')
-    // 状态无客户端拉取通道（端点已删）：done 分支不得残留 fetchSessionUsage——
+    assert.match(afterGuard, /refreshSettledMessages\(targetKey\)/, 'done 分支应调 refreshSettledMessages（/messages 重拉收口）')
+
+    const refresh = extractConst(chatStateSource, 'refreshSettledMessages')
+    assert.match(refresh, /apiGet<\{ messages: ChatMessage\[\]; isStreaming\?: boolean \}>/, '刷新链路应保留 /messages 重拉（含 isStreaming：busy 时兜底 attach）')
+    assert.match(refresh, /fetchSessionTree\(targetKey\)/, '刷新链路应保留 /entries 刷新')
+    // 状态无客户端拉取通道（端点已删）：刷新链路不得残留 fetchSessionUsage——
     // 状态由 status 扩展推送线（每条消息后）+ 观察者线（run_end/compaction_end）实时到达
-    assert.doesNotMatch(afterGuard, /fetchSessionUsage/, 'done 分支不得残留 usage 轮询（端点已删）')
+    assert.doesNotMatch(refresh, /fetchSessionUsage/, '刷新链路不得残留 usage 轮询（端点已删）')
 
     // 跳过分支纯 break：/messages + /entries 由 loadChatHistory 的 try/finally 刚刚
     // 落地，状态由快照线/推送线负责，无事可做
@@ -148,5 +152,36 @@ test('回归：非 attach 的 SSE 流（sendMessage/retry/edit 共享骨架）�
     assert.ok(!skeleton.includes('skipSettledRefresh'), '骨架（retry/edit 共用）的 done 必须触发全量刷新，不得跳过')
     // 精确匹配无第四参的调用形态：多传任何实参都会导致本正则失配而报警
     assert.match(skeleton, /\n\s*handleSSEEvent\(event\.event, event\.data, targetKey\)\s*\n/, '骨架的 handleSSEEvent 调用不得携带 options（第四参）')
+})
+
+// ==================== WS 报告通知旁路（idle 期后台报告的对话列表到达线） ====================
+//
+// 根因：后台子代理报告由服务端自发 submit 回主会话（SSE 流外的写入）。主会话
+// idle（客户端 SSE 已断）时对话列表无人拉新——面板状态有 subagent_state 慢线，
+// 消息面靠服务端报告 submit 后广播 ext.subagent_report（两仓契约）触发 settled
+// 刷新（拉 /messages 让报告气泡落位；消化 run 进行中则附着流实时观看，goal
+// 续跑同收敛机制）。
+
+test('WS ext.subagent_report 旁路触发 settled 刷新（门禁：会话已打开 + 无活跃 SSE）', () => {
+    const onIdx = chatStateSource.indexOf('onServerMessage((msg: any) => {')
+    assert.ok(onIdx >= 0, 'onServerMessage 注册应存在')
+    const extIdx = chatStateSource.indexOf("msg.event === 'ext_event'", onIdx)
+    assert.ok(extIdx >= 0, 'ext_event 分支应存在')
+    const extBranch = chatStateSource.slice(extIdx, chatStateSource.indexOf('emitExtensionEvent(event, data, sessionId)', extIdx))
+
+    // 旁路：按字面量识别报告通知 → settled 刷新（拉 /messages + isStreaming 附着流）
+    assert.match(extBranch, /'ext\.subagent_report'/, '应按字面量识别报告通知事件')
+    assert.match(extBranch, /refreshSettledMessages\(sessionId\)/, '报告通知应触发 settled 刷新')
+
+    // 门禁 ①：有活跃 SSE 时跳过——报告回显走流内 message_start 自己落位，
+    // 流中整体替换 chatMessages 会闪工具临时条目（done 才是安全替换点）
+    assert.match(extBranch, /sseConnections\.has\(sessionId\)/, '应有活跃 SSE 门禁')
+    // 门禁 ②：未打开过的会话不刷——无会话数据，打开时 attach 全量拉
+    //（queue_state 同门禁）
+    assert.match(extBranch, /state\.sessionsMap\.has\(sessionId\)/, '应有会话数据门禁')
+
+    // 通知照常转发扩展事件总线（ext. 前缀事件名，其余订阅者不受影响）
+    const forwardIdx = chatStateSource.indexOf('emitExtensionEvent(event, data, sessionId)', extIdx)
+    assert.ok(forwardIdx > extIdx, 'ext_event 应照常转发扩展事件总线')
 })
 

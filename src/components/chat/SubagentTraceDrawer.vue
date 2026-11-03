@@ -50,7 +50,8 @@ const activeResult = computed(() => tabs.value.find((r: any) => r.subagentSessio
 // markdown 分支会随思考文本增长每次全量双渲染，是抽屉卡顿主因
 const traceActive = computed(() => {
     const r = activeResult.value as any
-    return !!r && r.status !== 'completed' && r.status !== 'error' && r.status !== 'aborted'
+    // idle = 后台工人无 run 在跑（BgAgentsBar 眼睛合入行携带）：与终态同样不算活跃直播
+    return !!r && r.status !== 'completed' && r.status !== 'error' && r.status !== 'aborted' && r.status !== 'idle'
 })
 
 // ─── 轨迹数据与轮询 ───
@@ -316,6 +317,9 @@ function statusBadge(r: any): { label: string; cls: string } {
         case 'thinking': return { label: '思考中', cls: 'badge-info' }
         case 'tool_running': return { label: '执行工具', cls: 'badge-warning' }
         case 'initializing': return { label: '初始化', cls: 'badge-ghost' }
+        // 后台子代理（面板/报告气泡合成 result 携带 ext.subagent_state 状态）
+        case 'working': return { label: '运行中', cls: 'badge-info' }
+        case 'idle': return { label: '空闲', cls: 'badge-ghost' }
         default: return { label: '运行中', cls: 'badge-ghost' }
     }
 }

@@ -35,7 +35,7 @@ export interface DeliverableSummary {
 }
 
 export interface DisplayBlock {
-    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables'
+    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables' | 'subagent-report'
     text?: string
     /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染。
      * 语义是「曾经增长过」（保守，交错推理防抖见 chat-attach.markLiveStreamBlock） */
@@ -71,6 +71,10 @@ export interface DisplayBlock {
     // DeliverablesPanel 点击直接开 diff/文件）
     deliverableFiles?: DeliverableFile[]
     deliverableSummary?: DeliverableSummary
+    // subagent-report 块专用：后台子代理自动回传报告（seedagent background.ts
+    // buildReportText 的两仓文本契约——前缀 [bg-subagent-report] name=… status=…）
+    subagentName?: string
+    subagentStatus?: 'completed' | 'error'
 }
 
 export interface DisplayMessage {
@@ -444,6 +448,8 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
  *  （deliverables 不在此列：本轮产出物是该条 AI 回复的内嵌附件，走并入语义） */
 const RECEIPT_CUSTOM_TYPES = new Set(['bash-receipt', 'command-response'])
 
+import { extractMessageText, parseSubagentReport } from '../utils/subagentReport.ts'
+
 export function useChatMessages(state: ChatStateShape) {
 
     // 转换原始消息为显示格式，并合并工具调用结果
@@ -581,6 +587,32 @@ export function useChatMessages(state: ChatStateShape) {
                     })
                 }
                 continue
+            }
+
+            // 1.15 后台子代理报告（两仓文本契约：[bg-subagent-report] 前缀的 user 输入，
+            // seedagent background.ts buildReportText 产出）：模型消化用的工作面，
+            // 展示层渲染为独立回执气泡（agent 徽标 + 状态 + 可折叠答案）——
+            // 不走普通 user 气泡（原文是机器格式），也不并入 assistant（它是系统侧
+            // 回执，非 AI 回复附件；同 bash-receipt 独立成泡语义）
+            if (msg.role === 'user') {
+                const reportText = extractMessageText(msg.content)
+                const report = reportText !== null ? parseSubagentReport(reportText) : null
+                if (report) {
+                    displayMessages.push({
+                        id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                        role: 'assistant',
+                        blocks: [{
+                            type: 'subagent-report',
+                            subagentName: report.name,
+                            subagentStatus: report.status,
+                            text: report.body,
+                        }],
+                        timestamp: msg.timestamp,
+                        entryId: msg.entryId,
+                        parentEntryId: msg.parentEntryId,
+                    })
+                    continue
+                }
             }
 
             // 1.2 处理普通消息 (User / Assistant)
@@ -737,6 +769,10 @@ export function useChatMessages(state: ChatStateShape) {
         //    回显命中（message_start 消费）或服务端 queue_state 快照修正后无缝转正为正式气泡
         const pendingQueue = state.pendingQueue || []
         for (const entry of pendingQueue) {
+            // 后台子代理报告回执（source:'subagent'）：busy 期不渲染为用户气泡——
+            // 排空回显走消息流时由 1.15 前缀识别转报告气泡；排队期间仅在
+            // PendingQueueBar 状态条可见（且不可删）
+            if (entry.source === 'subagent') continue
             // 与历史同规则过 convertToBlocks：/a2ui-event 面板提交渲染为动作 chip
             //（a2ui-action），不再裸显整段 JSON 文本——提交后在排队/运行中与消费后
             //（历史回显）同一观感，不因排队态裸奔

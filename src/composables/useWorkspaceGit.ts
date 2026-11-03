@@ -283,6 +283,16 @@ const _methods = {
         entry.dirty = new Set([...r.staged, ...r.unstaged, ...r.untracked].map((fc) => fc.path)).size
     },
 
+    /** 丢弃当前 status 视图（数据 / 错误 / 归属仓库）：选中仓库被证实失效后的清理入口。
+     *  statusSeq++ 使在飞 loadStatus 的迟到响应全部过期，不会把已丢弃的视图写回来。 */
+    clearStatusView() {
+        statusSeq++
+        state.statusData = null
+        state._statusError = null
+        state._statusLoading = false
+        state.statusRepo = null
+    },
+
     async loadStatus(agentId: string, repo: string, opts?: { refresh?: boolean }) {
         if (!ownedBy(agentId)) return
         const myEpoch = agentEpoch

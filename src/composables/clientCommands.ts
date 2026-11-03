@@ -31,6 +31,8 @@ export const CLIENT_COMMANDS: ClientCommand[] = [
     // 不能叫 /goal：那是服务端真命令（裸 /goal = 帮助），劫持会改变其语义；独立名避免冲突。
     // 同名时 / 补全按 name 去重会隐藏客户端条目（服务端优先），goalbar 无服务端同名，下拉可见
     { name: 'goalbar', description: '自动续跑状态条', source: 'client', dropdownLabel: '/goalbar (自动续跑状态条)', intercept: 'prefix' },
+    // 后台子代理面板切换（输入框上方 BgAgentsBar 的浮出清单）；无后台工时 togglePanel 返 false → toast 提示
+    { name: 'bgagents', description: '后台子代理面板', source: 'client', dropdownLabel: '/bgagents (后台子代理面板)', intercept: 'prefix' },
 ]
 
 /**

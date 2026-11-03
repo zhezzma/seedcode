@@ -595,6 +595,7 @@ export default {
             hint: '将随当前回复自动发送',
             followBadge: '排队中',
             steerBadge: '插入中',
+            subagentBadge: '子代理报告',
             removeHint: '从服务端队列移除，该消息将不再发送',
         },
         busySend: {
@@ -701,6 +702,25 @@ export default {
         zoomHint: '双击放大 | 双指缩放',
         shareImage: '分享图片',
         shareImageFailed: '分享图片失败: {detail}',
+
+        backgroundAgents: {
+            title: '后台子代理',
+            stop: '停止当前工作',
+            task: '任务',
+            dismissHint: '关闭状态条（有新后台任务时自动恢复）',
+            status: {
+                working: '运行中',
+                idle: '空闲',
+                completed: '已完成',
+                error: '失败',
+                aborted: '已停止',
+            },
+        },
+        subagentReport: {
+            title: '后台子代理报告',
+            completed: '已完成',
+            error: '出错',
+        },
     },
     voice: {
         listening: '我在听...',
@@ -756,6 +776,7 @@ export default {
         commandNotAvailableWhileBusy: '智能体运行中，无法使用命令',
         noTaskBar: '当前会话还没有会话工作步骤，让模型为多步骤工作建立步骤吧',
         noGoalRunning: '当前没有运行中的自动续跑',
+        noBackgroundAgents: '当前会话没有后台子代理',
         createSessionFailed: '创建会话失败，请重试',
     },
     extensions: {

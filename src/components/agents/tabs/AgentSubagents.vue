@@ -871,7 +871,8 @@ const disabledSkillsCountOf = (s: SubagentConfig) => s.skills?.disabledSkills?.l
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: var(--fallback-bc, oklch(var(--bc)/0.2));
+    /* daisyUI 5 主题变量是 --color-base-*（旧版 --bc/--fallback-bc 已不存在） */
+    background-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
     border-radius: 3px;
 }
 </style>

@@ -120,6 +120,18 @@ test('toPendingItems returns empty array for empty/invalid input', () => {
     assert.deepEqual(toPendingItems(null), [])
 })
 
+test('toPendingItems 透传子代理报告回执的 source 标记（用户条目不带 source 键）', () => {
+    // 服务端 projectInbox 对 [bg-subagent-report] 前缀条目标 source:'subagent'
+    //（busy 期入队的后台报告回执）；客户端据此区分：对话流不渲染为用户气泡、
+    // 状态条可见但不可删
+    const result = toPendingItems([
+        { id: 'srv-bg', mode: 'followUp', text: '[bg-subagent-report] name=bg-1 status=completed\n答案', source: 'subagent' },
+        { id: 'srv-user', mode: 'followUp', text: '用户追加' },
+    ])
+    assert.equal(result[0].source, 'subagent')
+    assert.equal('source' in result[1], false)
+})
+
 // ==================== applyQueueSnapshot（版本门禁） ====================
 // DELETE 响应与 WS 广播走不同 TCP 连接，到达顺序无保证：跨操作的旧快照
 // 可能晚于新快照到达，无门禁时会复活已删条目。queueRev 单调递增，

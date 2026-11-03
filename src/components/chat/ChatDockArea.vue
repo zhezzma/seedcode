@@ -4,9 +4,11 @@
 import PendingQueueBar from './PendingQueueBar.vue'
 import TaskBar from './TaskBar.vue'
 import GoalBar from './GoalBar.vue'
+import BgAgentsBar from './BgAgentsBar.vue'
 import { getChatDockWidgets, registerChatDockWidget } from './chat-dock-registry'
 
 registerChatDockWidget({ id: 'pending-queue', order: 10, component: PendingQueueBar })
+registerChatDockWidget({ id: 'bg-agents', order: 12, component: BgAgentsBar })
 registerChatDockWidget({ id: 'taskbar', order: 20, component: TaskBar })
 registerChatDockWidget({ id: 'goalbar', order: 5, component: GoalBar })
 

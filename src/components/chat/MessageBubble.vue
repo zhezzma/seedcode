@@ -6,7 +6,8 @@ import {
     ArrowPathIcon,
     ChevronLeftIcon,
     ChevronRightIcon,
-    PencilSquareIcon
+    PencilSquareIcon,
+    EyeIcon
 } from '@heroicons/vue/24/outline'
 import { computed, ref } from 'vue'
 import { useUiSettingsStore } from '../../stores/setting'
@@ -22,6 +23,8 @@ import { reservedImageStyle, recordImageElementDimensions } from '../../utils/im
 import { getSurface } from '../../composables/useA2UISurfaces'
 import { useChatState } from '../../composables/useChatState'
 import { useTTS } from '../../composables/useTTS'
+import { useBackgroundAgents } from '../../composables/useBackgroundAgents'
+import { useSubagentTrace } from '../../composables/useSubagentTrace'
 import { computeBlockKeys } from '../../utils/blockKeys'
 import type { DisplayMessage } from '../../composables/useChatMessages'
 import { useMediaQuery } from '@vueuse/core'
@@ -57,6 +60,26 @@ const emit = defineEmits<{
     (e: 'navigate-branch', msg: DisplayMessage, direction: 'prev' | 'next'): void
 }>()
 const { t } = useI18n()
+
+// 后台子代理报告气泡 → 轨迹抽屉（与前台 ToolInvocation 卡同一 SubagentTraceDrawer）：
+// 按报告署名从注册表现查 conversationId（当前分支 doc；查不到则不显示按钮——
+// 历史分支的报告无当前分支寻址键，隐藏比错开更诚实）
+const bgAgents = useBackgroundAgents()
+const traceViewer = useSubagentTrace()
+const openReportTrace = (name: string): void => {
+    const chatState = useChatState()
+    const key = chatState.sessionKey
+    const agent = bgAgents.agents.value.find((a) => a.name === name)
+    if (!key || !agent) return
+    traceViewer.open(key, [{
+        subagentSessionId: agent.conversationId,
+        agent: agent.subagentId,
+        ...(agent.task !== undefined ? { task: agent.task } : {}),
+        status: agent.status,
+    }], agent.conversationId)
+}
+const reportTraceTarget = (name: string): string | undefined =>
+    bgAgents.agents.value.find((a) => a.name === name)?.conversationId
 const uiSettings = useUiSettingsStore()
 // chat-bubble 是 daisyUI 的亮色风格气泡，深色模式下不加，避免灰阶大卡片观感
 const hiddenAssistantBubbleBg = computed(() => uiSettings.isDark || useMediaQuery('(max-width: 1023px)').value || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent))
@@ -556,6 +579,34 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                          点击开 diff（repo/mode/ref 服务端已解析）/ 直接看文件 -->
                     <DeliverablesPanel v-else-if="block.type === 'deliverables' && block.deliverableFiles"
                         :files="block.deliverableFiles" :summary="block.deliverableSummary!" />
+                    <!-- 后台子代理回传报告（[bg-subagent-report] user 输入的回执气泡唯一块）：
+                         agent 徽标 + 状态 + 答案全文。与 bash-receipt 同语义的独立回执泡 -->
+                    <div v-else-if="block.type === 'subagent-report'" class="subagent-report-card">
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                            <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
+                                :class="block.subagentStatus === 'error' ? 'text-error' : 'text-success'">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor" stroke-width="2">
+                                    <path v-if="block.subagentStatus === 'error'" stroke-linecap="round" stroke-linejoin="round"
+                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    <path v-else stroke-linecap="round" stroke-linejoin="round"
+                                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </span>
+                            <span class="opacity-80">{{ $t('chat.subagentReport.title') }}</span>
+                            <span class="badge badge-sm badge-ghost font-mono">{{ block.subagentName }}</span>
+                            <span v-if="block.subagentStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.subagentReport.error') }}</span>
+                            <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.subagentReport.completed') }}</span>
+                            <!-- 轨迹入口：按名查到当前分支注册表条目才显示（与前台子代理卡同一抽屉） -->
+                            <button v-if="reportTraceTarget(block.subagentName!)" @click="openReportTrace(block.subagentName!)"
+                                class="btn btn-ghost btn-xs btn-circle ml-auto shrink-0" :title="$t('subagentTrace.viewAgentTrace', { agent: block.subagentName })">
+                                <EyeIcon class="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                        <div v-if="block.text" class="mt-2 text-sm opacity-90">
+                            <MarkdownRenderer :content="block.text" />
+                        </div>
+                    </div>
                     <div v-else-if="block.type === 'unknown'" class="alert alert-warning text-xs p-2 my-1">
                         <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-4 w-4" fill="none"
                             viewBox="0 0 24 24">
@@ -651,11 +702,22 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
 
 @keyframes bubble-flash {
     0% {
-        filter: drop-shadow(0 0 6px hsl(var(--p) / 0.55));
+        /* daisyUI 5 主题变量是 --color-primary（旧版 --p 已不存在） */
+        filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-primary) 55%, transparent));
     }
     100% {
         filter: drop-shadow(0 0 0 transparent);
     }
+}
+
+/* 后台子代理回传报告卡（回执气泡唯一块）：轻量边框卡，对位 bash-receipt 风格。
+ * daisyUI 5 主题变量是 --color-base-*（oklch 全色值，见 main.css 自定义 dark 主题），
+ * 旧版 --b2/--b3 已不存在——透明度用 color-mix（GoalBar/TaskBar 同范式） */
+.subagent-report-card {
+    border: 1px solid var(--color-base-300);
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.875rem;
+    background: color-mix(in oklab, var(--color-base-200) 60%, transparent);
 }
 
 @media (max-width: 768px) {

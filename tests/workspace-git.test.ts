@@ -940,3 +940,46 @@ test('翻页在飞时 log 重拉落地：旧翻页响应不得 append（边界�
     assert.equal(git.commits.value[49].sha, 'new050')
     assert.equal(git.commitsLoading.value, false, 'loading 不得被作废请求的 finally 误清/残留')
 })
+
+test('clearStatusView 清空 status 视图，并作废在飞 loadStatus 的迟到响应', async () => {
+    await setupSettings()
+    let releaseStatus: ((v: Response) => void) | null = null
+    globalThis.fetch = (async (url: string) => {
+        if (url.includes('/workspace/repo/status')) {
+            return new Promise(resolve => { releaseStatus = resolve })
+        }
+        return new Response('', { status: 500 })
+    }) as any
+
+    const { useWorkspaceGit } = await import('../src/composables/useWorkspaceGit.ts')
+    const git = useWorkspaceGit()
+    git.reset()
+    git.ensureAgent('coder')
+
+    const okPayload = (branch: string) => new Response(JSON.stringify({
+        ok: true,
+        payload: { branch, upstream: null, head: 'abc', ahead: 0, behind: 0, staged: [], unstaged: [], untracked: [] },
+    }), { status: 200 })
+
+    // 先正常落地一次 status
+    const p1 = git.loadStatus('coder', 'r1')
+    releaseStatus!(okPayload('main'))
+    await p1
+    assert.equal(git.status.value?.branch, 'main')
+
+    // 失效清理：视图归零（statusData / statusError / statusRepo / loading）
+    git.clearStatusView()
+    assert.equal(git.status.value, null)
+    assert.equal(git.statusError.value, null)
+    assert.equal(git.statusRepo, null)
+    assert.equal(git.statusLoading.value, false)
+
+    // 在飞保护：clearStatusView 之后迟到的成功响应不得落地
+    const slow = git.loadStatus('coder', 'r1')
+    assert.equal(git.statusLoading.value, true)
+    git.clearStatusView()
+    releaseStatus!(okPayload('late'))
+    await slow
+    assert.equal(git.status.value, null, '被 clearStatusView 作废的迟到响应不得落地')
+    assert.equal(git.statusRepo, null)
+})

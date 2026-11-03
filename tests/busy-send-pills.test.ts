@@ -76,6 +76,11 @@ test('isClientInterceptedCommand: 语义与 HomeView 拦截分支逐字对齐（
     assert.equal(isClientInterceptedCommand('/GoalBar'), true)
     assert.equal(isClientInterceptedCommand('/goalbarX'), false)
     assert.equal(isClientInterceptedCommand('/goal resume'), false, '/goal 子命令必须透传服务端，不得被前缀误伤')
+    // /bgagents：同 taskbar/goalbar 前缀语义（面板切换无参数，参数被忽略）
+    assert.equal(isClientInterceptedCommand('/bgagents'), true)
+    assert.equal(isClientInterceptedCommand('/bgagents xxx'), true)
+    assert.equal(isClientInterceptedCommand('/BGAGENTS'), true)
+    assert.equal(isClientInterceptedCommand('/bgagentsX'), false)
     // 服务端命令与非命令不命中
     assert.equal(isClientInterceptedCommand('/steer xxx'), false)
     assert.equal(isClientInterceptedCommand('/compact'), false)

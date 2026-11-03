@@ -6,7 +6,7 @@
  *         每行有 hover 行内按钮 (PC) / 始终可见 (mobile)，右键弹完整菜单
  * - 底部：可折叠 History 区
  */
-import { onMounted, computed, ref, nextTick } from 'vue'
+import { onMounted, computed, ref, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
     PlusIcon, MinusIcon, CheckIcon,
@@ -76,8 +76,8 @@ onMounted(async () => {
     }
     // 显式选过的仓库即使不在 /repos 列表里也保留：后端只扫顶层 + .worktrees，
     // 而嵌套仓库（Files 树徽章对任意含 .git 的目录显示）是有效选择；若在这里
-    // 静默回退 repos[0]，嵌套仓库永远选不中。真正失效的选择由 loadStatus 的
-    // 错误条目诚实暴露（下拉切换 / 手动刷新可恢复）。
+    // 静默回退 repos[0]，嵌套仓库永远选不中。真正失效的选择（目录被删）由
+    // loadStatus 报「Not a git repository」暴露，下方的 statusError watcher 自动恢复。
     if (!repo) return
     const needStatus = !git.status.value || git.statusRepo !== repo
     const needLog = git.commits.value.length === 0 || git.commitsRepo !== repo
@@ -96,6 +96,28 @@ function onPickRepo(repo: string) {
     panel.setRepoForAgent(props.agentId, repo)
     loadAll(repo)
 }
+
+// ── 失效仓库自动恢复 ──
+// 选中仓库目录被删后（/repos 返回空但持久化选择仍在，嵌套仓库设计要求不能按列表
+// 缺席误清），loadStatus 报 400「Not a git repository」是唯一能证明失效的信号。
+// 命中即清持久化选择 + 丢弃 status 视图（幽灵条目与错误条同时消失），并回退
+// repos[0]（跳过本生命周期内所有已失效仓：仅排除当前仓的话，≥2 仓同批被删
+// 时会 A↔B 乒乓循环重拉；列表刷新后自愈）；网络/5xx 瞬态错误不动。
+// 归属校验 statusRepo === selectedRepo：error 写入时 store 保证其归属仓仍是当前
+// statusRepo；若用户已切到别的仓库（选择已换新）则不动新选择。
+const failedRepos = new Set<string>()
+watch(() => git.statusError.value, async (err) => {
+    if (!err || !/not a git repository/i.test(err)) return
+    const repo = git.statusRepo
+    if (!repo || repo !== selectedRepo.value) return
+    failedRepos.add(repo)
+    panel.clearRepoForAgent(props.agentId)
+    git.clearStatusView()
+    const fallback = git.repos.value.find(r => r.path !== repo && !failedRepos.has(r.path))?.path ?? null
+    if (!fallback) return
+    panel.setRepoForAgent(props.agentId, fallback)
+    await loadAll(fallback)
+})
 
 // ── 空白区点击刷新（点状态列表下方的空白 = “看一眼最新”）──
 // 每次点击都会重拉（loadStatus 带 refresh=1 会 git fetch）。

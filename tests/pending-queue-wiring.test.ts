@@ -126,8 +126,28 @@ test('useChatState: enqueuePendingItem 按 entryId 去重 + queueRev 门禁（�
 
 test('useChatState: WS queue_state 快照经 queueRev 门禁整体替换本地队列', () => {
     assert.match(chatStateSource, /onServerMessage\(\(msg: any\) => \{/)
-    assert.match(chatStateSource, /msg\?\.event !== 'queue_state'/)
+    // onServerMessage 重构后为正向分支（旧负向守卫 msg?.event !== 'queue_state' 已不存在）
+    assert.match(chatStateSource, /if \(msg\.event === 'queue_state'\)/)
     assert.match(chatStateSource, /applyQueueSnapshot\(sd, msg\.payload\?\.queueRev, msg\.payload\?\.entries\)/)
+})
+
+test('子代理报告排队条目：对话流不渲染为用户气泡 + 状态条可见但不可删', () => {
+    // 服务端 projectInbox 对 [bg-subagent-report] 前缀条目标 source:'subagent'（两仓
+    // 契约，seedagent sse-adapter）：busy 期入队的后台报告回执不得当用户消息渲染在
+    // 对话流（排空回显走消息流时由前缀识别转报告气泡）；仅在 PendingQueueBar
+    // 状态条可见（解析为人话预览）且不可删（用户排队消息维持可删）
+    const sectionStart = chatMessagesSource.indexOf('// 4. 排队中的 steer / follow-up')
+    assert.ok(sectionStart > 0, 'pending projection section not found')
+    const sectionEnd = chatMessagesSource.indexOf('return displayMessages', sectionStart)
+    assert.ok(sectionEnd > sectionStart, 'pending projection section end not found')
+    const section = chatMessagesSource.slice(sectionStart, sectionEnd)
+    assert.match(section, /if \(entry\.source === 'subagent'\) continue/)
+    const bar = read('src/components/chat/PendingQueueBar.vue')
+    assert.match(bar, /const isSubagent = \(item: PendingItem\) => item\.source === 'subagent'/)
+    // 删除钮仅用户条目渲染（子代理回执删除即永久丢失，服务端 deleteQueued 同步守卫）
+    assert.match(bar, /v-if="!isSubagent\(item\)"/)
+    // 报告机器文本解析为人话预览（name + 状态 + 答案摘录）
+    assert.match(bar, /parseSubagentReport/)
 })
 
 test('useChatState: attach message_state 走 applyAttachMessageState 应用快照', () => {

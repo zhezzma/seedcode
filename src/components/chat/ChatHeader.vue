@@ -212,6 +212,9 @@ defineExpose({
                     <BellSlashIcon v-else class="h-5 w-5" />
                 </button>
 
+                <!-- Background subagents 入口已迁至输入框上方 dock 区（BgAgentsBar）：
+                     PC/移动端统一，顶栏不再放按钮 -->
+
                 <!-- Workspace panel toggle: PC 与移动端共用（移动端在 ChatHeader
                      按钮区开 right-drawer，与左侧 sidebar drawer 对称）。
                      无 agent 选中时隐藏，避免点开个空 drawer。 -->

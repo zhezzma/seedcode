@@ -41,6 +41,7 @@ import {
     type DiffLine,
 } from '../../utils/tool-diff.ts'
 import ToolDiffView from './ToolDiffView.vue'
+import { sortBackgroundAgents } from '../../utils/background-agents-sort.ts'
 
 const props = defineProps<{
     toolName: string
@@ -77,28 +78,30 @@ const subagentResults = computed(() => {
     return props.details?.results || []
 })
 
+/** 展示序：运行中置顶 + 最近活动倒序（status 全量清单的历史工人不再把运行中的埋底；
+ *  与 BgAgentsBar 同规则，utils/background-agents-sort 单一事实源）。数据源/抽屉定位
+ *  仍用 subagentResults（顺序无关）。 */
+const subagentRows = computed(() => sortBackgroundAgents(subagentResults.value as any[]))
+
 /** 子代理整体状态文字 */
 const subagentStatusText = computed(() => {
     return props.details?.statusText || ''
 })
 
-/** 子代理模式 */
-const subagentMode = computed(() => {
-    return props.details?.mode || 'single'
-})
-
-/** resume 清单（mode:"resume" 且无 agent/session 参数的只读列表调用）：无运行结果与轨迹，按普通工具卡展开显示（候选清单在文本结果里） */
+/** resume 清单（action:"resume" 且无 agent/session 参数的只读列表调用）：无运行结果与轨迹，按普通工具卡展开显示（候选清单在文本结果里）。语义收敛：mode 只有 foreground/background，resume 只是 action */
 const isResumeListing = computed(() => {
-    return isSubagentTool.value && props.args?.mode === 'resume' && !props.args?.agent && !props.args?.session
+    return isSubagentTool.value && props.args?.action === 'resume' && !props.args?.agent && !props.args?.session
 })
 
-/** 获取子代理状态对应的图标 */
+/** 获取子代理状态对应的图标（前台 pending→…；后台 working/idle 由 status 动作 traceResults 随行） */
 function getStatusIcon(status?: string) {
     switch (status) {
         case 'pending': return '⏳'
         case 'initializing': return '⏳'
         case 'thinking': return '🧠'
         case 'tool_running': return '🔧'
+        case 'working': return '⏳'
+        case 'idle': return '💤'
         case 'completed': return '✅'
         case 'error': return '❌'
         case 'aborted': return '⛔'
@@ -106,11 +109,12 @@ function getStatusIcon(status?: string) {
     }
 }
 
-/** 获取状态对应的 CSS 颜色类 */
+/** 获取状态对应的 CSS 颜色类（working 同 thinking 信息色、idle 同默认弱化色，与 SubagentTraceDrawer 徽标对齐） */
 function getStatusColorClass(status?: string) {
     switch (status) {
         case 'thinking': return 'text-info'
         case 'tool_running': return 'text-warning'
+        case 'working': return 'text-info'
         case 'completed': return 'text-success'
         case 'error': return 'text-error'
         case 'aborted': return 'text-error'
@@ -118,13 +122,15 @@ function getStatusColorClass(status?: string) {
     }
 }
 
-/** 格式化状态文字 */
+/** 格式化状态文字（后台 working/idle 文案与 i18n chat.backgroundAgents.status.* 一致） */
 function getStatusLabel(status?: string) {
     switch (status) {
         case 'pending': return '等待中'
         case 'initializing': return '初始化中'
         case 'thinking': return '思考中'
         case 'tool_running': return '执行工具'
+        case 'working': return '运行中'
+        case 'idle': return '空闲'
         case 'completed': return '已完成'
         case 'error': return '出错'
         case 'aborted': return '已中止'
@@ -150,17 +156,10 @@ function formatTokens(count: number) {
 }
 
 const statusText = computed(() => {
-    // 对 subagent 工具始终显示富状态（运行中与完成后保持一致的结构与文案）
-    if (isSubagentTool.value && subagentResults.value.length > 0) {
-        const results = subagentResults.value
-
-        if (subagentMode.value === 'parallel') {
-            const done = results.filter((r: any) => r.exitCode !== -1 && r.status === 'completed').length
-            const summary = props.state === 'calling' ? '并行执行中' : props.state === 'error' ? '并行失败' : '并行完成'
-            return `${props.toolName} — ${summary} ${done}/${results.length}`
-        }
-
-        const r = results[results.length - 1]
+    // 对 subagent 工具始终显示富状态（运行中与完成后保持一致的结构与文案）。
+    // 取置顶行（排序后最相关：运行中/最近活动；后台多工人时标题不取垫底老工人）
+    if (isSubagentTool.value && subagentRows.value.length > 0) {
+        const r = subagentRows.value[0]
         const icon = getStatusIcon(r?.status)
         const label = getStatusLabel(r?.status)
         return `${icon} ${props.toolName}: ${r?.agent || ''} ${label}`
@@ -447,15 +446,18 @@ function onHeaderClick() {
 
         <!-- Subagent Progress (运行中与完成后均可见，保持一致结构) -->
         <div v-if="isSubagentTool && subagentResults.length > 0" class="px-3 py-2 pt-0">
-            <div v-for="(r, idx) in subagentResults" :key="idx"
+            <div v-for="(r, idx) in subagentRows" :key="idx"
                 class="flex items-center gap-2 py-1" :class="{ 'border-t border-base-300 mt-1 pt-1': Number(idx) > 0 }">
                 <!-- Status icon -->
                 <span class="text-sm flex-none">{{ getStatusIcon(r.status) }}</span>
+                <!-- bg 名徽标（status 清单随行：bg-N 是用户/模型可寻址名，与 ephemeral 子代理名对不上号，置首对上提问） -->
+                <span v-if="r.bgName" class="badge badge-ghost badge-xs shrink-0 font-normal"
+                    :title="r.bgName">{{ r.bgName }}</span>
                 <!-- Agent name（min-w-0 + break-all：长名收缩换行，保住右侧状态/耗时/轨迹入口） -->
                 <span class="font-mono text-xs font-semibold min-w-0 break-all" :class="getStatusColorClass(r.status)">{{ r.agent }}</span>
                 <!-- Status label -->
                 <span class="text-xs" :class="getStatusColorClass(r.status)">{{ getStatusLabel(r.status) }}</span>
-                <!-- 恢复来源徽标（mode:"resume" 续跑的子代理） -->
+                <!-- 恢复来源徽标（action:"resume" fork 续跑的子代理，resumedFrom = 源子会话） -->
                 <span v-if="r.resumedFrom" class="text-xs text-info/80 flex-none"
                     :title="$t('tool.resumedFrom') + ' ' + r.resumedFrom">↻ {{ r.resumedFrom }}</span>
                 <!-- Current tool (if running) -->

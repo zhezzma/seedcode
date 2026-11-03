@@ -595,6 +595,7 @@ export default {
             hint: 'Sent automatically with the current reply',
             followBadge: 'Queued',
             steerBadge: 'Injecting',
+            subagentBadge: 'Subagent report',
             removeHint: 'Remove from the server queue; the message will not be sent',
         },
         busySend: {
@@ -700,6 +701,25 @@ export default {
         zoomHint: 'Double tap to zoom | Pinch to zoom',
         shareImage: 'Share Image',
         shareImageFailed: 'Failed to share image: {detail}',
+
+        backgroundAgents: {
+            title: 'Background Agents',
+            stop: 'Stop current work',
+            task: 'Task',
+            dismissHint: 'Dismiss bar (returns when a new background agent spawns)',
+            status: {
+                working: 'Working',
+                idle: 'Idle',
+                completed: 'Completed',
+                error: 'Failed',
+                aborted: 'Stopped',
+            },
+        },
+        subagentReport: {
+            title: 'Background subagent report',
+            completed: 'Completed',
+            error: 'Error',
+        },
     },
     voice: {
         listening: 'Listening...',
@@ -724,6 +744,7 @@ export default {
         openFile: 'Open File',
         preview: 'Preview',
     },
+
     subagentTrace: {
         title: 'Subagent Trace',
         viewAgentTrace: 'View {agent} trace',
@@ -755,6 +776,7 @@ export default {
         commandNotAvailableWhileBusy: 'Commands are not available while the agent is busy',
         noTaskBar: 'No session step list yet. Ask the agent to create one for multi-step work',
         noGoalRunning: 'No auto-continue is currently running',
+        noBackgroundAgents: 'No background agents in this session',
         createSessionFailed: 'Failed to create session, please retry',
     },
     extensions: {
