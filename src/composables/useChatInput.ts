@@ -7,6 +7,7 @@ import { readFile } from '../utils/fileReader'
 import { createRuntimeId } from '../utils/runtime-id.ts'
 import { useCommandState, type CommandInfo } from './useCommandState'
 import { CLIENT_COMMANDS, filterClientCommands } from './clientCommands'
+import { sortByCommandMatchRank } from '../utils/command-name-match.ts'
 import { useInputHistoryStore, newSessionDraftKeyFor } from '../stores/inputHistory'
 import { decideArrowKeyPriority, shouldOpenCommandSuggestions } from '../utils/chat-input-key-routing.ts'
 import { getMicrophoneErrorMessage } from '../utils/microphone-errors'
@@ -68,14 +69,20 @@ watch(inputText, (val) => {
 
     if (commandSuggestionsEnabled.value
         && shouldOpenCommandSuggestions(val, fromHistoryNavigation)) {
-        const prefix = val.slice(1)
-        const serverMatches = filterCommands.value(prefix)
-        const serverNames = new Set(serverMatches.map(cmd => cmd.name))
-        // 客户端命令（clientCommands 注册表）不在服务端命令表里，按前缀合并、按 name 去重
-        commandSuggestions.value = [
+        const query = val.slice(1)
+        const serverMatches = filterCommands.value(query)
+        // 去重键同匹配口径：大小写不敏感（服务端 Taskbar 与客户端 taskbar 视为同名）
+        const serverNames = new Set(serverMatches.map(cmd => cmd.name.toLowerCase()))
+        // 客户端命令（clientCommands 注册表）不在服务端命令表里，按统一匹配规则合并、按 name 去重
+        // （匹配语义见 utils/command-name-match：名字段子串，/what 也能命中 wait-what）
+        const merged = [
             ...serverMatches,
-            ...filterClientCommands(prefix).filter(cmd => !serverNames.has(cmd.name)),
+            ...filterClientCommands(query).filter(cmd => !serverNames.has(cmd.name.toLowerCase())),
         ]
+        // 命中强度分级排序（稳定）：精确 > 全名前缀 > 名字段精确 > 名字段子串。
+        // 否则手打全名 + Enter 默认确认的 index 0 可能被弱命中抢占
+        // （如 skill:x-taskbar 抢占 /taskbar，或 skill:wait-what 抢占 /wait 对应的 skill:wait）
+        commandSuggestions.value = sortByCommandMatchRank(merged, query)
         commandSuggestionsVisible.value = commandSuggestions.value.length > 0
         commandSuggestionIndex.value = 0
     } else {

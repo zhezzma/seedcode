@@ -34,24 +34,26 @@ test('注册表：/taskbar 与 /tree 已登记，带下拉文案与 client 来�
     }
 })
 
-test('注册表：filterClientCommands 按前缀过滤，输出纯 CommandInfo（无下拉元数据）', () => {
-    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['taskbar', 'tree', 'goalbar'])
+test('注册表：filterClientCommands 按统一匹配规则过滤，输出纯 CommandInfo（无下拉元数据）', () => {
+    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['taskbar', 'tree', 'goalbar', 'bgagents'])
     assert.deepEqual(filterClientCommands('ta').map(cmd => cmd.name), ['taskbar'])
-    assert.deepEqual(filterClientCommands('goal').map(cmd => cmd.name), ['goalbar'], '前缀 goal 同时命中服务端 /goal，合并去重后两者并存')
-    assert.deepEqual(filterClientCommands('TREE').map(cmd => cmd.name), ['tree'], '前缀过滤须大小写不敏感')
+    assert.deepEqual(filterClientCommands('goal').map(cmd => cmd.name), ['goalbar'], 'goal 命中客户端 goalbar；与服务端 /goal 的合并去重在 useChatInput 层')
+    assert.deepEqual(filterClientCommands('TREE').map(cmd => cmd.name), ['tree'], '匹配须大小写不敏感')
+    assert.deepEqual(filterClientCommands('ents').map(cmd => cmd.name), ['bgagents'], '名字段子串：不必是前缀也能命中')
     assert.deepEqual(filterClientCommands('zzz'), [])
     for (const cmd of filterClientCommands('')) {
         assert.ok(!('dropdownLabel' in cmd), '补全条目不得携带 dropdownLabel')
         assert.ok(!('autoSend' in cmd), '补全条目不得携带 autoSend')
+        assert.ok(!('intercept' in cmd), '补全条目不得携带 intercept')
     }
 })
 
-test('补全合并：useChatInput watch 合并 filterClientCommands 且按 name 去重', () => {
-    assert.match(chatInputSource, /const serverNames = new Set\(serverMatches\.map\(cmd => cmd\.name\)\)/)
+test('补全合并：useChatInput watch 合并 filterClientCommands 且按 name 大小写不敏感去重', () => {
+    assert.match(chatInputSource, /const serverNames = new Set\(serverMatches\.map\(cmd => cmd\.name\.toLowerCase\(\)\)\)/)
     assert.match(
         chatInputSource,
-        /filterClientCommands\(prefix\)\.filter\(cmd => !serverNames\.has\(cmd\.name\)\)/,
-        '客户端命令必须按 name 去重后再合并，防服务端未来同名下发',
+        /filterClientCommands\(query\)\.filter\(cmd => !serverNames\.has\(cmd\.name\.toLowerCase\(\)\)\)/,
+        '客户端命令必须按 name 去重后再合并，防服务端未来同名下发（大小写同口径）',
     )
 })
 

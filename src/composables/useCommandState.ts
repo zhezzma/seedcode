@@ -1,5 +1,6 @@
 import { reactive, computed } from 'vue'
 import { apiGet } from './api-client'
+import { filterByCommandQuery } from '../utils/command-name-match.ts'
 
 // ==================== Types ====================
 
@@ -124,13 +125,11 @@ const updateGlobalPromptCaches = (command: CommandInfo | null, removeName?: stri
     }
 }
 
-/** 根据输入前缀过滤命令（输入 `/foo` 则匹配所有以 `foo` 开头的命令） */
-const filterCommands = computed(() => (prefix: string) => {
-    const lc = prefix.toLowerCase()
-    return getCommandsForScope(state.currentAgentId).filter(cmd =>
-        cmd.name.toLowerCase().startsWith(lc)
-    )
-})
+/** 根据输入过滤命令：全名前缀（/skill:wait）或 `:` 后名字段子串（/wait、/what 都能
+ *  命中 skill:wait-what，不必手打命名空间）；匹配规则见 utils/command-name-match */
+const filterCommands = computed(() => (query: string) =>
+    filterByCommandQuery(getCommandsForScope(state.currentAgentId), query)
+)
 
 const allCommands = computed(() => getCommandsForScope(state.currentAgentId))
 const isLoaded = computed(() => state.loadedByAgentId[state.currentAgentId] ?? false)

@@ -1,10 +1,11 @@
 import type { CommandInfo } from './useCommandState'
+import { filterByCommandQuery } from '../utils/command-name-match.ts'
 
 // ==================== 客户端命令统一注册表 ====================
 // 客户端命令 = 前端本地拦截处理、不经服务端的命令（如 /taskbar 重现会话工作步骤面板、
 // /tree 打开会话树；服务端命令表 /api/commands 不含它们，故 / 补全需前端合并）。
 // 本注册表是唯一事实来源，两处消费：
-//   1. `/` 补全浮层：useChatInput 的 watch 按前缀合并（按 name 去重，防服务端未来同名下发）
+//   1. `/` 补全浮层：useChatInput 的 watch 按统一匹配规则合并（按 name 去重，防服务端未来同名下发）
 //   2. 「命令」按钮下拉：ChatInput 渲染为「本地指令」分区
 // 新增客户端命令只需在此追加一条，两处自动可见；HomeView 等调用方仍各自负责拦截执行
 // （busy 拦截命令另需标注 intercept + handleSend 分支，见字段注释）。
@@ -49,8 +50,11 @@ export const isClientInterceptedCommand = (text: string): boolean => {
     })
 }
 
-/** 按输入前缀（不含 `/`）过滤客户端命令 → 纯 CommandInfo（供 / 补全合并） */
-export const filterClientCommands = (prefix: string): CommandInfo[] =>
-    CLIENT_COMMANDS
-        .filter(cmd => cmd.name.toLowerCase().startsWith(prefix.toLowerCase()))
-        .map(cmd => ({ name: cmd.name, description: cmd.description, source: cmd.source }))
+/** 按输入过滤客户端命令 → 纯 CommandInfo（供 / 补全合并）。
+ *  匹配规则与服务端命令同源：utils/command-name-match（名字段子串，不限前缀） */
+export const filterClientCommands = (query: string): CommandInfo[] =>
+    filterByCommandQuery(CLIENT_COMMANDS, query).map(cmd => ({
+        name: cmd.name,
+        description: cmd.description,
+        source: cmd.source,
+    }))
