@@ -5,8 +5,9 @@
  * 头部：
  * - 返回（带 dirty 确认）
  * - 面包屑（dirty 圆点提示）
- * - file 模式：Save 按钮（dirty 时高亮，readOnly 时禁用）
- * - diff 模式：unstaged/untracked 可编辑 → Save 按钮（dirty 高亮）；Split/Inline toggle
+ * - file 模式：Save 按钮（dirty 时高亮，readOnly 时禁用）+（按需）Preview
+ * - diff 模式：unstaged/untracked 可编辑 → Save 按钮（dirty 高亮）；（按需）Preview
+ *   （预览 after 新侧）；Split/Inline toggle
  *
  * 快捷键：
  * - Esc 关闭（带 dirty 确认）
@@ -88,6 +89,17 @@ const previewKind = computed(() => {
 const showPreviewButton = computed(() => previewKind.value !== null)
 const filePreviewMode = computed(() => fileViewRef.value?.previewMode ?? false)
 
+// diff 模式预览按钮：file 是 repo 相对路径，扩展名命中（html/md/svg）即可预览 after（新）侧；
+// staged/commit 只读 diff 同样可预览（after = index/commit 版本），
+// 避免按钮常驻 disable 造成视觉噪音（同 file 模式）。
+const diffPreviewKind = computed(() => {
+    const tgt = target.value
+    if (tgt?.type !== 'diff') return null
+    return previewableExt(tgt.file)
+})
+const showDiffPreviewButton = computed(() => diffPreviewKind.value !== null)
+const diffPreviewMode = computed(() => diffViewRef.value?.previewMode ?? false)
+
 // ── diff 模式按钮状态 ──
 const diffSideBySide = computed(() => diffViewRef.value?.sideBySide ?? true)
 // diff 可编辑后的保存态（unstaged/untracked 才 expose isEditable=true）；
@@ -161,6 +173,12 @@ function onClickPreview() {
 
 function onClickToggleSplit() {
     diffViewRef.value?.toggleSideBySide()
+}
+
+function onClickDiffPreview() {
+    // .html / .md / .svg 都可切换；子组件预览 after（新）侧内容。
+    if (diffPreviewKind.value === null) return
+    diffViewRef.value?.togglePreview()
 }
 
 /** 复制 diff 模式的 unified diff 文本（git 原生输出，按需拉取）。 */
@@ -277,8 +295,18 @@ watch(target, () => {
                     </button>
                 </template>
 
-                <!-- diff 模式按钮：Save（仅可编辑）+ Copy unified diff + Split / Inline 切换 -->
+                <!-- diff 模式按钮：Preview（按需）+ Save（仅可编辑）+ Copy unified diff + Split / Inline 切换 -->
                 <template v-else-if="target?.type === 'diff'">
+                    <button v-if="showDiffPreviewButton" class="btn btn-sm gap-1"
+                        :class="diffPreviewMode ? 'btn-primary' : 'btn-ghost'"
+                        :title="diffPreviewMode ? $t('workspace.previewExit') : $t('workspace.preview')"
+                        @click="onClickDiffPreview">
+                        <EyeSlashIcon v-if="diffPreviewMode" class="h-4 w-4" />
+                        <EyeIcon v-else class="h-4 w-4" />
+                        <span class="hidden md:inline text-xs">
+                            {{ diffPreviewMode ? $t('workspace.previewExit') : $t('workspace.preview') }}
+                        </span>
+                    </button>
                     <button v-if="diffIsEditable" class="btn btn-sm gap-1"
                         :class="diffIsDirty && !diffIsReadOnly ? 'btn-primary' : 'btn-ghost'"
                         :disabled="diffSaveDisabled" :title="$t('workspace.save') + ' (Ctrl+S)'"

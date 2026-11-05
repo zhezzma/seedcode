@@ -11,6 +11,9 @@
  * - binary：显示占位；不进入 diff editor。truncated：强制只读（写入截断内容 = 丢数据）。
  * - mode=untracked / 新增文件：原侧为空，monaco 会把整个文件标为新增，符合预期。
  * - props 变化（切换 file/ref）即重拉。
+ * - 预览模式（previewMode）：渲染 after（新）侧内容替换 diff 编辑器（html/svg iframe、
+ *   md 走 MarkdownRenderer），渲染分支与沙箱策略同 WorkspaceFileView 的 file 模式预览；
+ *   内容跟 modified 侧实时值（可编辑 diff 含未保存编辑）。
  *
  * 没有 unified-text fallback：spec 明确要求与 VSCode 风格一致。
  */
@@ -20,6 +23,7 @@ import {
     fetchFileVersions,
     fetchDiff,
     saveFile,
+    previewableExt,
     type DiffMode,
     type FileVersions,
 } from '../../composables/workspace-api'
@@ -28,6 +32,7 @@ import { useToast } from '../../composables/useToast'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { notifyGitFileSaved } from '../../utils/gitSaveRefresh'
 import { monaco, languageFromPath, monacoThemeFromDaisy } from './monaco-setup'
+import MarkdownRenderer from '../chat/MarkdownRenderer.vue'
 
 const props = defineProps<{
     agentId: string
@@ -148,6 +153,7 @@ async function load() {
         })
         if (!isCurrent(localProps)) return
         result.value = r
+        content.value = r.binary ? '' : (r.after ?? '')
         if (r.binary) return // 二进制：模板走占位分支，不喂 diff editor
 
         ensureEditor()
@@ -168,7 +174,8 @@ async function load() {
         modifiedDisposer?.dispose()
         modifiedDisposer = modifiedModel.onDidChangeContent(() => {
             if (!modifiedModel) return
-            isDirty.value = modifiedModel.getValue() !== baselineAfter
+            content.value = modifiedModel.getValue()
+            isDirty.value = content.value !== baselineAfter
         })
         isDirty.value = false
     } catch (e: any) {
@@ -193,6 +200,28 @@ function toggleSideBySide() {
     sideBySide.value = !sideBySide.value
     try { localStorage.setItem(RENDER_SIDE_BY_SIDE_KEY, sideBySide.value ? '1' : '0') } catch { /* ignore */ }
     diffEditor?.updateOptions({ renderSideBySide: sideBySide.value })
+}
+
+// ── 预览（html/svg iframe、md 渲染器）──
+/** 预览模式：预览渲染替换 diff 编辑器，父组件通过 togglePreview() 控制。
+ *  预览 after（新）侧：unstaged/untracked 是工作区文件（含未保存编辑，同 file 模式
+ *  预览跟 dirty buffer 的语义）；staged/commit 是 index/commit 版本。 */
+const previewMode = ref(false)
+/** modified 侧实时内容（onDidChangeContent 同步），预览渲染用。 */
+const content = ref('')
+// 预览切换：父组件 Preview 按钮调用；file 是 repo 相对路径，扩展名命中即可预览。
+const previewKind = computed(() => previewableExt(props.file))
+
+/** SVG 预览的 srcdoc：把 SVG 源码包成完整 HTML 文档（同 WorkspaceFileView）。
+ *  计算属性避免在模板里写多行模板字符串（vue-tsc 对 <template> 内反引号解析易断）。 */
+const svgSrcDoc = computed(() => {
+    if (previewKind.value !== 'svg') return ''
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;height:100%;background:white;overflow:hidden;display:flex;align-items:center;justify-content:center;">${content.value}</body></html>`
+})
+function togglePreview() {
+    if (previewKind.value === null) return
+    previewMode.value = !previewMode.value
 }
 
 /** 保存 modified 侧内容回工作区文件（仅 editable 且 dirty 时有效）。
@@ -264,6 +293,10 @@ watch(
         // 按新 baseline 重算。WorkspaceFileView 修过一模一样的 bug（同款防护）。
         isDirty.value = false
         baselineAfter = ''
+        // 预览模式与内容同步重置：避免切到不可预览文件后 Preview 按钮消失但 iframe 残留
+        //（同 WorkspaceFileView 的 path 切换重置）。
+        previewMode.value = false
+        content.value = ''
         load()
     },
 )
@@ -301,6 +334,8 @@ async function getUnifiedDiff(): Promise<string> {
 defineExpose({
     sideBySide,
     toggleSideBySide,
+    previewMode,
+    togglePreview,
     getUnifiedDiff,
     isDirty,
     isSaving,
@@ -322,7 +357,20 @@ defineExpose({
         </div>
 
         <div class="relative flex-1 min-h-0">
-            <div ref="containerRef" class="h-full w-full" :class="{ hidden: result?.binary }" />
+            <!-- 预览（after 侧实时内容，可编辑 diff 含未保存编辑）：渲染分支与沙箱策略
+                 同 WorkspaceFileView 的 file 模式预览。 -->
+            <iframe v-if="previewMode && previewKind === 'html'" :srcdoc="content" sandbox="allow-scripts"
+                class="absolute inset-0 h-full w-full bg-white border-0"
+                :title="file" />
+            <iframe v-else-if="previewMode && previewKind === 'svg'" :srcdoc="svgSrcDoc" sandbox=""
+                class="absolute inset-0 h-full w-full bg-white border-0"
+                :title="file" />
+            <div v-else-if="previewMode && previewKind === 'md'"
+                class="absolute inset-0 overflow-auto bg-base-100 p-6">
+                <MarkdownRenderer :content="content" />
+            </div>
+
+            <div ref="containerRef" class="h-full w-full" :class="{ hidden: result?.binary || previewMode }" />
 
             <div v-if="loading"
                 class="absolute inset-0 flex items-center justify-center bg-base-100/60 pointer-events-none">
