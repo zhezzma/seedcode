@@ -17,7 +17,7 @@
  *
  * 没有 unified-text fallback：spec 明确要求与 VSCode 风格一致。
  */
-import { ref, watch, onMounted, onBeforeUnmount, useTemplateRef, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, useTemplateRef, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
     fetchFileVersions,
@@ -224,6 +224,16 @@ function togglePreview() {
     previewMode.value = !previewMode.value
 }
 
+// 退出预览时以容器真实尺寸显式重排：display:none 往返后 monaco 的自我引用测量
+// （读自己 root 的内联高度）不会感知外部尺寸变化，必须传 dimension 绕过；
+// 也兜住预览期间容器尺寸变化（拖 splitter / 窗口缩放）的场景。
+watch(previewMode, async (on) => {
+    if (on) return
+    await nextTick()
+    const el = containerRef.value
+    if (el && diffEditor) diffEditor.layout({ width: el.clientWidth, height: el.clientHeight })
+})
+
 /** 保存 modified 侧内容回工作区文件（仅 editable 且 dirty 时有效）。
  *  快照防过期：save 网络往返期间可能切文件 / 切 agent，落地前必须校验 props 未变，
  *  否则旧内容会覆到新路径（静默数据损坏，同 WorkspaceFileView.save 的防护）。 */
@@ -268,7 +278,15 @@ function setupThemeObserver() {
 
 function setupResizeObserver() {
     if (!containerRef.value) return
-    resizeObserver = new ResizeObserver(() => diffEditor?.layout())
+    resizeObserver = new ResizeObserver((entries) => {
+        // 0 尺寸守门：display:none（预览/二进制隐藏）时 RO 会报 0×0，若照常 layout()，
+        // monaco 会把 0 钳成 5×5 并把 root 高度写成内联 height:5px，此后测量自我引用
+        // （读自己 root 的 clientHeight=5）永久锁死，事后任何 layout() 都救不回。
+        // → 0 尺寸直接跳过，保持最后一个有效布局；恢复可见时 RO 会以真实尺寸再次触发。
+        const r = entries[0]?.contentRect
+        if (!r || r.width === 0 || r.height === 0) return
+        diffEditor?.layout()
+    })
     resizeObserver.observe(containerRef.value)
 }
 
@@ -370,7 +388,11 @@ defineExpose({
                 <MarkdownRenderer :content="content" />
             </div>
 
-            <div ref="containerRef" class="h-full w-full" :class="{ hidden: result?.binary || previewMode }" />
+            <!-- 预览时用 hidden（display:none）+ 退出时显式 layout 补偿（见 previewMode watch）：
+                 monaco 内部大量元素显式设置 visibility:visible，会击穿父容器的 visibility:hidden
+                 （实测子树 400+ 元素可见），且其内部定位元素树序在预览层之后 → 会盖住预览。 -->
+            <div ref="containerRef" class="h-full w-full"
+                :class="{ hidden: result?.binary || previewMode }" />
 
             <div v-if="loading"
                 class="absolute inset-0 flex items-center justify-center bg-base-100/60 pointer-events-none">
