@@ -201,8 +201,9 @@ watch(() => chatState.sessionKey, () => {
                 </button>
             </div>
 
-            <!-- 展开态：起始消息 + 续跑消息 -->
-            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1">
+            <!-- 展开态：起始消息 + 续跑消息。封顶 max-h-64 + overflow-y-auto
+                 （MusicBar 同款）：条目多时面板内部滚动，不把 dock 区顶出屏 -->
+            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1 max-h-64 overflow-y-auto">
                 <div class="text-base-content/40 pt-0.5">{{ t('chat.goalBar.startMessage') }}</div>
                 <div class="rounded-lg border border-base-300 bg-base-200 px-2 py-1 text-base-content/70">
                     {{ goalState!.startMessage }}

@@ -90,8 +90,9 @@ const groups = (list: TaskBarTask[]) => ({
                 </button>
             </div>
 
-            <!-- 展开态：按状态分组（进行中 → 待处理 → 已完成），样式对齐 PendingQueueBar 展开条 -->
-            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1">
+            <!-- 展开态：按状态分组（进行中 → 待处理 → 已完成），样式对齐 PendingQueueBar 展开条。
+                 封顶 max-h-64 + overflow-y-auto（MusicBar 同款）：条目多时面板内部滚动 -->
+            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1 max-h-64 overflow-y-auto">
                 <template v-for="(group, key) in groups(tasks)" :key="key">
                     <template v-if="group.length > 0">
                         <div class="text-base-content/40 pt-0.5">{{ t(SECTION_KEY[key]) }}</div>

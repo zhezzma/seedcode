@@ -64,6 +64,8 @@ test('/taskbar：TaskBar 响应 expandRequest——展开清单 + taskbar-flash 
     assert.match(taskBarSource, /watch\(expandRequest, \(\) => \{[\s\S]{0,160}?expanded\.value = true/)
     // 脉冲：面板已显示且已展开时 expanded 置位是 no-op，背景闪烁兜底可见反馈
     assert.match(taskBarSource, /'taskbar-flash': flashed/)
+    // 展开面板封顶滚动（MusicBar 同款）：条目多时面板内部滚动，不把 dock 区顶出屏
+    assert.match(taskBarSource, /v-if="expanded" class="flex flex-col gap-1 pb-1\.5 pt-1 max-h-64 overflow-y-auto"/)
     assert.match(taskBarSource, /@keyframes taskbar-flash/)
 })
 

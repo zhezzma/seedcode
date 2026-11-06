@@ -638,7 +638,11 @@ export function useChatMessages(state: ChatStateShape) {
                             type: 'music-report',
                             musicStatus: musicReport.status,
                             text: musicReport.text,
-                            ...(musicReport.url !== undefined ? { musicUrl: musicReport.url } : {}),
+                            // 播放键地址同图片块规则拼 apiBaseUrl：服务端注入 /assets 相对地址，
+                            // Tauri 壳 origin（tauri://localhost）下裸相对链接是死链
+                            ...(musicReport.url !== undefined
+                                ? { musicUrl: resolveMediaUrl(musicReport.url, settings.apiBaseUrl) }
+                                : {}),
                             ...(musicReport.taskId !== undefined ? { musicTaskId: musicReport.taskId } : {}),
                         }],
                         timestamp: msg.timestamp,

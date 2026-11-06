@@ -735,6 +735,7 @@ export default {
             completed: 'Completed',
             error: 'Error',
             play: 'Play',
+            pause: 'Pause',
         },
         subagentReport: {
             title: 'Background subagent report',

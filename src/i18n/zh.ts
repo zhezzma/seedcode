@@ -736,6 +736,7 @@ export default {
             completed: '已完成',
             error: '出错',
             play: '播放',
+            pause: '暂停',
         },
         subagentReport: {
             title: '后台子代理报告',

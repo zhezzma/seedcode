@@ -40,8 +40,9 @@ const reportPreview = (item: PendingItem) => {
             </button>
             <!-- 展开后逐条预览：用户条目 ✕ 请求服务端从队列删除该条（真删除，消息不再发送），
                  按响应快照对齐本地；子代理报告回执不可删（删除即永久丢失，服务端 deleteQueued
-                 同步守卫，此处仅不渲染删除钮） -->
-            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1">
+                 同步守卫，此处仅不渲染删除钮）。封顶 max-h-64 + overflow-y-auto（MusicBar
+                 同款）：条目多时面板内部滚动，不把 dock 区顶出屏 -->
+            <div v-if="expanded" class="flex flex-col gap-1 pb-1.5 pt-1 max-h-64 overflow-y-auto">
                 <div v-for="item in chatState.pendingQueue" :key="item.id"
                     class="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200 px-2 py-1">
                     <span v-if="isProtectedReceipt(item)" class="badge badge-ghost badge-xs shrink-0 font-normal border-dashed border-base-content/20">

@@ -89,10 +89,12 @@ test('显隐信号源：agent/会话切换重探 + 组件挂载重探', () => {
 })
 
 test('ChatInput：权限选择框 v-if=permAvailable，隐藏时清暂存档位', () => {
-    // v-if 必须落在 permission 下拉的根 div 上（dropdown dropdown-top + permDropdownOpen 同节点）
+    // v-if 必须落在 permission 下拉的根 div 上（dropdown dropdown-top + permDropdownOpen
+    // 同节点）。class 允许尾部追加（如响应式 hidden sm:block）——锚的是结构不是
+    // 精确 class 串，避免纯样式调整误红
     assert.match(
         inputSource,
-        /<div v-if="permAvailable" class="dropdown dropdown-top"\s+:class="\{ 'dropdown-open': permDropdownOpen \}">/,
+        /<div v-if="permAvailable" class="dropdown dropdown-top[^"]*"\s+:class="\{ 'dropdown-open': permDropdownOpen \}">/,
         '权限选择框整体 v-if 隐藏（不含模型/思考下拉）',
     )
     assert.match(

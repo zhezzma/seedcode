@@ -79,8 +79,9 @@ const openTrace = (agent: BackgroundAgentEntry) => {
                 </button>
             </div>
             <!-- 展开逐工人清单：inline 与其他 dock widget 同构（非浮出弹层）。
+                 封顶 max-h-64 + overflow-y-auto（MusicBar 同款）：条目多时面板内部滚动。
                  眼睛 = 轨迹抽屉；停止 = 后台 stop 路由（busy 期可用） -->
-            <div v-if="bg.panelOpen.value" class="flex flex-col gap-1 pb-1.5 pt-1">
+            <div v-if="bg.panelOpen.value" class="flex flex-col gap-1 pb-1.5 pt-1 max-h-64 overflow-y-auto">
                 <div v-for="agent in bg.sortedAgents.value" :key="agent.name"
                     class="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200 px-2 py-1">
                     <span class="badge badge-xs shrink-0 font-normal" :class="statusClass(agent.status)">

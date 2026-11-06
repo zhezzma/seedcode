@@ -22,7 +22,7 @@ test('音乐状态条挂载到输入框上方 dock 区（bg-agents 之后 taskba
     assert.match(bar, /v-for="task in music\.sortedMusics\.value"/)
     // 与其他 dock widget 同一形态：同外壳 + inline 展开（非浮出弹层）
     assert.match(bar, /border-t border-base-300 bg-base-100\/40 px-4 py-1 text-xs select-none/)
-    assert.match(bar, /v-if="music\.panelOpen\.value" class="flex flex-col gap-1 pb-1\.5 pt-1"/)
+    assert.match(bar, /v-if="music\.panelOpen\.value" class="flex flex-col gap-1 pb-1\.5 pt-1 max-h-64 overflow-y-auto"/)
     assert.ok(!bar.includes('absolute'), '展开清单必须 inline，不得浮出定位')
     assert.ok(!bar.includes('z-50'), '无浮层无 z-index')
     // 面板要素：状态徽标 + 停止按钮（仅 working）+ X 关闭钮；无轨迹入口（音乐无轨迹数据）
@@ -64,12 +64,29 @@ test('音乐回执气泡接线（解析 → DisplayBlock → 卡片）', () => {
     // user 输入的回执解析为 music-report 块（对位 subagent-report 的独立回执泡）
     assert.match(messages, /type: 'music-report',/)
     assert.match(messages, /musicStatus: musicReport\.status/)
+    // 播放键地址必须过 resolveMediaUrl 拼 apiBaseUrl（图片块同款规则）：服务端注入
+    // /assets 相对地址，Tauri 壳的 webview origin 是 tauri://localhost，裸相对链接
+    // 解析成死链（客户端点播放键打不开）
+    assert.match(messages, /musicUrl: resolveMediaUrl\(musicReport\.url, settings\.apiBaseUrl\)/)
 
     const bubble = read('src/components/chat/MessageBubble.vue')
     assert.match(bubble, /block\.type === 'music-report'/)
     assert.match(bubble, /chat\.musicReport\.title/)
-    // 完成带播放键（/assets 地址新窗打开）；失败带 taskId 脚注
-    assert.match(bubble, /v-if="block\.musicUrl"/)
+    // 完成带原地播放键（播放/暂停切换，不跳浏览器）；失败带 taskId 脚注。
+    // 卡内真 <audio> 元素：VirtualMessageList 的播放中行保活按 audio/video 通用
+    // 检测（!paused 即保持挂载，离屏不掐断，滚动回来进度/播放态原样保留）。
+    // ref 必须用函数形式：块在 v-for 内，字符串 ref 会被 Vue 收集成数组
+    // （ref_for: true → setupState[ref] = [el]），el.paused undefined / el.pause()
+    // TypeError——点击无声的回归锚
+    assert.match(bubble, /<audio v-if="block\.musicUrl" :ref="assignMusicAudioEl" :src="block\.musicUrl" preload="metadata"/)
+    assert.match(bubble, /const assignMusicAudioEl = \(el: Element \| ComponentPublicInstance \| null\) => \{/)/
+    assert.match(bubble, /musicAudioEl\.value = el instanceof HTMLAudioElement \? el : null/)
+    assert.match(bubble, /data-music-audio @play="onMusicPlay"/)
+    assert.match(bubble, /v-if="block\.musicUrl" type="button" @click="toggleMusicAudio"/)
+    assert.match(bubble, /<PauseIcon v-if="musicPlaying" class="h-3\.5 w-3\.5" \/>/)
+    assert.match(bubble, /<PlayIcon v-else class="h-3\.5 w-3\.5" \/>/)
+    // 全局单播：新播放经 chat-media 单点暂停其他聊天媒体（markdown 内嵌 + 其他音乐卡）
+    assert.match(bubble, /pauseOtherChatMedia\(musicAudioEl\.value\)/)
     assert.match(bubble, /v-if="block\.musicTaskId"/)
 })
 
@@ -91,7 +108,7 @@ test('i18n 词条齐全（musicBar/musicReport，zh/en 同构）', () => {
         for (const status of ['working', 'completed', 'error', 'aborted']) {
             assert.ok(new RegExp(`status: \\{[\\s\\S]*?${status}:`).test(s), `${file} musicBar.status.${status}`)
         }
-        for (const key of ['title', 'completed', 'error', 'play']) {
+        for (const key of ['title', 'completed', 'error', 'play', 'pause']) {
             assert.ok(new RegExp(`musicReport: \\{[\\s\\S]*?${key}:`).test(s), `${file} musicReport.${key}`)
         }
         // /musicbar 无任务的 toast 文案（home.noMusicTasks，bgagents 同模式）

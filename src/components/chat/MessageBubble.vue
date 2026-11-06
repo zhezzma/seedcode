@@ -9,9 +9,10 @@ import {
     PencilSquareIcon,
     EyeIcon,
     MusicalNoteIcon,
-    PlayIcon
+    PlayIcon,
+    PauseIcon
 } from '@heroicons/vue/24/outline'
-import { computed, ref } from 'vue'
+import { computed, ref, type ComponentPublicInstance } from 'vue'
 import { useUiSettingsStore } from '../../stores/setting'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 import { useI18n } from 'vue-i18n'
@@ -22,6 +23,7 @@ import DeliverablesPanel from './DeliverablesPanel.vue'
 import { A2UIRenderer } from '../a2ui'
 import { handleA2UIAction } from '../../composables/useA2UIActions'
 import { reservedImageStyle, recordImageElementDimensions } from '../../utils/imageDimensions'
+import { pauseOtherChatMedia } from '../../utils/chat-media'
 import { getSurface } from '../../composables/useA2UISurfaces'
 import { useChatState } from '../../composables/useChatState'
 import { useTTS } from '../../composables/useTTS'
@@ -87,6 +89,29 @@ const uiSettings = useUiSettingsStore()
 const hiddenAssistantBubbleBg = computed(() => uiSettings.isDark || useMediaQuery('(max-width: 1023px)').value || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent))
 const chatState = useChatState()
 const { currentReadingMsgId } = useTTS()
+
+// ── 音乐回执卡：原地播放/暂停（audio 长在卡内，不跳浏览器）──
+// 虚拟滚动保活：VirtualMessageList 对含 !paused 媒体的行保持挂载（离屏不卸载，
+// 滚动回来同一元素，进度/播放态原样保留）——通用 audio/video 检测自动覆盖。
+// 全局单播：play 时经 chat-media 单点暂停其他聊天媒体（markdown 内嵌 + 其他音乐卡）。
+const musicAudioEl = ref<HTMLAudioElement | null>(null)
+// ref 必须用函数形式：块在 v-for 内，字符串 ref 会被 Vue 收集成数组
+// （ref_for: true → setupState[ref] = [el]），el.paused undefined / el.pause()
+// TypeError——点击无声。函数 ref 直接拿到元素本身（卸载时 null）
+const assignMusicAudioEl = (el: Element | ComponentPublicInstance | null) => {
+    musicAudioEl.value = el instanceof HTMLAudioElement ? el : null
+}
+const musicPlaying = ref(false)
+const toggleMusicAudio = () => {
+    const el = musicAudioEl.value
+    if (!el) return
+    if (el.paused) void el.play()
+    else el.pause()
+}
+const onMusicPlay = () => {
+    if (musicAudioEl.value) pauseOtherChatMedia(musicAudioEl.value)
+    musicPlaying.value = true
+}
 
 // A2UI action handling
 function onA2UIAction(action: any, dataModel: Record<string, any>, surfaceId: string, sourceComponentId: string) {
@@ -610,8 +635,9 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         </div>
                     </div>
                     <!-- 音乐生成回执（[音乐生成完成/失败] user 输入的回执气泡唯一块）：
-                         音符徽标 + 状态 + 描述/原因，完成带播放键。与 subagent-report
-                         同语义的独立回执泡；无轨迹入口（音乐生成无轨迹数据） -->
+                         音符徽标 + 状态 + 描述/原因，完成带原地播放键（播放/暂停切换，
+                         不跳浏览器）。与 subagent-report 同语义的独立回执泡；无轨迹入口
+                         （音乐生成无轨迹数据） -->
                     <div v-else-if="block.type === 'music-report'" class="subagent-report-card">
                         <div class="flex items-center gap-2 text-sm font-medium">
                             <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
@@ -621,11 +647,18 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                             <span class="opacity-80">{{ $t('chat.musicReport.title') }}</span>
                             <span v-if="block.musicStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.musicReport.error') }}</span>
                             <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.musicReport.completed') }}</span>
-                            <a v-if="block.musicUrl" :href="block.musicUrl" target="_blank" rel="noopener"
+                            <!-- 原地播放：卡内 <audio>（无 controls，纯按钮驱动）。虚拟滚动
+                                 保活由 VirtualMessageList 通用检测接管（!paused 的行保持挂载，
+                                 离屏不掐断，滚动回来进度/播放态原样保留）；全局单播经
+                                 chat-media 单点暂停其他聊天媒体 -->
+                            <audio v-if="block.musicUrl" :ref="assignMusicAudioEl" :src="block.musicUrl" preload="metadata"
+                                data-music-audio @play="onMusicPlay" @pause="musicPlaying = false" @ended="musicPlaying = false" />
+                            <button v-if="block.musicUrl" type="button" @click="toggleMusicAudio"
                                 class="btn btn-ghost btn-xs btn-circle ml-auto shrink-0 text-base-content/50 hover:text-base-content"
-                                :title="$t('chat.musicReport.play')">
-                                <PlayIcon class="h-3.5 w-3.5" />
-                            </a>
+                                :title="musicPlaying ? $t('chat.musicReport.pause') : $t('chat.musicReport.play')">
+                                <PauseIcon v-if="musicPlaying" class="h-3.5 w-3.5" />
+                                <PlayIcon v-else class="h-3.5 w-3.5" />
+                            </button>
                         </div>
                         <div v-if="block.text" class="mt-2 text-sm opacity-90">
                             <MarkdownRenderer :content="block.text" />

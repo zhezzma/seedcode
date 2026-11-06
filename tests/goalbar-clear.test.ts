@@ -23,6 +23,8 @@ test('GoalBar: 清除按钮仅停止态显示，confirm 先于 POST，key 在 co
     // 按钮存在且条件与 restart 同款（停止态 = !enabled）
     assert.match(goalBarSource, /v-if="!goalState!\.enabled" type="button" :disabled="clearing"/)
     assert.match(goalBarSource, /@click="clearGoal\(\)"/)
+    // 展开面板封顶滚动（MusicBar 同款）：条目多时面板内部滚动，不把 dock 区顶出屏
+    assert.match(goalBarSource, /v-if="expanded" class="flex flex-col gap-1 pb-1\.5 pt-1 max-h-64 overflow-y-auto"/)
 
     const start = goalBarSource.indexOf('async function clearGoal()')
     assert.ok(start >= 0, 'clearGoal 应存在')

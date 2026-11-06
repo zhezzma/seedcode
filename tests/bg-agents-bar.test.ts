@@ -32,7 +32,7 @@ test('后台子代理入口统一到输入框上方 dock 区（ChatHeader 顶栏
     // 与其他 dock widget 同一形态：同外壳 + inline 展开（非浮出弹层）
     assert.match(bar, /border-t border-base-300 bg-base-100\/40 px-4 py-1 text-xs select-none/)
     assert.match(bar, /mx-auto w-full max-w-3xl/)
-    assert.match(bar, /v-if="bg\.panelOpen\.value" class="flex flex-col gap-1 pb-1\.5 pt-1"/)
+    assert.match(bar, /v-if="bg\.panelOpen\.value" class="flex flex-col gap-1 pb-1\.5 pt-1 max-h-64 overflow-y-auto"/)
     assert.match(bar, /rounded-lg border border-base-300 bg-base-200 px-2 py-1/)
     assert.ok(!bar.includes('absolute'), '展开清单必须 inline，不得浮出定位')
     assert.ok(!bar.includes('z-50'), '无浮层无 z-index')

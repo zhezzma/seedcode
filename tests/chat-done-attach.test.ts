@@ -18,8 +18,9 @@ const source = readFileSync(path.resolve(__dirname, '../src/composables/useChatS
 
 function doneRefreshBody(): string {
     const start = source.indexOf(`apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>`)
-    assert.ok(start > -1, 'done 分支的全量重拉（含 isStreaming 类型）丢失')
-    // 结尾锚 = 重拉链的 catch 行（旧锚 fetchSessionUsage 已随 /usage 端点删除而移除）
+    assert.ok(start > -1, 'done 的全量重拉（含 isStreaming 类型）丢失')
+    // 结尾锚 = 重拉链的 catch 行（旧锚 fetchSessionUsage 已随 /usage 端点删除而移除）；
+    // 重拉已重构收进 refreshSettledMessages（done/扩展通知等多处共用），锚不受影响
     const end = source.indexOf("}).catch(() => { /* 静默失败不影响使用 */ })", start)
     assert.ok(end > start, '重拉块结尾锚丢失')
     return source.slice(start, end)
@@ -31,14 +32,17 @@ test('done 重拉后：isStreaming → attachToSessionIfNeeded（服务端发起
 })
 
 test('attach 兜底判定不得影响 skipSettledRefresh 分支（空闲 done 不触发 attach）', () => {
-    // skip 分支在重拉之前 break：done case 内两个路径各自独立
+    // skip 分支在重拉之前 break：done case 内两个路径各自独立。attach 兜底已随
+    // 重拉重构收进 refreshSettledMessages（isStreaming 才 attach，见上一测试），
+    // done case 只管早退与委托——锚定「skip 的 break 先于重拉调用」即锚定空闲
+    // done 不触发 attach
     const doneStart = source.indexOf("case 'done':")
     const doneCase = source.slice(doneStart, source.indexOf('default:', doneStart))
     const skipIdx = doneCase.indexOf('skipSettledRefresh')
-    const attachIdx = doneCase.indexOf('attachToSessionIfNeeded(targetKey)')
+    const refreshIdx = doneCase.indexOf('refreshSettledMessages(targetKey)')
     assert.ok(skipIdx > -1, 'skipSettledRefresh 分支丢失')
-    assert.ok(attachIdx > -1, 'attach 兜底丢失')
-    // skip 分支的 break 必须出现在 attach 判定之前（各管各的路径）
+    assert.ok(refreshIdx > -1, 'done 的 settled 重拉调用丢失')
+    // skip 分支的 break 必须出现在重拉调用之前（各管各的路径）
     const breakAfterSkip = doneCase.indexOf('break', skipIdx)
-    assert.ok(breakAfterSkip < attachIdx, 'skipSettledRefresh 分支必须先于 attach 兜底早退')
+    assert.ok(breakAfterSkip < refreshIdx, 'skipSettledRefresh 分支必须先于 settled 重拉早退')
 })

@@ -7,6 +7,7 @@ import { useUiSettingsStore } from '../../stores/setting'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 import { mediaKindFromPath } from '../../composables/workspace-api'
 import { reservedImageStyle, recordImageElementDimensions } from '../../utils/imageDimensions'
+import { pauseOtherChatMedia } from '../../utils/chat-media'
 
 const props = defineProps<{
     content: string
@@ -153,13 +154,11 @@ const enhanceRenderedMedia = () => {
         media.preload = 'metadata'
         if (media instanceof HTMLVideoElement) media.playsInline = true
         media.setAttribute('aria-label', link.textContent?.trim() || kind)
-        // 一次只播一个：暂停同文档所有 markdown 容器（.markdown-body）里的其他媒体——
-        // 选择器是 document 作用域，跨 MarkdownRenderer 实例（主聊天、引用预览等）
-        // 都会互斥；聊天外的音频元素（语音聊天等）不受影响。全局单播是预期 UX。
+        // 一次只播一个：全局单播走 chat-media 单点（选择器覆盖 markdown 内嵌 + 音乐
+        // 回执卡音频，document 作用域跨 MarkdownRenderer 实例互斥；聊天外音频——
+        // 语音聊天/TTS——不在选择器内不受影响）。全局单播是预期 UX。
         media.addEventListener('play', () => {
-            document.querySelectorAll<HTMLMediaElement>('.markdown-body audio, .markdown-body video').forEach(el => {
-                if (el !== media && !el.paused) el.pause()
-            })
+            pauseOtherChatMedia(media)
         })
 
         const wrapper = document.createElement('span')

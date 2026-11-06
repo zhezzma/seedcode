@@ -58,9 +58,10 @@ const stopMusic = async (taskId: string) => {
                     <XMarkIcon class="h-3.5 w-3.5" />
                 </button>
             </div>
-            <!-- 展开逐曲清单：inline 与其他 dock widget 同构（非浮出弹层）。
-                 停止 = audio-gen stop 路由（在飞时可用） -->
-            <div v-if="music.panelOpen.value" class="flex flex-col gap-1 pb-1.5 pt-1">
+            <!-- 展开逐曲清单：inline 与其他 dock widget 同构（非浮出弹层）。封顶
+                 max-h-64 + overflow-y-auto（同 dock 区命令补全面板同款）：任务多时面板
+                 内部滚动，不把输入框 dock 区顶出屏。停止 = audio-gen stop 路由（在飞时可用） -->
+            <div v-if="music.panelOpen.value" class="flex flex-col gap-1 pb-1.5 pt-1 max-h-64 overflow-y-auto">
                 <div v-for="task in music.sortedMusics.value" :key="task.taskId"
                     class="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200 px-2 py-1">
                     <span class="badge badge-xs shrink-0 font-normal" :class="statusClass(task.status)">

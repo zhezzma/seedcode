@@ -97,12 +97,12 @@ test('内嵌播放器共享图片的 hover 下载按钮与包装', () => {
 })
 
 test('一次只播一个：新播放暂停会话内其他 markdown 媒体', () => {
-  assert.match(markdownRendererSource, /media\.addEventListener\('play', \(\) => \{/)
-  // 互斥必须是 document 级查询且在 play 处理器内（跨实例全局单播）：
-  // 若改回 container 级查询，同一文档里两个气泡的播放器会同时出声，
-  // 而选择器字符串本身在该文件出现 3 次，无上下文锁时改坏不红
-  assert.match(markdownRendererSource,
-    /addEventListener\('play', \(\) => \{\s*\n\s*document\.querySelectorAll<HTMLMediaElement>\('\.markdown-body audio, \.markdown-body video'\)\.forEach\(el => \{\s*\n\s*if \(el !== media && !el\.paused\) el\.pause\(\)\s*\n\s*\}\)\s*\n\s*\}\)/)
+  assert.match(markdownRendererSource, /media\.addEventListener\('play', \(\) => \{\s*\n\s*pauseOtherChatMedia\(media\)\s*\n\s*\}\)/)
+  // 互斥选择器单点在 chat-media.ts（markdown 内嵌 + 音乐回执卡音频共享，防两处
+  // 各自维护漂移）：document 级查询 + 两个媒体面都在选择器里，缺一面即红
+  const chatMediaSource = readSource('src/utils/chat-media.ts')
+  assert.match(chatMediaSource, /document\.querySelectorAll<HTMLMediaElement>\(CHAT_MEDIA_SELECTOR\)/)
+  assert.match(chatMediaSource, /'\.markdown-body audio, \.markdown-body video, audio\[data-music-audio\]'/)
 })
 
 test('流式重渲染播放器保活：v-html 重写前摘下 wrapper、新 DOM 升级后移植回来', () => {

@@ -35,9 +35,10 @@ test('注册表：/taskbar 与 /tree 已登记，带下拉文案与 client 来�
 })
 
 test('注册表：filterClientCommands 按统一匹配规则过滤，输出纯 CommandInfo（无下拉元数据）', () => {
-    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['taskbar', 'tree', 'goalbar', 'bgagents'])
+    assert.deepEqual(filterClientCommands('').map(cmd => cmd.name), ['taskbar', 'tree', 'goalbar', 'bgagents', 'musicbar'])
     assert.deepEqual(filterClientCommands('ta').map(cmd => cmd.name), ['taskbar'])
     assert.deepEqual(filterClientCommands('goal').map(cmd => cmd.name), ['goalbar'], 'goal 命中客户端 goalbar；与服务端 /goal 的合并去重在 useChatInput 层')
+    assert.deepEqual(filterClientCommands('music').map(cmd => cmd.name), ['musicbar'], 'music 命中客户端 musicbar（音乐生成状态条）')
     assert.deepEqual(filterClientCommands('TREE').map(cmd => cmd.name), ['tree'], '匹配须大小写不敏感')
     assert.deepEqual(filterClientCommands('ents').map(cmd => cmd.name), ['bgagents'], '名字段子串：不必是前缀也能命中')
     assert.deepEqual(filterClientCommands('zzz'), [])

@@ -276,6 +276,8 @@ test('PendingQueueBar / MessageBubble: 排队可视化元素存在', () => {
     assert.match(barSource, /useChatState\(\)/)
     // 队列非空才渲染 + ✕ 直接调用服务端删除 + 删除提示
     assert.match(barSource, /v-if="chatState\.pendingQueue\.length > 0"/)
+    // 展开面板封顶滚动（MusicBar 同款）：条目多时面板内部滚动，不把 dock 区顶出屏
+    assert.match(barSource, /v-if="expanded" class="flex flex-col gap-1 pb-1\.5 pt-1 max-h-64 overflow-y-auto"/)
     assert.match(barSource, /chatState\.removePendingItem\(item\.id\)/)
     assert.match(barSource, /chat\.pendingQueue\.removeHint/)
 
