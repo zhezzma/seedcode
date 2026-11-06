@@ -250,7 +250,7 @@ const demoComponents: A2UIComponent[] = [
     children: [
       'input-name', 'input-email', 'input-bio', 'input-password',
       'input-checkbox', 'input-slider',
-      'input-choice-radio', 'input-choice-chips',
+      'input-choice-radio', 'input-choice-chips', 'input-choice-select',
       'input-datetime',
     ],
   },
@@ -325,6 +325,19 @@ const demoComponents: A2UIComponent[] = [
       { label: '🍓 草莓', value: 'strawberry' },
     ],
     value: { path: '/selectedFruits' },
+  },
+  {
+    component: 'ChoicePicker',
+    id: 'input-choice-select',
+    label: '选择大区（单选 - Select 下拉）',
+    variant: 'mutuallyExclusive',
+    displayStyle: 'select',
+    options: [
+      { label: '华东', value: 'cn-east' },
+      { label: '华北', value: 'cn-north' },
+      { label: '华南', value: 'cn-south' },
+    ],
+    value: { path: '/selectedRegion' },
   },
   {
     component: 'DateTimeInput',

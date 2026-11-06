@@ -230,7 +230,7 @@ export interface ChoicePickerComponent extends ComponentBase {
   /** 静态选项，或绑定数据模型路径（私有 catalog 扩展：级联动态选项） */
   options: Array<{ label: DynamicString; value: string }> | { path: string }
   value: DynamicStringList
-  displayStyle?: 'checkbox' | 'chips'
+  displayStyle?: 'checkbox' | 'chips' | 'select'
   filterable?: boolean
   /** 私有 catalog 扩展：选中变更时触发的 action（级联 callAgentFunction 的入口） */
   action?: Action

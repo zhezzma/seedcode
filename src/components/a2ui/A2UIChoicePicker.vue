@@ -56,6 +56,12 @@ watch(resolvedValue, (v) => {
 
 const filterText = ref('')
 
+// select 下拉：变更事件提取选中值走 toggleOption（mutuallyExclusive 语义：单选重设）
+function onSelectChange(e: Event) {
+  const value = (e.target as HTMLSelectElement).value
+  if (value) toggleOption(value)
+}
+
 // 级联刷新选项后旧搜索词会空滤新列表（看起来像无模型）：选项集变化时清空过滤
 watch(options, (_next, _prev) => {
   filterText.value = ''
@@ -135,6 +141,22 @@ const errorMessage = computed(() => {
       >
         {{ opt.label }}
       </button>
+    </div>
+
+    <!-- Select 下拉显示样式：设置表单的「默认 X」类字段用；芯片排布形似 Tab 头，
+         与页面导航 Tab 混淆（用户实测误把默认提供商当 Tab 切）。仅 mutuallyExclusive——
+         multipleSelection 声明 select 时落到下方 checkbox 分支（原生多选框体验差） -->
+    <div v-else-if="displayStyle === 'select' && variant === 'mutuallyExclusive'">
+      <select
+        :value="localSelected[0] ?? ''"
+        @change="onSelectChange"
+        class="select select-bordered w-full select-sm text-sm font-normal"
+        :class="{ 'select-error': errorMessage }"
+      >
+        <option v-for="opt in filteredOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
     </div>
 
     <!-- Checkbox / Radio 显示样式 -->
