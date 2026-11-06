@@ -7,7 +7,9 @@ import {
     ChevronLeftIcon,
     ChevronRightIcon,
     PencilSquareIcon,
-    EyeIcon
+    EyeIcon,
+    MusicalNoteIcon,
+    PlayIcon
 } from '@heroicons/vue/24/outline'
 import { computed, ref } from 'vue'
 import { useUiSettingsStore } from '../../stores/setting'
@@ -605,6 +607,31 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         </div>
                         <div v-if="block.text" class="mt-2 text-sm opacity-90">
                             <MarkdownRenderer :content="block.text" />
+                        </div>
+                    </div>
+                    <!-- 音乐生成回执（[音乐生成完成/失败] user 输入的回执气泡唯一块）：
+                         音符徽标 + 状态 + 描述/原因，完成带播放键。与 subagent-report
+                         同语义的独立回执泡；无轨迹入口（音乐生成无轨迹数据） -->
+                    <div v-else-if="block.type === 'music-report'" class="subagent-report-card">
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                            <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
+                                :class="block.musicStatus === 'error' ? 'text-error' : 'text-success'">
+                                <MusicalNoteIcon class="h-4 w-4" />
+                            </span>
+                            <span class="opacity-80">{{ $t('chat.musicReport.title') }}</span>
+                            <span v-if="block.musicStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.musicReport.error') }}</span>
+                            <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.musicReport.completed') }}</span>
+                            <a v-if="block.musicUrl" :href="block.musicUrl" target="_blank" rel="noopener"
+                                class="btn btn-ghost btn-xs btn-circle ml-auto shrink-0 text-base-content/50 hover:text-base-content"
+                                :title="$t('chat.musicReport.play')">
+                                <PlayIcon class="h-3.5 w-3.5" />
+                            </a>
+                        </div>
+                        <div v-if="block.text" class="mt-2 text-sm opacity-90">
+                            <MarkdownRenderer :content="block.text" />
+                        </div>
+                        <div v-if="block.musicTaskId" class="mt-1 font-mono text-xs opacity-50">
+                            taskId: {{ block.musicTaskId }}
                         </div>
                     </div>
                     <div v-else-if="block.type === 'unknown'" class="alert alert-warning text-xs p-2 my-1">

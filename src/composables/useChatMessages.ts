@@ -35,7 +35,7 @@ export interface DeliverableSummary {
 }
 
 export interface DisplayBlock {
-    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables' | 'subagent-report'
+    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables' | 'subagent-report' | 'music-report'
     text?: string
     /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染。
      * 语义是「曾经增长过」（保守，交错推理防抖见 chat-attach.markLiveStreamBlock） */
@@ -75,6 +75,13 @@ export interface DisplayBlock {
     // buildReportText 的两仓文本契约——前缀 [bg-subagent-report] name=… status=…）
     subagentName?: string
     subagentStatus?: 'completed' | 'error'
+    // music-report 块专用：音乐生成后台任务回执（seedagent music-task.ts
+    // injectMusicReport 的两仓文本契约——前缀 [音乐生成完成/失败]）
+    musicStatus?: 'completed' | 'error'
+    /** 完成：音频播放地址（/assets/...，卡片播放键）。 */
+    musicUrl?: string
+    /** 失败：上游 taskId（排查锚点，卡片脚注）。 */
+    musicTaskId?: string
 }
 
 export interface DisplayMessage {
@@ -449,6 +456,7 @@ export function createContentConverter(renderedSurfaceIds: Set<string>) {
 const RECEIPT_CUSTOM_TYPES = new Set(['bash-receipt', 'command-response'])
 
 import { extractMessageText, parseSubagentReport } from '../utils/subagentReport.ts'
+import { parseMusicReport } from '../utils/musicReport.ts'
 
 export function useChatMessages(state: ChatStateShape) {
 
@@ -606,6 +614,32 @@ export function useChatMessages(state: ChatStateShape) {
                             subagentName: report.name,
                             subagentStatus: report.status,
                             text: report.body,
+                        }],
+                        timestamp: msg.timestamp,
+                        entryId: msg.entryId,
+                        parentEntryId: msg.parentEntryId,
+                    })
+                    continue
+                }
+            }
+
+            // 1.16 音乐生成回执（两仓文本契约：[音乐生成完成/失败] 前缀的 user 输入，
+            // seedagent music-task.ts injectMusicReport 产出）：模型消化用的工作面，
+            // 展示层渲染为独立回执气泡（音符徽标 + 状态 + 描述/原因，完成带播放键）——
+            // 语义与 subagent-report 回执泡一致（同 bash-receipt 独立成泡）
+            if (msg.role === 'user') {
+                const musicText = extractMessageText(msg.content)
+                const musicReport = musicText !== null ? parseMusicReport(musicText) : null
+                if (musicReport) {
+                    displayMessages.push({
+                        id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                        role: 'assistant',
+                        blocks: [{
+                            type: 'music-report',
+                            musicStatus: musicReport.status,
+                            text: musicReport.text,
+                            ...(musicReport.url !== undefined ? { musicUrl: musicReport.url } : {}),
+                            ...(musicReport.taskId !== undefined ? { musicTaskId: musicReport.taskId } : {}),
                         }],
                         timestamp: msg.timestamp,
                         entryId: msg.entryId,

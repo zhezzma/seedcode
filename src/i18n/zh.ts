@@ -720,6 +720,23 @@ export default {
                 aborted: '已停止',
             },
         },
+        musicBar: {
+            title: '音乐生成',
+            stop: '停止生成',
+            dismissHint: '关闭状态条（有新音乐任务时自动恢复）',
+            status: {
+                working: '生成中',
+                completed: '已完成',
+                error: '失败',
+                aborted: '已停止',
+            },
+        },
+        musicReport: {
+            title: '音乐生成回执',
+            completed: '已完成',
+            error: '出错',
+            play: '播放',
+        },
         subagentReport: {
             title: '后台子代理报告',
             completed: '已完成',

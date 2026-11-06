@@ -1800,6 +1800,16 @@ onServerMessage((msg: any) => {
         ) {
             refreshSettledMessages(sessionId)
         }
+        // 音乐生成回执已注入会话（服务端 injectMusicReport 后广播，两仓契约
+        // ext.music_report）：门禁与 ext.subagent_report 同解（idle 无流时拉新让回执
+        // 气泡落位；流中回显走流内 message_start 自己落位，避免整体替换闪烁）
+        if (
+            event === 'ext.music_report'
+            && state.sessionsMap.has(sessionId)
+            && !sseConnections.has(sessionId)
+        ) {
+            refreshSettledMessages(sessionId)
+        }
         if (!isExtensionEvent(event)) return
         emitExtensionEvent(event, data, sessionId)
     }

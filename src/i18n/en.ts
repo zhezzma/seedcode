@@ -719,6 +719,23 @@ export default {
                 aborted: 'Stopped',
             },
         },
+        musicBar: {
+            title: 'Music Generation',
+            stop: 'Stop generation',
+            dismissHint: 'Dismiss bar (returns when a new music task is submitted)',
+            status: {
+                working: 'Working',
+                completed: 'Completed',
+                error: 'Failed',
+                aborted: 'Stopped',
+            },
+        },
+        musicReport: {
+            title: 'Music generation report',
+            completed: 'Completed',
+            error: 'Error',
+            play: 'Play',
+        },
         subagentReport: {
             title: 'Background subagent report',
             completed: 'Completed',
