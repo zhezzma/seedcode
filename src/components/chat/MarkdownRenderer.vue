@@ -307,6 +307,18 @@ onMounted(() => {
     max-width: 26rem;
 }
 
+/* 表格内播放器塌缩修复：github-markdown.css 的表格是 display:block +
+   width:max-content + overflow:auto（GitHub 滚动表格风格），td 列宽由表格
+   的 max-content 布局决定——上面的 width:100% 参照又回到待定态，播放器
+   塌缩成 ~28px 竖条（inline-block 塌缩的表格版；display:block 的修复依赖
+   气泡内容宽这个确定参照，在 td 里不再到达）。min-width 给内在尺寸计算
+   一个确定贡献，列宽得以撑起；超出表格可视宽时由表格自身的 overflow:auto
+   横向滚动兑底（GitHub 表格语义）。表格外不受影响。 */
+.markdown-body :deep(table .markdown-image-preview audio),
+.markdown-body :deep(table .markdown-image-preview video) {
+    min-width: 16rem;
+}
+
 .markdown-body :deep(.markdown-image-preview video) {
     display: block;
     width: 100%;

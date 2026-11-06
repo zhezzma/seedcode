@@ -39,6 +39,19 @@ test('播放器宽度根因修复：音视频 wrapper 转 block（防 inline-blo
   assert.match(markdownRendererSource, /\.markdown-body :deep\(\.markdown-media-preview\)\s*\{[\s\S]*?display:\s*block\s*;?\s*\}/)
 })
 
+test('表格内播放器塌缩修复：table 上下文 min-width（max-content 列宽的循环参照）', () => {
+  // 回归锁：表格（github-markdown.css：display:block + width:max-content +
+  // overflow:auto）内嵌音频不显示——td 列宽由表格 max-content 布局决定，
+  // audio width:100% 的参照又回到待定态，播放器塌缩成 ~28px 竖条（用户只看到
+  // 下载按钮）。display:block 的既有修复在 td 里失效（气泡内容宽参照不再到达）。
+  // 修复：table 上下文给 audio/video 一个确定的 min-width 贡献，列宽得以撑起。
+  // 实测：min-width:16rem 后表格内 audio 28px → 256px，表格外不受影响。
+  assert.match(
+    markdownRendererSource,
+    /:deep\(table \.markdown-image-preview (audio|video)\)[\s\S]*?:deep\(table \.markdown-image-preview (?:audio|video)\)[\s\S]*?min-width:\s*16rem/,
+  )
+})
+
 test('mediaKindFromPath 剥 query/hash：带参 URL 不漏判、伪扩展不误判', async () => {
   const { mediaKindFromPath } = await import('../src/composables/workspace-api.ts')
   // 带签名/时间戳参数：仍是 audio（修复前 null）
