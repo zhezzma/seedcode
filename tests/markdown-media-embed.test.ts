@@ -92,16 +92,20 @@ test('一次只播一个：新播放暂停会话内其他 markdown 媒体', () =
     /addEventListener\('play', \(\) => \{\s*\n\s*document\.querySelectorAll<HTMLMediaElement>\('\.markdown-body audio, \.markdown-body video'\)\.forEach\(el => \{\s*\n\s*if \(el !== media && !el\.paused\) el\.pause\(\)\s*\n\s*\}\)\s*\n\s*\}\)/)
 })
 
-test('流式重渲染不从头重播：播放快照在 v-html 重写前取、新 DOM 就绪后续接', () => {
-  // 回归锁：流式期间每个 chunk 都会 v-html 重写（同步/异步双发），正在播放的媒体
-  // 被销毁重建；快照-恢复链路保进度与播放状态。
-  assert.match(markdownRendererSource, /interface PlayingMediaSnapshot \{/)
-  assert.match(markdownRendererSource, /const snapshotPlayingMedia = \(\): PlayingMediaSnapshot\[\] => \{/)
-  assert.match(markdownRendererSource, /\.filter\(el => !el\.paused\)/)
-  assert.match(markdownRendererSource, /media\.currentTime = snapshot\.time/)
-  // 接线顺序：快照必须先于 renderedHtml 赋值（旧 DOM 还在），恢复在两个 enhance 之后
+test('流式重渲染播放器保活：v-html 重写前摘下 wrapper、新 DOM 升级后移植回来', () => {
+  // 回归锁：流式期间每个 chunk 都会 v-html 重写（同步/异步双发），销毁重建的
+  // <audio> 重拉 metadata（时长 0:00 闪跳）、播放态闪烁、控件高度跳变——表现为
+  // 播放器持续抖动。旧 DOM 节点直接移植（元素从未死亡）而非快照重建。
+  assert.match(markdownRendererSource, /interface DetachedMedia \{/)
+  assert.match(markdownRendererSource, /const detachMediaWrappers = \(\): DetachedMedia\[\] => \{/)
+  assert.match(markdownRendererSource, /wrapper\.remove\(\)/)
+  assert.match(markdownRendererSource, /fresh\.replaceWith\(old\.wrapper\)/)
+  // 接线顺序：摘除必须先于 renderedHtml 赋值（旧 DOM 还在），移植在两个 enhance 之后
   assert.match(markdownRendererSource,
-    /const playing = snapshotPlayingMedia\(\)\s*\n\s*renderedHtml\.value = resolveMarkdownResourceUrls\(html, settings\.apiBaseUrl\)\s*\n\s*await nextTick\(\)\s*\n\s*enhanceRenderedImages\(\)\s*\n\s*enhanceRenderedMedia\(\)\s*\n\s*restorePlayingMedia\(playing\)/)
+    /const detached = detachMediaWrappers\(\)\s*\n\s*renderedHtml\.value = resolveMarkdownResourceUrls\(html, settings\.apiBaseUrl\)\s*\n\s*await nextTick\(\)\s*\n\s*enhanceRenderedImages\(\)\s*\n\s*enhanceRenderedMedia\(\)\s*\n\s*transplantMediaWrappers\(detached\)/)
+  // 快照/续接链路已删：重建元素的方式连同其闪烁根因一并退场
+  assert.doesNotMatch(markdownRendererSource, /snapshotPlayingMedia/)
+  assert.doesNotMatch(markdownRendererSource, /restorePlayingMedia/)
 })
 
 test('apiBaseUrl 为空时不升级播放器：保持 <a> 链接形态（死链可见可诊断）', () => {

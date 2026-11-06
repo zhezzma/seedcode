@@ -70,36 +70,56 @@ const enhanceRenderedImages = () => {
     })
 }
 
-/** 流式重渲染的播放续接快照：v-html 重写会销毁重建 <audio>/<video>（流式期间
- *  每个 chunk 一次、同步/异步渲染双发），正在播放的媒体被打断从 0 重播。
- *  赋值 renderedHtml 前从旧 DOM 取快照，新 DOM 升级完成后按 src 续接
- *  （进度 + 恢复播放；无手势环境下 play() 可能被拒，至少进度保住）。 */
-interface PlayingMediaSnapshot {
+/** 流式重渲染的播放器保活：v-html 重写会销毁重建 <audio>/<video>（流式期间每个
+ *  chunk 一次、同步/异步渲染双发）。重建的元素要重拉 metadata（时长从 0:00 闪回）、
+ *  播放态在 paused/playing 间闪烁、控件在未加载/已加载间高度跳变——表现为播放器
+ *  持续抖动。快照续接只能保进度，元素还是新的；改为把旧 wrapper 摘下保活，
+ *  新 DOM 升级完成后同 src 直接移植回来：元素从未死亡，零闪变。 */
+interface DetachedMedia {
     src: string
-    time: number
+    wasPlaying: boolean
+    wrapper: HTMLElement
 }
 
-const snapshotPlayingMedia = (): PlayingMediaSnapshot[] => {
+const detachMediaWrappers = (): DetachedMedia[] => {
     const container = contentElement.value
     if (!container) return []
-    return Array.from(container.querySelectorAll<HTMLMediaElement>('.markdown-body audio, .markdown-body video'))
-        .filter(el => !el.paused)
-        .map(el => ({ src: el.currentSrc || el.src, time: el.currentTime }))
+    return Array.from(container.querySelectorAll<HTMLElement>('.markdown-media-preview')).flatMap(wrapper => {
+        const media = wrapper.querySelector('audio, video')
+        if (!(media instanceof HTMLMediaElement)) return []
+        const detached: DetachedMedia = {
+            src: media.currentSrc || media.src,
+            wasPlaying: !media.paused,
+            wrapper,
+        }
+        // 摘下保活：引用在我们手里，v-html 重写烧不掉；音频脱离文档继续出声
+        wrapper.remove()
+        return [detached]
+    })
 }
 
-const restorePlayingMedia = (snapshots: PlayingMediaSnapshot[]) => {
-    if (snapshots.length === 0) return
+const transplantMediaWrappers = (detached: DetachedMedia[]) => {
+    if (detached.length === 0) return
     const container = contentElement.value
     if (!container) return
-    for (const snapshot of snapshots) {
-        const media = Array.from(container.querySelectorAll<HTMLMediaElement>('.markdown-body audio, .markdown-body video'))
-            .find(el => (el.currentSrc || el.src) === snapshot.src)
-        if (!media) continue
-        media.currentTime = snapshot.time
-        void media.play().catch(() => {
-            // DOM 重建后新元素未被用户手势「祝福」，自动续播被拒绝：保持暂停在原进度
-        })
-    }
+    const unmatched = [...detached]
+    container.querySelectorAll<HTMLElement>('.markdown-media-preview').forEach(fresh => {
+        const media = fresh.querySelector('audio, video')
+        if (!(media instanceof HTMLMediaElement)) return
+        const idx = unmatched.findIndex(d => d.src === (media.currentSrc || media.src))
+        if (idx === -1) return
+        const old = unmatched.splice(idx, 1)[0]
+        // 旧节点顶替新节点：位置取新 DOM 的（内容在生长，位置以新为准）；旧元素
+        // 的播放态/已加载的 metadata/进度/互斥监听器全部原样带过来
+        fresh.replaceWith(old.wrapper)
+        // 保险：个别引擎摘除文档时会暂停播放；播放中的补续播（无手势环境可能被拒，
+        // 与旧快照续接同款语义——进度与时长显示已保住）
+        const survivor = old.wrapper.querySelector('audio, video')
+        if (old.wasPlaying && survivor instanceof HTMLMediaElement && survivor.paused) {
+            void survivor.play().catch(() => undefined)
+        }
+    })
+    // unmatched 剩余 = 新内容里不再出现的媒体（链接被后续编辑掉），引用弃置交给 GC
 }
 
 /** Markdown 音视频链接就地升级为原生播放器（generate_sound 产物 / 会话里粘贴的
@@ -164,13 +184,14 @@ const enhanceRenderedMedia = () => {
 }
 
 const setRenderedHtml = async (html: string) => {
-    // 快照必须在 v-html 重写前取（旧 DOM 还在）；新 DOM 升级完成后按 src 续接播放
-    const playing = snapshotPlayingMedia()
+    // 摘除必须在 v-html 重写前（旧 DOM 还在）；新 DOM 升级完成后移植回来。
+    // 整链（赋值→patch→enhance→移植）都在微任务里跑完，浏览器不会画出中间态帧。
+    const detached = detachMediaWrappers()
     renderedHtml.value = resolveMarkdownResourceUrls(html, settings.apiBaseUrl)
     await nextTick()
     enhanceRenderedImages()
     enhanceRenderedMedia()
-    restorePlayingMedia(playing)
+    transplantMediaWrappers(detached)
 }
 
 const handleContentClick = (event: MouseEvent) => {
