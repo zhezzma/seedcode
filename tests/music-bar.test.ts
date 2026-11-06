@@ -46,6 +46,9 @@ test('useMusicGen：三到达线单例（ext.music_state 写入口 + stop 按钮
     // 响应带回新清单直接 applyMusics
     assert.match(composable, /\/api\/extensions\/audio-gen\/sessions\/\$\{encodeURIComponent\(key\)\}\/music\/\$\{encodeURIComponent\(taskId\)\}\/stop/)
     assert.match(composable, /if \(Array\.isArray\(res\?\.musics\)\) applyMusics\(res\.musics, key\)/)
+    // /musicbar 命令入口：无任务返 false（调用方 toast）；被 X 关掉时先恢复显示并落盘
+    assert.match(composable, /if \(musics\.value\.length === 0\) return false/)
+    assert.match(composable, /if \(panelMem\.value\.dismissed\) persistPanel\(\{ dismissed: false \}\)/)
     // X 关闭记忆跨刷新持久：seen 名单 + activityAt 快照（BgAgentsBar 同解法）
     assert.match(composable, /localStorage\.getItem\(PANEL_PREFIX \+ sessionKey\)/)
     assert.match(composable, /ids\.some\(id => !panelMem\.value\.seen\.includes\(id\)\)/)
@@ -91,7 +94,22 @@ test('i18n 词条齐全（musicBar/musicReport，zh/en 同构）', () => {
         for (const key of ['title', 'completed', 'error', 'play']) {
             assert.ok(new RegExp(`musicReport: \\{[\\s\\S]*?${key}:`).test(s), `${file} musicReport.${key}`)
         }
+        // /musicbar 无任务的 toast 文案（home.noMusicTasks，bgagents 同模式）
+        assert.match(s, /noMusicTasks: '/)
     }
+})
+
+test('/musicbar 客户端命令接线（注册表 + HomeView 拦截分支，bgagents 同模式）', () => {
+    const registry = read('src/composables/clientCommands.ts')
+    // 注册表：prefix 拦截（参数被忽略）
+    assert.match(registry, /\{ name: 'musicbar', description: '[^']*', source: 'client', dropdownLabel: '[^']*', intercept: 'prefix' \}/)
+
+    const home = read('src/views/HomeView.vue')
+    // HomeView：数据源实例 + 拦截分支（正则字面量被注册表↔HomeView 对齐测试锚定）
+    assert.match(home, /import \{ useMusicGen \} from '\.\.\/composables\/useMusicGen'/)
+    assert.match(home, /const musicGenState = useMusicGen\(\)/)
+    assert.match(home, /const musicBarCommand = \/\^\\\/musicbar\(\?:\\s\|\$\)\/i\.test\(inputText\)/)
+    assert.match(home, /if \(!musicGenState\.togglePanel\(\)\) \{[\s\S]*?useToast\(\)\.info\(t\('home\.noMusicTasks'\)\)/)
 })
 
 test('sortMusicTasks：运行中置顶 + 最近活动倒序（bg-agents 同规则）', () => {

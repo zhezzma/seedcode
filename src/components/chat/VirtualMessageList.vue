@@ -162,6 +162,22 @@ const updateVisibleRange = () => {
         accum += h
     }
 
+    // 播放中的媒体行不卸载（虚拟滚动音频中断修复）：visibleKeys 决定行是真实
+    // DOM 还是 spacer——屏幕外的行整体卸载，行内 <audio>/<video> 随之销毁，
+    // 正在播的音乐敷然而止。对即将离屏的行检测播放中的媒体，命中则保持挂载：
+    // 行的垂直位置由前置 spacer/行高度累积决定（只是离屏，不影响布局），滚动
+    // 回来时是同一个元素，进度/播放态原样保留；媒体暂停/结束后，下一次滚动
+    // 更新自然回收（spacer 顶替，高度已缓存）。
+    for (const key of visibleKeys.value) {
+        if (next.has(key)) continue
+        const rowEl = rowEls.get(key)
+        if (!rowEl) continue
+        const playing = Array.from(rowEl.querySelectorAll('audio, video')).some(
+            el => el instanceof HTMLMediaElement && !el.paused,
+        )
+        if (playing) next.add(key)
+    }
+
     visibleKeys.value = next
     activeKey.value = centerKey
 }

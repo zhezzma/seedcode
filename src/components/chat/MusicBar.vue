@@ -2,7 +2,7 @@
      点击 inline 展开逐曲清单（不是浮出弹层）——状态徽标 + 描述·提供商 + 停止按钮
      （在飞时可用）。无轨迹入口（音乐生成无轨迹数据）。数据源 useMusicGen 模块级
      单例（ext.music_state 三到达线，零轮询），无音乐任务时不渲染（dock 约定：
-     widget 自决定显隐）。 -->
+     widget 自决定显隐）；/musicbar 客户端命令同源切换。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { MusicalNoteIcon, StopIcon, ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
@@ -37,7 +37,7 @@ const stopMusic = async (taskId: string) => {
     <div v-if="music.barVisible.value" class="border-t border-base-300 bg-base-100/40 px-4 py-1 text-xs select-none">
         <div class="mx-auto w-full max-w-3xl">
             <!-- 折叠条：同 TaskBar 模式——toggle 主体（flex-1 + 箭头）+ 独立 X 关闭钮。
-                 X 只隐藏状态条：新提交 / 已见曲目新终态 / 会话切换自动恢复 -->
+                 X 只隐藏状态条：新提交 / 已见曲目新终态 / 会话切换 / /musicbar 自动恢复 -->
             <div class="flex items-center gap-1.5 py-0.5">
                 <button type="button"
                     class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-base-content/70 hover:text-base-content transition-colors cursor-pointer"

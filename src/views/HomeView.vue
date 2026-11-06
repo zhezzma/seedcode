@@ -36,6 +36,7 @@ import { useCommandState } from '../composables/useCommandState'
 import { useTaskBarState } from '../composables/useTaskBarState'
 import { useGoalState } from '../composables/useGoalState'
 import { useBackgroundAgents } from '../composables/useBackgroundAgents'
+import { useMusicGen } from '../composables/useMusicGen'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
@@ -59,6 +60,7 @@ setSessionKeyResolver(() => chatState.sessionKey)
 const taskBarState = useTaskBarState()
 const goalbarState = useGoalState()
 const bgAgentsState = useBackgroundAgents()
+const musicGenState = useMusicGen()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
 const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState()
@@ -395,6 +397,20 @@ const handleSend = async (mode?: BusySendBehavior) => {
         }
         if (!bgAgentsState.togglePanel()) {
             useToast().info(t('home.noBackgroundAgents'))
+        }
+        return
+    }
+
+    // /musicbar：客户端命令——切换音乐生成状态条（输入框上方 MusicBar 的逐曲清单），
+    // 不经服务端。纯 UI 操作 busy 时也放行（同 /bgagents——音乐在后台生成、恰恰是最
+    // 需要看进度的时刻）。正则字面量被注册表↔HomeView 对齐测试锚定。
+    const musicBarCommand = /^\/musicbar(?:\s|$)/i.test(inputText)
+    if (musicBarCommand && !hasAttachments) {
+        if (chatInputRef.value) {
+            chatInputRef.value.inputText = ''
+        }
+        if (!musicGenState.togglePanel()) {
+            useToast().info(t('home.noMusicTasks'))
         }
         return
     }

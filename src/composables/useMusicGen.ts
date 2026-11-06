@@ -130,10 +130,15 @@ function buildMusicGenState() {
     }
     onExtensionEvent('ext.music_state', listener)
 
-    /** 折叠条点击：切换 inline 展开（逐曲清单） */
+    /** 折叠条点击 / 客户端命令 /musicbar 入口：切换 inline 展开（逐曲清单）。
+     *  无音乐任务返回 false（调用方 toast 提示，bgagents 同模式）；被 X 关掉时
+     *  先恢复显示并落盘 */
     const panelOpen = ref(false)
-    function togglePanel(): void {
+    function togglePanel(): boolean {
+        if (musics.value.length === 0) return false
+        if (panelMem.value.dismissed) persistPanel({ dismissed: false })
         panelOpen.value = !panelOpen.value
+        return true
     }
 
     /** bar 的 X：收起清单 + 隐藏状态条并落盘（新提交 / 已见曲目新终态 / 会话切换

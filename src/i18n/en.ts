@@ -798,6 +798,7 @@ export default {
         noTaskBar: 'No session step list yet. Ask the agent to create one for multi-step work',
         noGoalRunning: 'No auto-continue is currently running',
         noBackgroundAgents: 'No background agents in this session',
+        noMusicTasks: 'No music generation tasks in this session',
         createSessionFailed: 'Failed to create session, please retry',
     },
     extensions: {

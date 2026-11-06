@@ -798,6 +798,7 @@ export default {
         noTaskBar: '当前会话还没有会话工作步骤，让模型为多步骤工作建立步骤吧',
         noGoalRunning: '当前没有运行中的自动续跑',
         noBackgroundAgents: '当前会话没有后台子代理',
+        noMusicTasks: '当前会话没有音乐生成任务',
         createSessionFailed: '创建会话失败，请重试',
     },
     extensions: {
