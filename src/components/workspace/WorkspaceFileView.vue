@@ -7,7 +7,8 @@
  * - Ctrl/Cmd+S 保存；父组件头部也提供 Save 按钮
  * - dirty 追踪：内容 vs baseline 比对，关闭/切换文件前由父组件 confirm
  * - 二进制 / 截断的文件强制 readOnly（编辑后保存会写入损坏 / 截断数据 → 安全约束，不是 UX 选项）
- * - 图片文件走专用 raw 端点（workspace / agent）拿 blob 后用 <img> 渲染，不走 monaco
+ * - 媒体文件（图片/音频/视频）走专用 raw 端点（workspace / agent / absolute）拿 blob 后
+ *   用 <img>/<audio>/<video> 渲染，不走 monaco；音视频用原生 controls（播放/进度/音量/全屏）
  * - HTML 预览（previewMode）用 iframe srcdoc 盖在编辑器之上，内容跟 dirty buffer
  * - SVG 预览（previewMode）源码包成完整 HTML 文档走 iframe srcdoc + 空 sandbox
  *   （无 allow-scripts / allow-same-origin，内嵌脚本/事件处理器一律不执行，比 HTML 更严格）
@@ -17,7 +18,7 @@
  *   相对路径图片不支持（显示破图）
  *
  * defineExpose 给父组件用：
- *   isDirty / isSaving / isBinary / isTruncated / isReadOnly / isImage
+ *   isDirty / isSaving / isBinary / isTruncated / isReadOnly / mediaKind
  *   previewMode / togglePreview / content / save
  */
 import { ref, watch, onMounted, onBeforeUnmount, useTemplateRef, computed } from 'vue'
@@ -26,7 +27,8 @@ import {
     fetchFile, saveFile,
     fetchAgentFile, saveAgentFile,
     fetchAbsoluteFile, saveAbsoluteFile,
-    fetchRawFile, isImagePath, previewableExt,
+    fetchRawFile, mediaKindFromPath, previewableExt,
+    type MediaKind,
 } from '../../composables/workspace-api'
 import { useToast } from '../../composables/useToast'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
@@ -79,9 +81,9 @@ const error = ref<string | null>(null)
 const isSaving = ref(false)
 const isBinary = ref(false)
 const isTruncated = ref(false)
-/** 图片预览：图片扩展名命中 → 走 raw 获取 blob URL 渲染 <img>（两个 scope 都支持）。 */
-const isImage = ref(false)
-const imageObjectUrl = ref<string | null>(null)
+/** 媒体预览：图片/音频/视频扩展名命中 → 走 raw 获取 blob URL 渲染（三个 scope 都支持）。 */
+const mediaKind = ref<MediaKind | null>(null)
+const mediaObjectUrl = ref<string | null>(null)
 /** 预览模式（html/svg iframe、md 渲染器）—— true 时预览渲染替换编辑器。
  *  父组件通过 togglePreview() 控制。 */
 const previewMode = ref(false)
@@ -90,10 +92,15 @@ const content = ref('')
 /** 上一次 load/save 后的原始内容；用于 dirty 比对 */
 const baselineContent = ref('')
 const isDirty = computed(() => content.value !== baselineContent.value)
-/** 只读条件：强制 readonly / 二进制 / 截断 / load 失败 / 图片 */
-const isReadOnly = computed(() => props.readonly || isBinary.value || isTruncated.value || isImage.value || error.value !== null)
+/** 只读条件：强制 readonly / 二进制 / 截断 / load 失败 / 媒体 */
+const isReadOnly = computed(() => props.readonly || isBinary.value || isTruncated.value || mediaKind.value !== null || error.value !== null)
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
+/** 当前媒体加载的中止器：切文件/卸载时 abort 旧下载。防两个泄露窗口：
+ *  a) 卸载后 fetch 仍完成 → objectURL 无人 revoke（视频量级下被放大）；
+ *  b) 快速切回同一文件时旧响应覆盖新 objectURL。
+ *  abort 同时省掉卸载后无意义的整段下载。 */
+let mediaAbort: AbortController | null = null
 let modelChangeDisposer: monaco.IDisposable | null = null
 let resizeObserver: ResizeObserver | null = null
 let themeObserver: MutationObserver | null = null
@@ -143,7 +150,7 @@ function loadText() {
     error.value = null
     isBinary.value = false
     isTruncated.value = false
-    isImage.value = false
+    mediaKind.value = null
     previewMode.value = false
     const model = editor.getModel()
     if (model) {
@@ -170,36 +177,48 @@ async function loadFile(path: string) {
     error.value = null
     isBinary.value = false
     isTruncated.value = false
-    // 重置图片状态：切文件时上一张的 object URL 要释放，避免泄露。
-    isImage.value = false
-    if (imageObjectUrl.value) {
-        URL.revokeObjectURL(imageObjectUrl.value)
-        imageObjectUrl.value = null
+    // 重置媒体状态：切文件时上一个 object URL 要释放，避免泄露；
+    // 同时中止上一文件还在途的媒体下载（见 mediaAbort 注释）。
+    mediaAbort?.abort()
+    mediaAbort = new AbortController()
+    const abort = mediaAbort
+    mediaKind.value = null
+    if (mediaObjectUrl.value) {
+        URL.revokeObjectURL(mediaObjectUrl.value)
+        mediaObjectUrl.value = null
     }
     // 在 fetch 期间临时强制只读：避免用户在 await 窗口内的输入被随后的 setValue 打丢。
     // load 末尾会按 isReadOnly.value 恢复。
     editor?.updateOptions({ readOnly: true })
 
-    // 图片分支：扩展名命中即可，两个 scope 都走专用 raw 端点。
-    //   workspace → /raw，agent → /agent-raw（后端带 workspace/sessions 顶层过滤）。
-    //   SVG 不在白名单：避免含脚本的 SVG 在同源下被执行。
-    if (isImagePath(path)) {
+    // 媒体分支（图片/音频/视频）：扩展名命中即可，三个 scope 都走专用 raw 端点。
+    //   workspace → /raw，agent → /agent-raw（后端带 workspace/sessions 顶层过滤），
+    //   absolute → /api/files/raw。SVG 不在白名单：避免含脚本的 SVG 在同源下被执行。
+    const kind = mediaKindFromPath(path)
+    if (kind) {
         try {
-            const blob = await fetchRawFile(props.agentId, path, scope.value)
-            if (path !== props.path) return
-            isImage.value = true
-            imageObjectUrl.value = URL.createObjectURL(blob)
-            // 图片不过 monaco；baseline/content 置空以免误报 dirty。
+            // 预览大小硬顶：超限不整段 blob() 进 WebView 内存（移动端 OOM/长白屏），
+            // 引导走下载（下载通道无限制）。音频产物远小于此，只拦工作区大视频。
+            const blob = await fetchRawFile(props.agentId, path, scope.value, abort.signal, {
+                maxBytes: 64 * 1024 * 1024,
+            })
+            // 过期响应双守卫：path 变了（切文件）或本次加载已被中止（卸载/被更新
+            // 的加载取代）→ 丢弃响应，绝不 createObjectURL（否则无人 revoke）。
+            if (path !== props.path || abort.signal.aborted) return
+            mediaKind.value = kind
+            mediaObjectUrl.value = URL.createObjectURL(blob)
+            // 媒体不过 monaco；baseline/content 置空以免误报 dirty。
             content.value = ''
             baselineContent.value = ''
             editor?.updateOptions({ readOnly: true })
             return
         } catch (e: any) {
-            if (path !== props.path) return
+            // abort 抛出（AbortError）说明这次加载已被放弃，静默返回，不弹错误横幅。
+            if (path !== props.path || abort.signal.aborted) return
             error.value = e?.message || String(e)
             return
         } finally {
-            if (path === props.path) loading.value = false
+            if (path === props.path && !abort.signal.aborted) loading.value = false
         }
     }
 
@@ -361,9 +380,12 @@ onBeforeUnmount(() => {
     viewer.setDirty(null)
     resizeObserver?.disconnect()
     themeObserver?.disconnect()
-    if (imageObjectUrl.value) {
-        URL.revokeObjectURL(imageObjectUrl.value)
-        imageObjectUrl.value = null
+    // 卸载时中止在途媒体下载：否则 fetch 完成后 createObjectURL 的 URL 无人 revoke。
+    mediaAbort?.abort()
+    mediaAbort = null
+    if (mediaObjectUrl.value) {
+        URL.revokeObjectURL(mediaObjectUrl.value)
+        mediaObjectUrl.value = null
     }
     disposeEditor()
 })
@@ -374,7 +396,7 @@ defineExpose({
     isBinary,
     isTruncated,
     isReadOnly,
-    isImage,
+    mediaKind,
     previewMode,
     togglePreview,
     content,
@@ -384,8 +406,8 @@ defineExpose({
 
 <template>
     <div class="relative h-full w-full flex flex-col">
-        <!-- 截断 / 二进制 banner：图片不展示 banner（图片需要走专用分支） -->
-        <div v-if="isBinary && !isImage" class="bg-warning/10 text-warning text-xs px-3 py-2 border-b border-warning/30 shrink-0">
+        <!-- 截断 / 二进制 banner：媒体不展示 banner（媒体需要走专用分支） -->
+        <div v-if="isBinary && !mediaKind" class="bg-warning/10 text-warning text-xs px-3 py-2 border-b border-warning/30 shrink-0">
             ⚠ {{ $t('workspace.binaryFile') }}
         </div>
         <div v-else-if="isTruncated"
@@ -395,10 +417,22 @@ defineExpose({
 
         <div class="relative flex-1 min-h-0">
             <!-- 图片：独占容器，居中、等比缩放 -->
-            <div v-if="isImage && imageObjectUrl"
+            <div v-if="mediaKind === 'image' && mediaObjectUrl"
                 class="absolute inset-0 flex items-center justify-center overflow-auto p-4">
-                <img :src="imageObjectUrl" :alt="path"
+                <img :src="mediaObjectUrl" :alt="path"
                     class="max-w-full max-h-full object-contain" />
+            </div>
+
+            <!-- 音频：原生 <audio controls>（播放/进度/音量），居中限宽 -->
+            <div v-else-if="mediaKind === 'audio' && mediaObjectUrl"
+                class="absolute inset-0 flex items-center justify-center p-4">
+                <audio :src="mediaObjectUrl" controls class="w-full max-w-xl" />
+            </div>
+
+            <!-- 视频：原生 <video controls>，居中、等比缩放到容器内 -->
+            <div v-else-if="mediaKind === 'video' && mediaObjectUrl"
+                class="absolute inset-0 flex items-center justify-center overflow-auto p-4">
+                <video :src="mediaObjectUrl" controls playsinline class="max-w-full max-h-full" />
             </div>
 
             <!-- HTML 预览：用当前 dirty buffer 走 iframe srcdoc，allow-scripts 但不允许同源。
@@ -424,9 +458,9 @@ defineExpose({
                 <MarkdownRenderer :content="content" />
             </div>
 
-            <!-- 编辑器：默认容器；isImage / previewMode 时隐藏，不卸载以避免重创建成本 -->
+            <!-- 编辑器：默认容器；媒体 / previewMode 时隐藏，不卸载以避免重创建成本 -->
             <div ref="containerRef" class="h-full w-full"
-                :class="{ hidden: isBinary || isImage || previewMode }" />
+                :class="{ hidden: isBinary || mediaKind !== null || previewMode }" />
 
             <!-- loading 半透明覆盖（不卸载 editor 容器，避免 layout 抖动）-->
             <div v-if="loading"

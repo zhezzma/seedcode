@@ -292,6 +292,34 @@ test('fetchRawFile: absolute + /assets/ 前缀走公开静态端点，不带 aut
     assert.ok(!headers?.['Authorization'])
 })
 
+test('fetchRawFile: maxBytes 预检——content-length 超限抛 413 不拉 body，未超/缺头放行', async () => {
+    // 服务端流式响应都带 content-length；预检避免大文件整段 blob() 进 WebView 内存
+    globalThis.fetch = (async () =>
+        new Response(new Blob(['x'], { type: 'video/mp4' }), {
+            status: 200,
+            headers: { 'content-length': String(65 * 1024 * 1024) },
+        })) as any
+    await assert.rejects(
+        () => api.fetchRawFile('coder', 'big.mp4', 'workspace', undefined, { maxBytes: 64 * 1024 * 1024 }),
+        /文件过大/,
+    )
+
+    // 未超限正常返回 blob
+    globalThis.fetch = (async () =>
+        new Response(new Blob(['x'], { type: 'video/mp4' }), {
+            status: 200,
+            headers: { 'content-length': '1' },
+        })) as any
+    const ok = await api.fetchRawFile('coder', 's.mp4', 'workspace', undefined, { maxBytes: 64 * 1024 * 1024 })
+    assert.ok(ok instanceof Blob)
+
+    // content-length 缺失（代理剥离/合成响应）：放行，blob() 兑底
+    globalThis.fetch = (async () =>
+        new Response(new Blob(['x'], { type: 'video/mp4' }), { status: 200 })) as any
+    const fallback = await api.fetchRawFile('coder', 's.mp4', 'workspace', undefined, { maxBytes: 64 * 1024 * 1024 })
+    assert.ok(fallback instanceof Blob)
+})
+
 test('uploadFile: POST multipart 到 /upload，parentPath 进 query，含 file 字段', async () => {
     let captured: { url: string, init?: RequestInit } | null = null
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
@@ -323,4 +351,49 @@ test('fetchStatus 拼 repo 参数，refresh 可选透传', async () => {
 
     await api.fetchStatus('coder', 'r1', { refresh: true })
     assert.match(captured!.url, /\/workspace\/repo\/status\?repo=r1&refresh=1$/, 'refresh=1 才能让服务端 fetch upstream 刷 behind')
+})
+
+test('mediaKindFromPath: 图片扩展名 → image', () => {
+    for (const p of ['a.png', 'a.jpg', 'a.jpeg', 'a.gif', 'a.webp', 'a.bmp', 'a.ico']) {
+        assert.equal(api.mediaKindFromPath(p), 'image', p)
+    }
+    // 大小写不敏感
+    assert.equal(api.mediaKindFromPath('A.PNG'), 'image')
+    assert.equal(api.mediaKindFromPath('A.MOV'), 'video')
+})
+
+test('mediaKindFromPath: 音频扩展名 → audio', () => {
+    for (const p of ['a.mp3', 'a.wav', 'a.ogg', 'a.oga', 'a.opus', 'a.m4a', 'a.aac', 'a.flac', 'a.weba']) {
+        assert.equal(api.mediaKindFromPath(p), 'audio', p)
+    }
+})
+
+test('mediaKindFromPath: 视频扩展名 → video', () => {
+    for (const p of ['a.mp4', 'a.m4v', 'a.webm', 'a.ogv', 'a.mov', 'a.mkv', 'a.3gp', 'a.3g2']) {
+        assert.equal(api.mediaKindFromPath(p), 'video', p)
+    }
+})
+
+test('mediaKindFromPath: 非媒体 / 伪装扩展名 → null', () => {
+    // SVG 仍在名单外（防同源脚本）；avi 等容器不在白名单
+    for (const p of ['a.txt', 'a.md', 'a.html', 'a.svg', 'a.avi', 'a.png.txt', 'noext', 'a.']) {
+        assert.equal(api.mediaKindFromPath(p), null, p)
+    }
+})
+
+test('fetchRawFile: 透传 AbortSignal 给 fetch（切文件/卸载时中止下载防泄露）', async () => {
+    // 调用方（WorkspaceFileView）在切文件/卸载时 abort，阻止媒体下载完成后
+    // 创建无人 revoke 的 objectURL。三个 scope 分支都要把 signal 交给 fetch。
+    const signals: (AbortSignal | undefined)[] = []
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        signals.push(init?.signal)
+        return new Response(new Blob(['x'], { type: 'image/png' }), { status: 200 })
+    }) as any
+    const ctrl = new AbortController()
+    await api.fetchRawFile('coder', 'a.png', 'workspace', ctrl.signal)
+    await api.fetchRawFile('coder', 'a.png', 'agent', ctrl.signal)
+    await api.fetchRawFile('coder', '/tmp/a.png', 'absolute', ctrl.signal)
+    await api.fetchRawFile('coder', '/assets/x.png', 'absolute', ctrl.signal)
+    assert.equal(signals.length, 4)
+    for (const s of signals) assert.equal(s, ctrl.signal, '每个分支都必须透传同一个 signal')
 })

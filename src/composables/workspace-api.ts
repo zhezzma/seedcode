@@ -244,15 +244,18 @@ export function fetchFile(agentId: string, path: string): Promise<FileContent> {
     return wsGet<FileContent>(`${base(agentId)}/file?path=${encodeURIComponent(path)}`)
 }
 
-/** 拉取文件的原始字节（仅服务端白名单内的图片扩展名）。scope 决定端点：
+/** 拉取媒体文件的原始字节（raw 端点白名单内的图片/音频/视频）。scope 决定端点：
  *  workspace → /raw，agent → /agent-raw（后端带 workspace/sessions 顶层过滤），
  *  absolute → 真实绝对路径走 /api/files/raw，/assets/ 前缀直连公开静态端点（见内部分支注释）。
  *  与 fetchDownload 同样的 scope 复用模式。返回 Blob，调用方负责转为 object URL
- *  并在不用时 revokeObjectURL。 */
+ *  并在不用时 revokeObjectURL。signal 用于中止下载（切文件/卸载时，
+ *  避免下载完成后创建无人 revoke 的 objectURL）。 */
 export async function fetchRawFile(
     agentId: string,
     path: string,
     scope: 'workspace' | 'agent' | 'absolute' = 'workspace',
+    signal?: AbortSignal,
+    options?: { maxBytes?: number },
 ): Promise<Blob> {
     // absolute scope：任意绝对路径，走 /api/files/raw（与 workspace/agent 的 raw 端点不同）。
     // 例外：/assets/ 前缀不是文件系统路径，而是服务端公开静态端点的 URL（image-gen 等
@@ -268,6 +271,7 @@ export async function fetchRawFile(
         const response = await fetch(url, {
             method: 'GET',
             headers: isAssetUrl ? undefined : authHeaders(),
+            signal,
         })
         if (!response.ok) {
             let msg = `HTTP ${response.status}`
@@ -277,11 +281,14 @@ export async function fetchRawFile(
             } catch { /* 二进制响应不是 JSON，忽略 */ }
             throw new WorkspaceApiError(msg, response.status)
         }
+        // content-length 预检：大文件不整段 blob() 进 WebView 内存（移动端 OOM/长白屏）。
+        // 流式响应都带 content-length；缺失时（合成响应/代理剥离）放行，blob() 兑底。
+        rejectIfTooLarge(response, options?.maxBytes)
         return await response.blob()
     }
     const endpoint = scope === 'agent' ? 'agent-raw' : 'raw'
     const url = `${baseUrl()}${base(agentId)}/${endpoint}?path=${encodeURIComponent(path)}`
-    const response = await fetch(url, { method: 'GET', headers: authHeaders() })
+    const response = await fetch(url, { method: 'GET', headers: authHeaders(), signal })
     if (!response.ok) {
         let msg = `HTTP ${response.status}`
         try {
@@ -290,7 +297,20 @@ export async function fetchRawFile(
         } catch { /* 二进制响应不是 JSON，忽略 */ }
         throw new WorkspaceApiError(msg, response.status)
     }
+    rejectIfTooLarge(response, options?.maxBytes)
     return await response.blob()
+}
+
+/** 媒体预览的大小预检：超限抛错引导走下载（下载通道无此限制） */
+function rejectIfTooLarge(response: Response, maxBytes: number | undefined): void {
+    if (maxBytes === undefined) return
+    const declared = Number(response.headers.get('content-length') ?? 0)
+    if (declared > maxBytes) {
+        throw new WorkspaceApiError(
+            `文件过大（${(declared / 1024 / 1024).toFixed(1)} MB），请改用下载`,
+            413,
+        )
+    }
 }
 
 /** 下载任意文件的原始字节（attachment）。scope 决定走 workspace 还是 agent 配置目录。
@@ -332,15 +352,30 @@ export async function uploadFile(
     return await readResponse<{ path: string; bytes: number }>(response)
 }
 
-/** 按扩展名判断是否为可渲染的图片。需与后端 /workspace/raw 的白名单保持一致。
- *  SVG 不在名单：避免含脚本的 SVG 在同源下被执行。 */
-export function isImagePath(path: string): boolean {
-    const i = path.lastIndexOf('.')
-    if (i < 0) return false
-    const ext = path.slice(i + 1).toLowerCase()
-    return ext === 'png' || ext === 'jpg' || ext === 'jpeg'
+/** 可预览媒体的类别（raw 端点支持的三类渲染分支）。 */
+export type MediaKind = 'image' | 'audio' | 'video'
+
+/** 按扩展名判断是否为可预览媒体（图片/音频/视频），返回类别；null 表示非媒体。
+ *  需与后端 raw 端点的白名单（seedagent server/workspace/media-whitelist.ts 的
+ *  MEDIA_MIME）保持一致。SVG 不在名单：避免含脚本的 SVG 在同源下被执行。
+ *  名单内但浏览器解不动的编码（如个别 mkv 轨道）由 <video>/<audio> 原生报错。
+ *  入参先剥 query/hash 再取扩展名：签名/带参/时间戳 URL（x.mp3?t=1）才不会被
+ *  末段 ?xx 整体当扩展名漏判，也掐掉 evil.html?.mp3 的伪命中；workspace 文件
+ *  路径不含 ?/#，剥离无副作用。 */
+export function mediaKindFromPath(path: string): MediaKind | null {
+    const clean = path.split(/[?#]/, 1)[0]
+    const i = clean.lastIndexOf('.')
+    if (i < 0) return null
+    const ext = clean.slice(i + 1).toLowerCase()
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg'
         || ext === 'gif' || ext === 'webp'
-        || ext === 'bmp' || ext === 'ico'
+        || ext === 'bmp' || ext === 'ico') return 'image'
+    if (ext === 'mp3' || ext === 'wav' || ext === 'ogg' || ext === 'oga'
+        || ext === 'opus' || ext === 'm4a' || ext === 'aac' || ext === 'flac'
+        || ext === 'weba') return 'audio'
+    if (ext === 'mp4' || ext === 'm4v' || ext === 'webm' || ext === 'ogv'
+        || ext === 'mov' || ext === 'mkv' || ext === '3gp' || ext === '3g2') return 'video'
+    return null
 }
 
 /** 按扩展名判断是否为可预览文件。返回类型供调用方区分 html / md / svg 各预览分支；

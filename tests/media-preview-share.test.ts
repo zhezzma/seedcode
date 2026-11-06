@@ -28,18 +28,18 @@ test('extracts the last URL path segment as the image name', () => {
 })
 
 test('falls back to the timestamped name when the URL has no file segment', () => {
-    assert.match(getLightboxImageName('https://example.com/a/b/'), /^image-\d+\.png$/)
-    assert.match(getLightboxImageName('not a url'), /^image-\d+\.png$/)
+    assert.match(getLightboxImageName('https://example.com/a/b/'), /^image-\d+-\d+\.png$/)
+    assert.match(getLightboxImageName('not a url'), /^image-\d+-\d+\.png$/)
 })
 
 test('derives the extension from a data URL mime type', () => {
-    assert.match(getLightboxImageName('data:image/jpeg;base64,AAAA'), /^image-\d+\.jpg$/)
-    assert.match(getLightboxImageName('data:image/webp;base64,AAAA'), /^image-\d+\.webp$/)
+    assert.match(getLightboxImageName('data:image/jpeg;base64,AAAA'), /^image-\d+-\d+\.jpg$/)
+    assert.match(getLightboxImageName('data:image/webp;base64,AAAA'), /^image-\d+-\d+\.webp$/)
 })
 
 test('falls back to png for data URLs without an image mime', () => {
-    assert.match(getLightboxImageName('data:application/octet-stream;base64,AAAA'), /^image-\d+\.png$/)
-    assert.match(getLightboxImageName(''), /^image-\d+\.png$/)
+    assert.match(getLightboxImageName('data:application/octet-stream;base64,AAAA'), /^image-\d+-\d+\.png$/)
+    assert.match(getLightboxImageName(''), /^image-\d+-\d+\.png$/)
 })
 
 // ==================== composable：展示名随 lightboxSrc 联动 ====================
@@ -49,7 +49,7 @@ test('lightbox image name follows the opened source', () => {
     assert.equal(mediaPreview.lightboxImageName.value, 'cat.png')
 
     mediaPreview.openLightbox('data:image/webp;base64,AAAA')
-    assert.match(mediaPreview.lightboxImageName.value, /^image-\d+\.webp$/)
+    assert.match(mediaPreview.lightboxImageName.value, /^image-\d+-\d+\.webp$/)
 })
 
 test('exposes the share capability flag and shareImage', () => {
@@ -88,7 +88,7 @@ test('shares a data-url image as a file named by the lightbox naming rule', asyn
     assert.equal(shareCalls.length, 1)
     const files = shareCalls[0].files as File[]
     assert.equal(files.length, 1)
-    assert.match(files[0].name, /^image-\d+\.png$/)
+    assert.match(files[0].name, /^image-\d+-\d+\.png$/)
     assert.equal(files[0].type, 'image/png')
 })
 

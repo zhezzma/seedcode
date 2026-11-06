@@ -1,11 +1,16 @@
 import { computed, ref } from 'vue'
-import { ensureFileExtension, getImageExtension, saveBlob } from '../utils/fileDownload.ts'
+import { ensureFileExtension, getImageExtension, getMediaExtension, saveBlob } from '../utils/fileDownload.ts'
 import { useToast } from './useToast.ts'
 import { isTauri } from '../utils/clipboard.ts'
 
 // ==================== Image Lightbox State ====================
 
-const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+// Node <21 无全局 navigator（测试环境）：顶层直接访问会让整个模块 import 即 ReferenceError
+const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(typeof navigator !== 'undefined' ? navigator.userAgent : '')
+
+/** 兑底命名的同一毫秒并发防重：同秒双击两个无扩展名 URL 会重名互相覆写，加自增序号 */
+let fallbackNameSeq = 0
+const nextFallbackStamp = () => `${Date.now()}-${++fallbackNameSeq}`
 
 const lightboxOpen = ref(false)
 const lightboxSrc = ref('')
@@ -131,10 +136,31 @@ export const getLightboxImageName = (src: string): string => {
     }
     const mime = /^data:([^;,]+)/.exec(src)?.[1]
     const extension = mime && mime.startsWith('image/') ? getImageExtension(mime) : 'png'
-    return `image-${Date.now()}.${extension}`
+    return `image-${nextFallbackStamp()}.${extension}`
 }
 
 const lightboxImageName = computed(() => getLightboxImageName(lightboxSrc.value))
+
+/** 下载媒体文件名：http(s) 取 URL 路径末段（带扩展名直接用，与后端 /assets 唯一
+ *  命名 sound-{timestamp}-{uuid}.mp3 对齐）；末段无扩展名或非 http URL 时按 MIME
+ *  推展名 + 前缀兑底。与 getLightboxImageName 同款结构，供 downloadMedia 使用。
+ *  末段在返回前剥离路径分隔符：URL 解码后可能是 a%2F..%2F..%2Fx.mp3 这类注入形态，
+ *  直接用作文件名会被 API 写入 Download 目录时展开成路径穿越（同 shareImageNative
+ *  落盘名的同款处理）。纯函数，便于测试。 */
+export const getMediaFileName = (src: string, mimeType: string, fallbackPrefix = 'media'): string => {
+    if (/^https?:/i.test(src)) {
+        try {
+            const { pathname } = new URL(src)
+            if (!pathname.endsWith('/')) {
+                const lastSegment = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '')
+                if (/\.[a-z0-9]+$/i.test(lastSegment)) return lastSegment.replace(/[\\/]+/g, '_')
+            }
+        } catch {
+            // 非法 URL 落入下方兑底命名
+        }
+    }
+    return `${fallbackPrefix}-${nextFallbackStamp()}.${getMediaExtension(mimeType)}`
+}
 
 /** Tauri 移动端原生分享：仅处理 data URL（base64 嵌入图，没有 URL 可分享，只能发文件）。
  *  落盘走自家命令 write_share_cache_file（app_cache_dir 的 share/ 子目录）：fs 插件 scope 的
@@ -323,18 +349,62 @@ const downloadImage = async (src: string, defaultName?: string) => {
     const toast = useToast()
     const { i18n } = await import('../i18n')
     const _t = (key: string, named?: Record<string, unknown>) => named ? i18n.global.t(key, named) : i18n.global.t(key)
+    if (activeDownloads.has(src)) {
+        // 静默 no-op 会让用户以为点击无效；明确提示下载已在进行
+        toast.info(_t('chat.downloadInProgress'))
+        return
+    }
+    activeDownloads.add(src)
 
     try {
         const response = await fetch(src)
+        // 非 2xx（404/500 页）也会得到 blob：不查 ok 会把 JSON 错误体存成 .png 并报成功
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const blob = await response.blob()
         const extension = getImageExtension(blob.type)
-        const fileName = ensureFileExtension(defaultName || `image-${Date.now()}`, extension)
+        const fileName = ensureFileExtension(defaultName || `image-${nextFallbackStamp()}`, extension)
         // 落盘逻辑与任意文件下载共用 saveBlob：Tauri 写 Download 目录、浏览器走锚点。
         const savedPath = await saveBlob(blob, fileName)
         toast.success(_t('chat.downloadImageSuccess', { path: savedPath }))
     } catch (error) {
         console.error('Download failed:', error)
         toast.error(_t('chat.downloadImageFailed'))
+    } finally {
+        activeDownloads.delete(src)
+    }
+}
+
+/** 下载中的地址（防重入）：双击/连点会并发拉两份大文件到内存与磁盘。downloadImage 与
+ *  downloadMedia 共用（审核修复：此前只有媒体侧有，图片侧双击会并发两份落盘）。 */
+const activeDownloads = new Set<string>()
+
+/** 下载音频/视频（markdown 内嵌播放器的 hover 下载按钮）：文件名优先 URL 末段
+ *  （保留后端唯一命名 sound-*.mp3），与 downloadImage 的差异只在命名与 toast 文案。 */
+const downloadMedia = async (src: string) => {
+    if (activeDownloads.has(src)) {
+        const toast = useToast()
+        const { i18n } = await import('../i18n')
+        toast.info(i18n.global.t('chat.downloadInProgress'))
+        return
+    }
+    activeDownloads.add(src)
+    const toast = useToast()
+    const { i18n } = await import('../i18n')
+    const _t = (key: string, named?: Record<string, unknown>) => named ? i18n.global.t(key, named) : i18n.global.t(key)
+
+    try {
+        const response = await fetch(src)
+        // 非 2xx（404/413/500）也会得到 blob：不查 ok 会把 JSON 错误体存成 .mp3 并报成功
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const blob = await response.blob()
+        const fileName = getMediaFileName(src, blob.type || 'application/octet-stream')
+        const savedPath = await saveBlob(blob, fileName)
+        toast.success(_t('chat.downloadMediaSuccess', { path: savedPath }))
+    } catch (error) {
+        console.error('Media download failed:', error)
+        toast.error(_t('chat.downloadMediaFailed'))
+    } finally {
+        activeDownloads.delete(src)
     }
 }
 
@@ -462,6 +532,7 @@ const _mediaPreviewState = {
     handleMouseMove,
     handleMouseUp,
     downloadImage,
+    downloadMedia,
     copyImageToClipboard,
     // Image share
     canShareImage,

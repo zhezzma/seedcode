@@ -27,6 +27,34 @@ export const getImageExtension = (mimeType: string) => {
     return 'bin'
 }
 
+/** 音视频 MIME → 扩展名特判表：subtype 与文件扩展名不一致的（audio/mpeg 实为 .mp3）
+ *  在此归一；其余直接用 subtype（wav/ogg/flac/webm…）。非 AVMIME 返回 bin。 */
+const AV_MIME_EXT: Record<string, string> = {
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/ogg': 'ogg',
+    'audio/webm': 'weba',
+    'video/quicktime': 'mov',
+    'video/x-matroska': 'mkv',
+    'video/3gpp': '3gp',
+}
+
+/** MIME → 媒体扩展名（图片沿用 getImageExtension；音视频走特判表 + subtype）。
+ *  仅作 URL 末段无扩展名时的兑底命名；正常路径（/assets 媒体 URL 末段自带
+ *  扩展名）不会走到这里。 */
+export const getMediaExtension = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) return getImageExtension(mimeType)
+
+    if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) {
+        if (AV_MIME_EXT[mimeType]) return AV_MIME_EXT[mimeType]
+        const subtype = mimeType.split('/', 2)[1]?.split(';', 1)[0].trim().toLowerCase() || ''
+        if (/^[a-z0-9-]+$/i.test(subtype)) return subtype
+    }
+
+    return 'bin'
+}
+
 /** 文件名已带扩展名则原样返回，否则补上给定扩展名。 */
 export const ensureFileExtension = (fileName: string, extension: string) => {
     return /\.[a-z0-9]+$/i.test(fileName) ? fileName : `${fileName}.${extension}`
