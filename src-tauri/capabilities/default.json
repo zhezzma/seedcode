@@ -33,9 +33,6 @@
       "allow": [
         {
           "path": "$DOWNLOAD/*"
-        },
-        {
-          "path": "$HOME/Download/*"
         }
       ]
     },

@@ -105,6 +105,40 @@ fn write_share_cache_file(
     Ok(path.to_string_lossy().to_string())
 }
 
+// 下载文件落盘：base64 解码后写进系统下载目录，返回绝对路径（供前端 toast）。
+// 为什么不走 fs 插件 writeFile：Android 上 wry 读不了自定义协议请求体，IPC 被迫走
+// postMessage JSON 数字数组——大文件（如 32MB APK）的 Uint8Array 被 Array.from +
+// JSON.stringify 展开成百 MB 字符串，同步冻结 WebView 主线程数十秒；base64 串过
+// IPC 体积仅 4/3、无逐元素序列化（与上方 write_share_cache_file 同款规避）。
+// 桌面 fs 插件仍走原始字节通道（octet-stream 无膨胀），前端只在本命令路由安卓。
+// 目标目录对齐前端旧 getTauriDownloadTarget：Android 的 home_dir 在 tauri 解析为
+// 外置存储根 /storage/emulated/0，join("Download") 即公共下载目录；桌面 download_dir。
+#[tauri::command]
+fn write_download_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    base64_data: String,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    // JS 层已消毒，这里再兜底一次防路径穿越（join 不规范化 ..）
+    let safe_name: String = file_name.replace(['/', '\\'], "_");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|err| err.to_string())?;
+    let dir = if cfg!(target_os = "android") {
+        app.path()
+            .home_dir()
+            .map_err(|err| err.to_string())?
+            .join("Download")
+    } else {
+        app.path().download_dir().map_err(|err| err.to_string())?
+    };
+    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    let path = dir.join(safe_name);
+    std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // 清理 share/ 子目录下超过 7 天的旧分享文件：data URL 图按时间戳命名，每次重开 lightbox
 // 都会落新文件，跨会话无限累积且 Android 系统清理不可靠。失败静默跳过，不阻断分享。
 fn cleanup_stale_share_files(dir: &std::path::Path) {
@@ -372,6 +406,7 @@ pub fn run() {
             write_clipboard_image,
             write_clipboard_html,
             write_share_cache_file,
+            write_download_file,
             open_in_terminal,
             notify::notify_connect,
             notify::notify_disconnect,

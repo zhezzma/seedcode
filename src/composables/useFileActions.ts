@@ -406,11 +406,16 @@ export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
             icon: ArrowDownTrayIcon,
             disabled: !isFile,
             action: async () => {
+                // 大文件（网络拉取 + 落盘）可达数十秒：常驻 info toast 提示进行中，
+                // 完成/失败时移除，避免点击后无反馈被误认为卡死。
+                const downloadingId = toast.info(tr('workspace.menu.downloading'), 0)
                 try {
                     const blob = await fetchDownload(agentId, entry.path, scope)
                     const savedPath = await saveBlob(blob, entry.name)
+                    toast.remove(downloadingId)
                     toast.success(`${tr('workspace.menu.downloaded')}: ${savedPath}`)
                 } catch (e: any) {
+                    toast.remove(downloadingId)
                     toast.error(`${tr('workspace.menu.download')}: ${e?.message || String(e)}`)
                 }
             },

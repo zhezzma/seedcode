@@ -21,7 +21,9 @@ test('blob saving logic lives in shared fileDownload util (Tauri + browser), reu
   // 落盘逻辑已抽到 utils/fileDownload.ts，两者（图片 / 任意文件）共用 saveBlob。
   assert.match(fileDownloadSource, /from '@tauri-apps\/plugin-fs'/)
   assert.match(fileDownloadSource, /BaseDirectory\.Download/)
-  assert.match(fileDownloadSource, /BaseDirectory\.Home/)
+  // 安卓大文件改走 write_download_file base64 命令，fs 插件不再持有 Home 分支
+  assert.match(fileDownloadSource, /write_download_file/)
+  assert.doesNotMatch(fileDownloadSource, /BaseDirectory\.Home/)
   assert.match(fileDownloadSource, /getTauriDownloadTarget/)
   assert.match(fileDownloadSource, /writeFile\(target\.path, bytes, \{ baseDir: target\.baseDir \}\)/)
   assert.match(fileDownloadSource, /isAndroidTauri/)

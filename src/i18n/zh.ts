@@ -1174,6 +1174,7 @@ export default {
             sendMention: "发送 {'@'}引用（绝对路径）到聊天",
             sendContent: '发送文件内容到聊天',
             download: '下载',
+            downloading: '正在下载…',
             downloaded: '已下载',
             copied: '已复制',
             sentToChat: '已发送到聊天',

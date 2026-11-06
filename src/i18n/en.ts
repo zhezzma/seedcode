@@ -1173,6 +1173,7 @@ export default {
             sendMention: "Send {'@'}reference (absolute path) to Chat",
             sendContent: 'Send Content to Chat',
             download: 'Download',
+            downloading: 'Downloading…',
             downloaded: 'Downloaded',
             copied: 'Copied',
             sentToChat: 'Sent to Chat',
