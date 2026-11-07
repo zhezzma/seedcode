@@ -528,7 +528,7 @@ const handleDeleteAgent = async () => {
                 <div class="card bg-base-200 shadow-sm overflow-visible">
                     <ul class="divide-y divide-base-300">
                         <li class="flex items-center justify-between p-4 bg-base-200 gap-2">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.workspace') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.workspace') }}</span>
                             <div class="flex items-center gap-2 min-w-0">
                                 <div class="font-mono text-xs bg-base-300 px-2 py-1 rounded text-base-content/70 truncate max-w-[160px] md:max-w-sm"
                                     :title="agent.workspaceDir">
@@ -539,14 +539,14 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.agentDir') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.agentDir') }}</span>
                             <div class="font-mono text-xs bg-base-300 px-2 py-1 rounded text-base-content/70 truncate max-w-[200px] md:max-w-md"
                                 :title="agent.agentDir">
                                 {{ agent.agentDir || '-' }}
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.mainModel') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.mainModel') }}</span>
 
                             <div ref="modelDropdownRef" class="flex-1 max-w-[250px] flex flex-col items-end gap-1 relative">
                                 <button ref="modelTriggerRef" @click.stop="toggleModelDropdown"
@@ -571,7 +571,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('chat.thinkingLevel') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('chat.thinkingLevel') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="defaultThinkingLevel" class="select select-bordered select-sm w-full font-sans">
                                     <option value="off">{{ $t('chat.thinkingLevels.off') }}</option>
@@ -585,7 +585,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.steeringMode') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.steeringMode') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="steeringMode" class="select select-bordered select-sm w-full font-sans">
                                     <option value="all">{{ $t('agent.modeAll') }}</option>
@@ -594,7 +594,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.followUpMode') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.followUpMode') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="followUpMode" class="select select-bordered select-sm w-full font-sans">
                                     <option value="all">{{ $t('agent.modeAll') }}</option>
@@ -603,7 +603,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.afterFailedRun') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.afterFailedRun') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="afterFailedRun" class="select select-bordered select-sm w-full font-sans">
                                     <option value="keep">{{ $t('agent.afterFailedRunKeep') }}</option>
@@ -613,14 +613,14 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.restartLimit') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.restartLimit') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <input v-model.number="restartLimit" type="number" min="1" step="1"
                                     class="input input-bordered input-sm w-24 text-right font-sans" />
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200" :title="$t('agent.maxTurnsHint')">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.maxTurns') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.maxTurns') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <input v-model.number.lazy="maxTurns" type="number" min="1" step="1"
                                     :placeholder="$t('agent.maxTurnsUnlimited')"
@@ -628,7 +628,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.toolExecution') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.toolExecution') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="toolExecution" class="select select-bordered select-sm w-full font-sans">
                                     <option value="parallel">{{ $t('agent.toolExecutionParallel') }}</option>
@@ -637,7 +637,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.modelScope') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.modelScope') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="modelScope" class="select select-bordered select-sm w-full font-sans">
                                     <option value="session">{{ $t('agent.modelScopeSession') }}</option>
@@ -646,7 +646,7 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.startupSettings') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.startupSettings') }}</span>
                             <div class="flex-1 max-w-[250px] flex flex-col items-end gap-1">
                                 <select v-model="startupInterruptedTasks" class="select select-bordered select-sm w-full font-sans">
                                     <option value="resume">{{ $t('agent.startupInterruptedResume') }}</option>
@@ -655,15 +655,15 @@ const handleDeleteAgent = async () => {
                             </div>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.compactionSettings') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.compactionSettings') }}</span>
                             <button class="btn btn-sm btn-outline font-sans" @click="openCompactionModal">{{ $t('common.settings') }}</button>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.retrySettings') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.retrySettings') }}</span>
                             <button class="btn btn-sm btn-outline font-sans" @click="openRetryModal">{{ $t('common.settings') }}</button>
                         </li>
                         <li class="flex items-center justify-between p-4 bg-base-200">
-                            <span class="font-medium text-base-content/90">{{ $t('agent.progressSettings') }}</span>
+                            <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.progressSettings') }}</span>
                             <button class="btn btn-sm btn-outline font-sans" @click="openProgressModal">{{ $t('common.settings') }}</button>
                         </li>
                     </ul>
