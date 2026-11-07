@@ -74,6 +74,51 @@ test('leaves non-relative Markdown resource URLs unchanged', () => {
   assert.equal(resolveMarkdownResourceUrls(html, 'http://tauri.localhost'), html)
 })
 
+test('restores pseudo-host asset URLs the AI mis-expanded from /assets/... paths', () => {
+  // AI 偶发把服务端相对路径 /assets/audios/... 补全成 https://assets/...（host 恰为
+  // assets）：还原回 /assets/... 相对路径后按常规拼接
+  assert.equal(
+    resolveMediaUrl('https://assets/audios/session/GYJClient-25436/sound-x.mp3', 'https://agent.example.com/api'),
+    'https://agent.example.com/api/assets/audios/session/GYJClient-25436/sound-x.mp3',
+  )
+  // http 变体
+  assert.equal(
+    resolveMediaUrl('http://assets/audios/a.mp3', 'https://agent.example.com/api'),
+    'https://agent.example.com/api/assets/audios/a.mp3',
+  )
+  // https:// + 相对路径机械拼接出的三斜杠形态（host 为空，路径自带 /assets 前缀）
+  assert.equal(
+    resolveMediaUrl('https:///assets/audios/a.mp3', 'https://agent.example.com/api'),
+    'https://agent.example.com/api/assets/audios/a.mp3',
+  )
+  // 单斜杠形态
+  assert.equal(
+    resolveMediaUrl('https:/assets/audios/a.mp3', 'https://agent.example.com/api'),
+    'https://agent.example.com/api/assets/audios/a.mp3',
+  )
+  // apiBaseUrl 为空：还原成相对路径（与常规相对路径同策略，保持可诊断形态）
+  assert.equal(resolveMediaUrl('https://assets/audios/a.mp3', ''), '/assets/audios/a.mp3')
+})
+
+test('does not rewrite real hosts that merely resemble the asset pseudo-host', () => {
+  for (const url of [
+    'https://example.com/a.png',
+    'https://example.com/assets/a.png',
+    'https://assets.example.com/a.png',
+    'https://assetsfoo/a.png',
+  ]) {
+    assert.equal(resolveMediaUrl(url, 'http://tauri.localhost'), url)
+  }
+})
+
+test('rewrites malformed pseudo-host asset links inside Markdown', () => {
+  const html = '<p><a href="https://assets/audios/session/id/sound.mp3">🔊 播放</a></p>'
+  assert.equal(
+    resolveMarkdownResourceUrls(html, 'http://tauri.localhost'),
+    '<p><a href="http://tauri.localhost/assets/audios/session/id/sound.mp3">🔊 播放</a></p>',
+  )
+})
+
 test('leaves relative URLs unchanged when apiBaseUrl is empty', () => {
   assert.equal(resolveMediaUrl('/assets/a.png', ''), '/assets/a.png')
   const html = '<p><a href="/assets/a.png">资源</a><img src="images/a.png"></p>'
