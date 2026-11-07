@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * Workspace Panel 外壳：
- * - 提供 tab 切换 (Files / Git)，子组件用 :key=agentId 跨 agent 强制 remount
+ * - 提供 tab 切换 (Agent / Files / Git)，子组件用 :key=agentId 跨 agent 强制 remount
  * - 左侧 splitter 拖动调整宽度（240～600）；拖动时用本地 ref 实时刷新视觉，
  *   仅 mouseup 时一次性 persist 到 settings store，避免每像素一次 localStorage 写
  * - 刷新入口：桌面=面板右键菜单（刷新/新建）+ Files 空白左键 + 文件行菜单「刷新」
@@ -13,7 +13,7 @@
  * `display:contents` 让 wrapper 不参与布局，splitter 与 aside 仍是父 flex 的 item。
  */
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, CommandLineIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, CommandLineIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
 import { useContextMenu, type ContextMenuItem } from '../../composables/useContextMenu'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
@@ -27,6 +27,7 @@ import { useGitBulkActions } from '../../composables/useGitBulkActions'
 import { useAgentFiles } from '../../composables/useAgentFiles'
 import WorkspaceTabFiles from './WorkspaceTabFiles.vue'
 import WorkspaceTabGit from './WorkspaceTabGit.vue'
+import AgentDetail from '../agents/AgentDetail.vue'
 
 const props = defineProps<{ agentId: string; mobile?: boolean }>()
 
@@ -127,7 +128,9 @@ const gitBulk = useGitBulkActions({
 })
 
 function onPanelContextMenu(e: MouseEvent) {
-    if (props.mobile || e.defaultPrevented) return
+    // Agent tab 是表单内容（原生 input/select）：右键交给浏览器原生菜单（复制/粘贴），
+    // 自定义菜单里的刷新动作也与该 tab 无关。
+    if (props.mobile || e.defaultPrevented || panel.activeTab.value === 'agent') return
     e.preventDefault()
     const items: ContextMenuItem[] = [{
         label: t('common.refresh'),
@@ -218,6 +221,11 @@ function onPanelContextMenu(e: MouseEvent) {
             <div class="flex items-center justify-between border-b border-base-300 px-2 py-2 shrink-0"
                 :data-tauri-drag-region="isDesktopTauri ? 'deep' : undefined">
                 <div class="tabs tabs-sm">
+                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panel.activeTab.value === 'agent' }"
+                        @click="panel.setTab('agent')">
+                        <UserCircleIcon class="h-4 w-4" />
+                        <span>{{ $t('workspace.tabAgent') }}</span>
+                    </a>
                     <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panel.activeTab.value === 'files' }"
                         @click="panel.setTab('files')">
                         <FolderIcon class="h-4 w-4" />
@@ -247,7 +255,9 @@ function onPanelContextMenu(e: MouseEvent) {
                  滑动管控下放到 tab 内部：history / agent-files 等顶底区需要在 tab 内加 sticky，
                  所以外层不能走 overflow-y-auto。 -->
             <div class="flex-1 min-h-0 overflow-hidden">
-                <WorkspaceTabFiles v-if="panel.activeTab.value === 'files'" :key="'files-' + agentId"
+                <AgentDetail v-if="panel.activeTab.value === 'agent'" :key="'agent-' + agentId"
+                    :agent-id="agentId" :show-header="false" :compact="true" @back="panel.setTab('files')" />
+                <WorkspaceTabFiles v-else-if="panel.activeTab.value === 'files'" :key="'files-' + agentId"
                     :agent-id="agentId" />
                 <WorkspaceTabGit v-else :key="'git-' + agentId" :agent-id="agentId" />
             </div>

@@ -6,6 +6,9 @@ import { CommandLineIcon, ShieldCheckIcon, ShieldExclamationIcon } from '@heroic
 // Props
 const props = defineProps<{
     agent: any
+    /** 嵌入窄容器（workspace 面板）时置 true：网格固定移动端规格 2 列。
+     *  视口断点管不到容器宽度：桌面开面板时 lg:grid-cols-5 仍生效，5 卡挤在窄面板里只剩 60px/张 */
+    compact?: boolean
 }>()
 
 const agentsState = useAgentsState()
@@ -63,7 +66,8 @@ const getTooltipTip = (tool: any) => {
             {{ $t('agent.noTools') || 'No tools available' }}
         </div>
 
-        <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 p-1">
+        <div v-else class="grid grid-cols-2 gap-4 p-1"
+            :class="compact ? '' : 'sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'">
             <div v-for="tool in tools" :key="tool.name"
                 class="card bg-base-200 border border-base-300 shadow-sm hover:shadow-md transition-all h-full tooltip tooltip-top"
                 :data-tip="getTooltipTip(tool)">

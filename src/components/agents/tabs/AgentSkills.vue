@@ -9,6 +9,8 @@ import { TrashIcon, CubeTransparentIcon, DocumentTextIcon, PuzzlePieceIcon, Chev
 // Props
 const props = defineProps<{
     agent: any
+    /** 嵌入窄容器（workspace 面板）时置 true：布局用移动端规格（视口断点管不到容器宽度） */
+    compact?: boolean
 }>()
 
 const skillsState = useSkillsState()
@@ -321,7 +323,8 @@ const openSkillDoc = async (skill: any, type: 'agent' | 'global') => {
                                         <span class="text-xs text-base-content/60 font-mono truncate">{{
                                             ext.extensionId }}</span>
                                         <!-- 移动端隐藏技能数徽章：宽度不足时与 ID/标题挤成一团 -->
-                                        <span class="badge badge-ghost badge-xs hidden sm:inline-flex">{{
+                                        <span class="badge badge-ghost badge-xs"
+                                            :class="compact ? 'hidden' : 'hidden sm:inline-flex'">{{
                                             $t('skills.extensionSkillCount', { n: ext.skills.length }) }}</span>
                                     </div>
                                 </div>

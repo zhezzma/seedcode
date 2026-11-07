@@ -35,7 +35,7 @@ function clampPersistedHeight(h: number, min: number): number {
 function persistPanel(patch: Partial<{
     open: boolean
     width: number
-    tab: 'files' | 'git'
+    tab: 'files' | 'git' | 'agent'
     historyHeight: number
     agentFilesHeight: number
     bottomSections: Partial<{ history: boolean; agentFiles: boolean }>
@@ -78,7 +78,7 @@ export function useWorkspacePanel() {
         },
         resetWidth() { persistPanel({ width: PANEL_DEFAULT_WIDTH }) },
 
-        setTab(tab: 'files' | 'git') { persistPanel({ tab }) },
+        setTab(tab: 'files' | 'git' | 'agent') { persistPanel({ tab }) },
 
         // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认）。
         historyHeight: computed(() => {

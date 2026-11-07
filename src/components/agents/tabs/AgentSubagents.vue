@@ -12,6 +12,9 @@ import { apiGet } from '@/composables/api-client'
 
 const props = defineProps<{
     agent: any
+    /** 嵌入窄容器（workspace 面板）时置 true：列表用移动端单列（视口断点管不到容器宽度）；
+     *  编辑弹窗是全屏 overlay，视口断点在那里是对的，不受本参数影响 */
+    compact?: boolean
 }>()
 
 const subAgentsState = useSubAgents()
@@ -481,7 +484,7 @@ const disabledSkillsCountOf = (s: SubagentConfig) => s.skills?.disabledSkills?.l
             <button class="btn btn-ghost btn-sm mt-4" @click="openAddModal">{{ $t('common.create') }}</button>
         </div>
 
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div v-else class="grid grid-cols-1 gap-4" :class="compact ? '' : 'md:grid-cols-2 lg:grid-cols-3'">
             <div v-for="agent in subagents" :key="agent.id"
                 class="card bg-base-200 border border-base-300 shadow-sm hover:shadow-md transition-all">
                 <div class="card-body p-4">

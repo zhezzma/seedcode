@@ -66,7 +66,7 @@ export interface UiSettings {
     workspacePanel: {
         open: boolean
         width: number
-        tab: 'files' | 'git'
+        tab: 'files' | 'git' | 'agent'
         repoByAgent: Record<string, string>
         /** 可折叠区域的展开状态，跨 session 持久化。
          *  - history: Git tab 的提交历史（默认展开，主要内容）

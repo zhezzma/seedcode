@@ -1134,6 +1134,7 @@ export default {
     workspace: {
         toggle: 'Workspace (Ctrl+B)',
         workspace: 'Workspace',
+        tabAgent: 'Agent',
         tabFiles: 'Files',
         tabGit: 'Git',
         changes: 'Changes',

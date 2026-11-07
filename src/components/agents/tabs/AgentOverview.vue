@@ -23,6 +23,8 @@ import { useWorkspacePanel } from '../../../composables/useWorkspacePanel'
 // Props
 const props = defineProps<{
     agent: AgentInfo
+    /** 嵌入窄容器（workspace 面板）时置 true：布局用移动端规格（视口断点管不到容器宽度） */
+    compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -517,7 +519,7 @@ const handleDeleteAgent = async () => {
 
 <template>
     <div>
-        <div class="space-y-6 pb-20 md:pb-6">
+        <div class="space-y-6" :class="compact ? 'pb-6' : 'pb-20 md:pb-6'">
             <div class="space-y-2">
                 <h4 class="text-sm font-medium text-base-content/60 px-2 flex items-center gap-2">
                     <FingerPrintIcon class="w-4 h-4" />
@@ -807,14 +809,15 @@ const handleDeleteAgent = async () => {
                     {{ $t('agent.dangerZone') }}
                 </h4>
                 <div class="card bg-base-200 border border-error/20 shadow-sm overflow-hidden">
-                    <div class="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div class="p-4 flex flex-col items-start justify-between gap-4"
+                        :class="compact ? '' : 'md:flex-row md:items-center'">
                         <div>
                             <h3 class="font-medium text-base-content">{{ $t('agent.deleteAgent') }}</h3>
                             <p class="text-sm text-base-content/60 mt-1">
                                 {{ $t('agent.deleteAgentDesc') }}
                             </p>
                         </div>
-                        <button class="btn btn-error btn-outline md:btn-wide" @click="handleDeleteAgent"
+                        <button class="btn btn-error btn-outline" :class="compact ? '' : 'md:btn-wide'" @click="handleDeleteAgent"
                             :disabled="isDeleting">
                             <span v-if="isDeleting" class="loading loading-spinner loading-sm"></span>
                             {{ isDeleting ? $t('agent.deleting') : $t('agent.deleteAgent') }}

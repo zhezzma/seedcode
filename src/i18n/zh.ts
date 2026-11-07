@@ -1135,6 +1135,7 @@ export default {
     workspace: {
         toggle: 'Workspace (Ctrl+B)',
         workspace: 'Workspace',
+        tabAgent: '智能体',
         tabFiles: '文件',
         tabGit: 'Git',
         changes: '工作区改动',

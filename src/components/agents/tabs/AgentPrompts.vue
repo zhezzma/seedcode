@@ -13,6 +13,8 @@ import {
 
 const props = defineProps<{
     agent: any
+    /** 嵌入窄容器（workspace 面板）时置 true：布局用移动端规格（视口断点管不到容器宽度） */
+    compact?: boolean
 }>()
 
 const promptState = usePromptState()
@@ -122,7 +124,7 @@ const toggleExpand = (id: string) => {
         </div>
 
         <!-- Prompts List -->
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div v-else class="grid grid-cols-1 gap-4" :class="compact ? '' : 'md:grid-cols-2'">
             <PromptCard v-for="prompt in prompts" :key="prompt.id" :prompt="prompt" :icon="DocumentTextIcon"
                 variant="primary" :expanded="expandedPromptId === prompt.id" @toggle="toggleExpand(prompt.id)"
                 @edit="openEditEditor(prompt)" @delete="handleDelete(prompt)" />
