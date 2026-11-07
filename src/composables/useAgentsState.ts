@@ -71,7 +71,6 @@ export interface AgentTool {
     name: string
     description?: string
     parameters?: any
-    active: boolean
     denied: boolean
 }
 
@@ -139,7 +138,7 @@ const loadAgentTools = async (agentId: string) => {
     try {
         const res = await apiGet<{
             tools: { name: string, description?: string, parameters?: any }[],
-            activeToolNames: string[]
+            disabledTools: string[]
         }>(`/api/agents/${agentId}/tools`)
 
         if (res) {
@@ -147,8 +146,7 @@ const loadAgentTools = async (agentId: string) => {
                 name: t.name,
                 description: t.description,
                 parameters: t.parameters,
-                active: res.activeToolNames.includes(t.name),
-                denied: !res.activeToolNames.includes(t.name)
+                denied: res.disabledTools.includes(t.name)
             }))
         }
     } catch (err: any) {
@@ -165,7 +163,6 @@ const toggleAgentTool = async (agentId: string, toolName: string, enable: boolea
             const tool = tools.find(t => t.name === toolName)
             if (tool) {
                 tool.denied = !enable
-                tool.active = enable
             }
         }
         const body = enable ? { enable: [toolName] } : { disable: [toolName] }
