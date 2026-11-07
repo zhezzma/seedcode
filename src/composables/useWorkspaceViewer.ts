@@ -7,7 +7,7 @@
  * WorkspaceViewer 组件 props 接入，不编码进 target。
  */
 import { computed, ref } from 'vue'
-import type { DiffMode } from './workspace-api.ts'
+import { isBinaryExt, type DiffMode } from './workspace-api.ts'
 
 export type ViewerTarget =
     | { type: 'file'; path: string }
@@ -50,7 +50,23 @@ const _viewerState = {
             ? { type: 'text', content, title, language }
             : { type: 'text', content, title }
     },
-    openDiff(args: { repo: string; mode: DiffMode; file: string; ref?: string }) {
+    /** 打开 git diff 视图。所有 diff 入口（交付物面板 / git 面板 / 工具卡路径 /
+     *  批量动作重开）都经此分流：
+     *  二进制文件（按扩展名，isBinaryExt）统一改开文件预览——git 对二进制的 diff
+     *  只有「binary files differ」占位，无信息量；openFile 里媒体走原生
+     *  <img>/<audio>/<video>，其余二进制走 fetchFile 的 binary banner（与树上
+     *  直接点开同一体验）。deleted 例外：文件已不在盘上，预览必 404，维持 diff
+     *  至少可见删除事实（调用方知情时传入）。
+     *  已知限制：mode=commit 预览的是当前工作区版本而非该提交版本（与
+     *  openAbsolute 看盘上文件同语义）；文件已被后续提交删除时会 404 红字
+     *  可感知——为保持「二进制一律不走 diff」的统一规则不做特判，需要精确
+     *  历史版本时远期走 raw-at-ref 端点。 */
+    openDiff(args: { repo: string; mode: DiffMode; file: string; ref?: string; deleted?: boolean }) {
+        if (!args.deleted && isBinaryExt(args.file)) {
+            // 根仓库（"."）不产生 "./" 前缀（repoJoin 同语义）
+            this.openFile(args.repo === '.' ? args.file : `${args.repo}/${args.file}`)
+            return
+        }
         current.value = { type: 'diff', repo: args.repo, mode: args.mode, file: args.file, ref: args.ref }
     },
     /** WorkspaceFileView 专用：跟随自身 isDirty + path 同步。 */

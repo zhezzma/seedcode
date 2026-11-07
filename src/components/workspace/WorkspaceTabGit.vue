@@ -147,7 +147,8 @@ async function openDiff(group: GitGroup, change: FileChange) {
     if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
-    viewer.openDiff({ repo, mode: group, file: change.path })
+    // deleted：openDiff 内二进制→预览分流用（删除态文件不在盘上须维持 diff）
+    viewer.openDiff({ repo, mode: group, file: change.path, deleted: change.status === 'D' })
 }
 
 /** 在 unstaged 与 untracked 合并后，单文件 diff 需要看 file.status 决定 mode：
@@ -157,7 +158,7 @@ async function openUnstagedDiff(change: FileChange) {
     const repo = selectedRepo.value
     if (!repo) return
     const mode = change.status === '?' ? 'untracked' : 'unstaged'
-    viewer.openDiff({ repo, mode, file: change.path })
+    viewer.openDiff({ repo, mode, file: change.path, deleted: change.status === 'D' })
 }
 
 /** 在 viewer 里打开"工作区当前文件"（VSCode 风格 Open File）。
@@ -172,11 +173,12 @@ async function openFile(change: FileChange) {
     viewer.openFile(wsRelPath)
 }
 
-async function openCommitDiff(args: { ref: string; file: string }) {
+async function openCommitDiff(args: { ref: string; file: string; deleted?: boolean }) {
     if (!await confirmIfDirty()) return
     const repo = selectedRepo.value
     if (!repo) return
-    viewer.openDiff({ repo, mode: 'commit', ref: args.ref, file: args.file })
+    // deleted 由 HistoryList 按提交文件状态字母传入（该提交里被删除的文件不在盘上）
+    viewer.openDiff({ repo, mode: 'commit', ref: args.ref, file: args.file, deleted: args.deleted })
 }
 
 /** commit 文件行右键"打开文件"：打开工作区当前版本（workspace 相对路径 repo/file）。 */

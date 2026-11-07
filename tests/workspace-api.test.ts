@@ -381,6 +381,35 @@ test('mediaKindFromPath: 非媒体 / 伪装扩展名 → null', () => {
     }
 })
 
+test('isBinaryExt: 媒体三类 + 常见二进制格式全命中（openDiff 分流的判定源）', () => {
+    // 媒体三类（mediaKindFromPath 同步清单，大小写不敏感）
+    for (const p of ['a.png', 'b.JPG', 'c.mp3', 'd.webm', 'e.ico', 'f.flac']) {
+        assert.equal(api.isBinaryExt(p), true, p)
+    }
+    // 压缩包/安装包、文档、字体、可执行、数据库、keystore、3D 资源、ML 权重
+    for (const p of [
+        'x.zip', 'dist.tar.gz', 'app.apk', 'spec.pdf', 'report.docx', 'font.woff2',
+        'bin.exe', 'lib.so', 'cache.sqlite', 'data.parquet', 'release.keystore',
+        'cert.p12', 'model.glb', 'icon.tiff', 'weights.safetensors', 'train.ckpt',
+    ]) {
+        assert.equal(api.isBinaryExt(p), true, p)
+    }
+})
+
+test('isBinaryExt: 文本格式（刻意排除项）与无扩展名不误判', () => {
+    // svg/gltf 是文本格式；pem/crt 常为文本；无扩展名（Makefile）与 dotfile 按文本对待；
+    // obj（Wavefront）/out（作业日志）有常见文本语义，刻意不在清单（误伤文本会丢 diff）
+    for (const p of ['a.ts', 'v.vue', 'icon.svg', 'scene.gltf', 'cert.pem', 'server.crt',
+        'data.json', 'README.md', 'Makefile', '.gitignore', 'plain.txt', 'mesh.obj', 'slurm-123.out']) {
+        assert.equal(api.isBinaryExt(p), false, p)
+    }
+})
+
+test('isBinaryExt: 先剥 query/hash 再取扩展名（同 mediaKindFromPath 策略）', () => {
+    assert.equal(api.isBinaryExt('shot.png?v=2&t=3'), true)
+    assert.equal(api.isBinaryExt('evil.html?.png'), false)
+})
+
 test('fetchRawFile: 透传 AbortSignal 给 fetch（切文件/卸载时中止下载防泄露）', async () => {
     // 调用方（WorkspaceFileView）在切文件/卸载时 abort，阻止媒体下载完成后
     // 创建无人 revoke 的 objectURL。三个 scope 分支都要把 signal 交给 fetch。

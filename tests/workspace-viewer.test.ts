@@ -25,6 +25,40 @@ test('openDiff 设置 current.type=diff', () => {
     assert.deepEqual(v.current.value, { type: 'diff', repo: 'r', mode: 'unstaged', file: 'a.ts', ref: undefined })
 })
 
+test('openDiff 二进制文件改开文件预览（repo 前缀拼 workspace 相对路径）', () => {
+    const v = useWorkspaceViewer()
+    v.openDiff({ repo: 'sub', mode: 'unstaged', file: 'assets/logo.png' })
+    assert.deepEqual(v.current.value, { type: 'file', path: 'sub/assets/logo.png' })
+})
+
+test('openDiff 根仓库（"."）二进制：路径不带 "./" 前缀（repoJoin 同语义）', () => {
+    const v = useWorkspaceViewer()
+    v.openDiff({ repo: '.', mode: 'commit', ref: 'abc1234', file: 'docs/manual.pdf' })
+    assert.deepEqual(v.current.value, { type: 'file', path: 'docs/manual.pdf' })
+})
+
+test('openDiff 二进制删除态：维持 diff（文件已不在盘上，预览必 404，diff 可见删除事实）', () => {
+    const v = useWorkspaceViewer()
+    v.openDiff({ repo: 'sub', mode: 'unstaged', file: 'old-bundle.zip', deleted: true })
+    assert.equal(v.current.value?.type, 'diff')
+})
+
+test('openDiff 非媒体二进制（pdf/keystore/sqlite…）同样改开预览，不止图/音/视', () => {
+    const v = useWorkspaceViewer()
+    for (const file of ['spec.pdf', 'release.keystore', 'cache.sqlite', 'model.glb']) {
+        v.openDiff({ repo: 'r', mode: 'staged', file })
+        assert.deepEqual(v.current.value, { type: 'file', path: `r/${file}` })
+    }
+})
+
+test('openDiff 文本文件照常 diff（含无扩展名/文本格式排除项 svg/gltf）', () => {
+    const v = useWorkspaceViewer()
+    for (const file of ['a.ts', 'v.vue', 'icon.svg', 'scene.gltf', 'Makefile']) {
+        v.openDiff({ repo: 'r', mode: 'unstaged', file })
+        assert.equal(v.current.value?.type, 'diff')
+    }
+})
+
 test('openAgentFile 设置 current.type=agent-file', () => {
     const v = useWorkspaceViewer()
     v.openAgentFile('AGENTS.md')

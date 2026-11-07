@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
-import { mediaKindFromPath } from '../../composables/workspace-api'
 import type { DeliverableFile, DeliverableSummary } from '../../composables/useChatMessages'
 
 /**
@@ -45,17 +44,19 @@ const splitPath = (path: string): { dir: string; base: string } => {
 const displayPath = (item: DeliverableFile): string =>
     item.repo && item.repo !== '.' ? `${item.repo}/${item.path}` : item.path
 
-/** 点击：二进制媒体（图/音/视）直接开预览——git 对二进制文件的 diff 只有
- *  「binary files differ」一行，无信息量；WorkspaceFileView 原生 <img>/<audio>/<video>。
- *  删除态除外：文件已不在，预览必 404，维持 diff（至少可见删除事实）。
- *  其余：有 git 状态 → diff（含删除/提交）；区域外/gitignore → 直接看文件 */
+/** 点击：有 git 状态 → diff（含删除/提交）；区域外/gitignore → 直接看文件。
+ *  二进制（图/音/视/压缩包/pdf 等全家族）不在面板单独处理：openDiff 内部按
+ *  扩展名统一分流到文件预览（媒体原生渲染，其余二进制 banner）；deleted 标记
+ *  告知删除态——文件已不在盘上，openDiff 维持 diff 可见删除事实。 */
 function open(item: DeliverableFile) {
-    if (item.change !== 'deleted' && mediaKindFromPath(item.path)) {
-        wsViewer.openAbsolute(item.abs)
-        return
-    }
     if (item.repo && item.mode) {
-        wsViewer.openDiff({ repo: item.repo, mode: item.mode, file: item.path, ref: item.ref ?? undefined })
+        wsViewer.openDiff({
+            repo: item.repo,
+            mode: item.mode,
+            file: item.path,
+            ref: item.ref ?? undefined,
+            deleted: item.change === 'deleted',
+        })
     } else {
         wsViewer.openAbsolute(item.abs)
     }

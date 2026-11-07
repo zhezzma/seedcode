@@ -378,6 +378,57 @@ export function mediaKindFromPath(path: string): MediaKind | null {
     return null
 }
 
+/** 常见二进制文件扩展名（小写，不含点）。与 mediaKindFromPath 的媒体清单
+ *  互补（isBinaryExt 先查媒体再查此表），共同构成「按扩展名判二进制」的启发式
+ *  ——git 对二进制文件的 diff 只有「binary files differ」占位，无信息量，故
+ *  useWorkspaceViewer.openDiff 对命中的文件统一改开文件预览。清单不追求穷举：
+ *  未命中的扩展名（含无扩展名）按文本对待，误判时 diff 编辑器自身还有 binary
+ *  占位兜底（多段扩展名 libfoo.so.1 尾段是版本号不命中，同样由兜底接住）。
+ *  刻意排除文本格式：svg/gltf/pem/crt 等仍是可 diff 的文本；obj（Wavefront）/
+ *  out（作业日志）/com 等有常见文本语义的边不列入——误伤文本会丢掉本可有的
+ *  diff，漏判二进制只是回到占位，代价不对称。 */
+const BINARY_EXTS = new Set([
+    // 压缩包 / 安装包
+    'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', 'lz4', 'br',
+    'jar', 'war', 'ear', 'aar', 'apk', 'ipa', 'iso', 'dmg', 'cab', 'msi', 'deb', 'rpm',
+    'whl', 'egg', 'gem', 'xpi', 'crx', 'vsix', 'nupkg',
+    // 图片（媒体三类之外的位图 / 相机原始格式 / 工程格式）
+    'tif', 'tiff', 'heic', 'heif', 'avif', 'jxl', 'psd', 'ai', 'icns', 'svgz',
+    'cr2', 'cr3', 'nef', 'arw', 'dng', 'orf', 'rw2',
+    // 音视频容器（媒体清单之外的编码 / 容器）
+    'mid', 'midi', 'aiff', 'aif', 'wma',
+    'avi', 'wmv', 'flv', 'mpg', 'mpeg', 'm2ts', 'asf', 'rm', 'rmvb',
+    // 文档（office 家族与电子书）
+    'pdf', 'doc', 'docx', 'dot', 'dotx', 'xls', 'xlsx', 'xlsm', 'xlt',
+    'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'odg',
+    'epub', 'mobi', 'azw3', 'pages', 'numbers',
+    // 字体
+    'ttf', 'otf', 'ttc', 'woff', 'woff2', 'eot',
+    // 可执行文件 / 目标文件 / 字节码
+    'exe', 'dll', 'so', 'dylib', 'a', 'lib', 'o', 'bin', 'class',
+    'wasm', 'node', 'pyd', 'pyo', 'pyc', 'sys', 'drv', 'appimage',
+    // 数据库 / 二进制序列化数据
+    'sqlite', 'sqlite3', 'db', 'db3', 'mdb', 'accdb', 'parquet', 'feather', 'arrow',
+    'npy', 'npz', 'pkl', 'pickle', 'msgpack', 'h5', 'hdf5', 'lmdb', 'mo',
+    // 机器学习模型权重（agent 工作区高频产物）
+    'onnx', 'pt', 'pth', 'safetensors', 'ckpt', 'gguf',
+    // 密钥库 / 二进制证书（pem/crt 常为文本，刻意不在列）
+    'keystore', 'jks', 'p12', 'pfx', 'der',
+    // 3D 资源 / 其他二进制
+    'blend', 'fbx', 'glb', 'usdz', 'pak', 'img', 'lnk', 'torrent', 'ds_store',
+])
+
+/** 按扩展名判定是否二进制文件：媒体三类（图/音/视，mediaKindFromPath 同步
+ *  清单）+ BINARY_EXTS 常见二进制格式。入参与 mediaKindFromPath 同策略先剥
+ *  query/hash 再取扩展名（带参/时间戳 URL 不误判，伪后缀不漏判）。 */
+export function isBinaryExt(path: string): boolean {
+    if (mediaKindFromPath(path) !== null) return true
+    const clean = path.split(/[?#]/, 1)[0]
+    const i = clean.lastIndexOf('.')
+    if (i < 0) return false
+    return BINARY_EXTS.has(clean.slice(i + 1).toLowerCase())
+}
+
 /** 按扩展名判断是否为可预览文件。返回类型供调用方区分 html / md / svg 各预览分支；
  *  null 表示不可预览。父子组件共同的唯一权威源，避免两处各写一份正则失同。 */
 export function previewableExt(path: string): 'html' | 'md' | 'svg' | null {

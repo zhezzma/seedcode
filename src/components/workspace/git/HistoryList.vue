@@ -20,7 +20,7 @@ import type { CommitFile, CommitMeta } from '../../../composables/workspace-api'
 const props = defineProps<{
     agentId: string
     repo: string
-    onOpenDiff: (args: { ref: string; file: string }) => void
+    onOpenDiff: (args: { ref: string; file: string; deleted?: boolean }) => void
     /** 打开工作区当前版本文件（commit 文件行右键"打开文件"）。 */
     onOpenFile?: (file: string) => void
 }>()
@@ -63,7 +63,7 @@ function onCommitFileContextMenu(e: MouseEvent, commit: CommitMeta, f: CommitFil
     e.preventDefault()
     const openFile = props.onOpenFile
     ctxMenu.openAt(buildGitFileMenu({
-        onOpenDiff: () => props.onOpenDiff({ ref: commit.sha, file: f.path }),
+        onOpenDiff: () => props.onOpenDiff({ ref: commit.sha, file: f.path, deleted: f.status === 'D' }),
         onOpenFile: openFile ? () => openFile(f.path) : undefined,
         absolutePath: buildAbsolutePath(git.workspaceRoot.value, repoJoin(props.repo, f.path)),
         // commit 中被删除的文件在工作区不存在，禁用打开文件。
@@ -110,7 +110,7 @@ function relativeTime(iso: string): string {
                     </div>
                     <button v-for="f in git.commitFiles.value[commit.sha] || []" :key="f.path"
                         class="flex items-center gap-2 w-full text-left px-2 py-0.5 hover:bg-base-300 font-mono"
-                        @click="onOpenDiff({ ref: commit.sha, file: f.path })"
+                        @click="onOpenDiff({ ref: commit.sha, file: f.path, deleted: f.status === 'D' })"
                         @contextmenu="onCommitFileContextMenu($event, commit, f)">
                         <DocumentIcon class="h-3 w-3 shrink-0 text-base-content/40" />
                         <span class="truncate">{{ f.path }}</span>

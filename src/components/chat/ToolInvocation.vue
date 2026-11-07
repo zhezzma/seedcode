@@ -342,18 +342,23 @@ async function openPathWithDiff(rawPath: string) {
             return
         }
         const repoRel = toRepoRelative(repo, wsRel)
-        const mode = pickDiffMode(await fetchStatus(agentId, repo), repoRel)
+        const status = await fetchStatus(agentId, repo)
+        const mode = pickDiffMode(status, repoRel)
         if (!mode) {
             wsViewer.openAbsolute(abs) // 文件干净，无 diff 可看
             return
         }
+        // 删除态按选中组查（staged-D 且文件仍留在盘上时 git 会另列 untracked 行，
+        // 该组不该算删除）；untracked 组不可能是 D
+        const deleted = mode !== 'untracked'
+            && status[mode].some((c) => c.path === repoRel && c.status === 'D')
         // 多次 await 期间用户可能已切到别的 agent：diff 视图按当前选中 agent 的 workspace
         // 解析 repo/file，旧 agent 的解析结果会张冠李戴 → 回退 agent 无关的直接打开
         if (chatState.agentsSelectedId !== agentId) {
             wsViewer.openAbsolute(abs)
             return
         }
-        wsViewer.openDiff({ repo, mode, file: repoRel })
+        wsViewer.openDiff({ repo, mode, file: repoRel, deleted })
     } catch {
         // 接口失败回退：绝对路径直接打开；相对路径退 workspace 作用域打开
         // （此时 agent 已切换则放弃 —— openFile 按当前 agent 的 workspace 解析会错位）

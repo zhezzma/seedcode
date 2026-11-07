@@ -72,6 +72,9 @@ test('WorkspaceTabGit: 装配 RepoSelector + StatusGroup + HistoryList + Commit 
     assert.match(src, /HistoryList/)
     assert.match(src, /useWorkspaceGit/)
     assert.match(src, /openDiff/, 'must call viewer.openDiff for status / commit clicks')
+    // deleted 接线：openDiff 内二进制→预览分流靠它区分删除态（漏接 → 点已删
+    // 二进制变成 404 预览而非维持 diff）
+    assert.match(src, /deleted: change\.status === 'D'/, 'must pass deleted for binary diff routing')
     // 底部 history 被 CollapsibleSection 包裹
     assert.match(src, /CollapsibleSection/, 'must wrap HistoryList in CollapsibleSection')
     assert.match(src, /panel\.bottomSections/, 'must read history open state from panel composable')
@@ -204,6 +207,8 @@ test('HistoryList: load more + 展开 commit 文件', () => {
     assert.match(src, /loadMoreLog/)
     assert.match(src, /loadCommitFiles/)
     assert.match(src, /onOpenDiff/, 'must dispatch diff open to parent')
+    // deleted 接线：本提交内删除的文件不在盘上，openDiff 须维持 diff（同上）
+    assert.match(src, /deleted: f\.status === 'D'/, 'commit file rows must pass deleted flag')
 })
 
 test('HistoryList: commit 行右键可复制完整提交信息', () => {
