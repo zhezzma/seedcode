@@ -299,7 +299,7 @@ const handleTouchEnd = (e: TouchEvent) => {
 const handleWheel = (e: WheelEvent) => {
     e.preventDefault()
     const zoomIntensity = 0.1
-    let newScale = imgScale.value + (e.deltaY < 0 ? -zoomIntensity : zoomIntensity)
+    let newScale = imgScale.value + (e.deltaY < 0 ? zoomIntensity : -zoomIntensity)
     imgScale.value = Math.min(Math.max(1, newScale), 5)
     if (imgScale.value <= 1) {
         resetZoomState()
