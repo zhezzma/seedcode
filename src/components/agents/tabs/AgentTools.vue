@@ -106,12 +106,31 @@ const getTooltipTip = (tool: any) => {
 </template>
 
 <style scoped>
+/* 气泡做成覆盖卡片本体的 overlay（inset:0）：严格限制在卡片四边内，
+   不再向上/下/左/右伸出，任何滚动容器（页面 / workspace 窄面板）都不会被撑出滚动条 */
 .tooltip:before {
+    inset: 0;
+    /* 覆盖 daisyUI 的 width:max-content：left/right/width 同设时 width 会赢，气泡重新变宽溢出 */
+    width: auto;
+    /* 覆盖 tooltip-top 的 translateX(-50%) 居中位移，否则 inset:0 后气泡被平移半个卡宽 */
+    transform: none;
+    border-radius: inherit;
     white-space: pre-wrap;
     text-align: left;
-    max-width: 20rem;
+    /* 工具名常见 mcp__a__b 这类无空格长 token，pre-wrap 只认空格换行，需允许词内断行 */
+    overflow-wrap: anywhere;
+    /* 长描述按 6 行截断省略，兜底防止文字超过卡片高度向下溢出 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    overflow: hidden;
     font-size: 0.75rem;
     line-height: 1.1rem;
     z-index: 1000;
+}
+
+/* overlay 模式下箭头无意义，且会伸出卡片上缘，隐藏 */
+.tooltip:after {
+    display: none;
 }
 </style>

@@ -548,7 +548,7 @@ const handleDeleteAgent = async () => {
                         <li class="flex items-center justify-between p-4 bg-base-200">
                             <span class="w-32 shrink-0 font-medium text-base-content/90">{{ $t('agent.mainModel') }}</span>
 
-                            <div ref="modelDropdownRef" class="flex-1 max-w-[250px] flex flex-col items-end gap-1 relative">
+                            <div ref="modelDropdownRef" class="flex-1 min-w-0 max-w-[250px] flex flex-col items-end gap-1 relative">
                                 <button ref="modelTriggerRef" @click.stop="toggleModelDropdown"
                                     class="btn btn-ghost btn-sm gap-2 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all w-full justify-between"
                                     :title="$t('agent.selectModel')">
