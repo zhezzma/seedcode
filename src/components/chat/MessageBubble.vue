@@ -8,6 +8,7 @@ import {
     ChevronRightIcon,
     PencilSquareIcon,
     EyeIcon,
+    ChevronDownIcon,
     MusicalNoteIcon,
     PlayIcon,
     PauseIcon
@@ -84,6 +85,11 @@ const openReportTrace = (name: string): void => {
 }
 const reportTraceTarget = (name: string): string | undefined =>
     bgAgents.agents.value.find((a) => a.name === name)?.conversationId
+// 报告答案折叠态（对位 ToolInvocation 卡：头部点击开合，收起时答案零挂载）。
+// 回执气泡唯一块（useChatMessages 单块成泡，continue 分支不并块），每气泡一份状态即可；
+// 若未来报告并入多块消息，此 ref 需按块索引拆分
+const reportOpen = ref(false)
+const toggleReportOpen = (): void => { reportOpen.value = !reportOpen.value }
 const uiSettings = useUiSettingsStore()
 // chat-bubble 是 daisyUI 的亮色风格气泡，深色模式下不加，避免灰阶大卡片观感
 const hiddenAssistantBubbleBg = computed(() => uiSettings.isDark || useMediaQuery('(max-width: 1023px)').value || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent))
@@ -607,9 +613,11 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     <DeliverablesPanel v-else-if="block.type === 'deliverables' && block.deliverableFiles"
                         :files="block.deliverableFiles" :summary="block.deliverableSummary!" />
                     <!-- 后台子代理回传报告（[bg-subagent-report] user 输入的回执气泡唯一块）：
-                         agent 徽标 + 状态 + 答案全文。与 bash-receipt 同语义的独立回执泡 -->
+                         agent 徽标 + 状态 + 可折叠答案（默认收起，对位工具卡：头部点击开合，
+                         收起时内容零挂载）。与 bash-receipt 同语义的独立回执泡 -->
                     <div v-else-if="block.type === 'subagent-report'" class="subagent-report-card">
-                        <div class="flex items-center gap-2 text-sm font-medium">
+                        <div class="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
+                            @click="block.text && toggleReportOpen()">
                             <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
                                 :class="block.subagentStatus === 'error' ? 'text-error' : 'text-success'">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -624,13 +632,22 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                             <span class="badge badge-sm badge-ghost font-mono">{{ block.subagentName }}</span>
                             <span v-if="block.subagentStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.subagentReport.error') }}</span>
                             <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.subagentReport.completed') }}</span>
-                            <!-- 轨迹入口：按名查到当前分支注册表条目才显示（与前台子代理卡同一抽屉） -->
-                            <button v-if="reportTraceTarget(block.subagentName!)" @click="openReportTrace(block.subagentName!)"
-                                class="btn btn-ghost btn-xs btn-circle ml-auto shrink-0" :title="$t('subagentTrace.viewAgentTrace', { agent: block.subagentName })">
+                            <!-- 轨迹入口：按名查到当前分支注册表条目才显示（与前台子代理卡同一抽屉）；
+                                 .stop 防止触发头部开合 -->
+                            <button v-if="reportTraceTarget(block.subagentName!)" @click.stop="openReportTrace(block.subagentName!)"
+                                class="btn btn-ghost btn-xs btn-circle shrink-0" :title="$t('subagentTrace.viewAgentTrace', { agent: block.subagentName })">
                                 <EyeIcon class="h-3.5 w-3.5" />
                             </button>
+                            <!-- 开合指示（对位工具卡 chevron）：ml-auto 吸走剩余空间，
+                                 无轨迹入口时保持右对齐 -->
+                            <span class="ml-auto shrink-0 text-base-content/50">
+                                <ChevronDownIcon v-if="reportOpen" class="h-4 w-4" />
+                                <ChevronRightIcon v-else class="h-4 w-4" />
+                            </span>
                         </div>
-                        <div v-if="block.text" class="mt-2 text-sm opacity-90">
+                        <!-- 答案正文：收起时零挂载（与工具卡/思考块同策略，虚拟滚动省渲染）；
+                             正文为空（报告 body 可为空串）时头部点击不触发无效果开合 -->
+                        <div v-if="reportOpen && block.text" class="mt-2 text-sm opacity-90">
                             <MarkdownRenderer :content="block.text" />
                         </div>
                     </div>
