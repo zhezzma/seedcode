@@ -120,6 +120,10 @@ const onMusicPlay = () => {
     if (musicAudioEl.value) pauseOtherChatMedia(musicAudioEl.value)
     musicPlaying.value = true
 }
+// 音乐回执折叠态（对位工具卡/subagent-report 卡：头部点击开合，收起时正文零挂载）。
+// audio 留在头部不进正文——折叠卸载不打断播放，虚拟滚动保活照常生效
+const musicOpen = ref(false)
+const toggleMusicOpen = (): void => { musicOpen.value = !musicOpen.value }
 
 // A2UI action handling
 function onA2UIAction(action: any, dataModel: Record<string, any>, surfaceId: string, sourceComponentId: string) {
@@ -652,36 +656,50 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         </div>
                     </div>
                     <!-- 音乐生成回执（[音乐生成完成/失败] user 输入的回执气泡唯一块）：
-                         音符徽标 + 状态 + 描述/原因，完成带原地播放键（播放/暂停切换，
-                         不跳浏览器）。与 subagent-report 同语义的独立回执泡；无轨迹入口
-                         （音乐生成无轨迹数据） -->
-                    <div v-else-if="block.type === 'music-report'" class="subagent-report-card">
-                        <div class="flex items-center gap-2 text-sm font-medium">
-                            <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
-                                :class="block.musicStatus === 'error' ? 'text-error' : 'text-success'">
-                                <MusicalNoteIcon class="h-4 w-4" />
-                            </span>
-                            <span class="opacity-80">{{ $t('chat.musicReport.title') }}</span>
-                            <span v-if="block.musicStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.musicReport.error') }}</span>
-                            <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.musicReport.completed') }}</span>
-                            <!-- 原地播放：卡内 <audio>（无 controls，纯按钮驱动）。虚拟滚动
-                                 保活由 VirtualMessageList 通用检测接管（!paused 的行保持挂载，
-                                 离屏不掐断，滚动回来进度/播放态原样保留）；全局单播经
-                                 chat-media 单点暂停其他聊天媒体 -->
+                         音符徽标 + 状态 + 可折叠描述/原因，完成带原地播放键（播放/暂停切换，
+                         不跳浏览器）。卡片结构/头高/内边距对位 ToolInvocation 与
+                         subagent-report 卡；无轨迹入口（音乐生成无轨迹数据） -->
+                    <div v-else-if="block.type === 'music-report'" class="card bg-base-200 overflow-hidden">
+                        <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-sm"
+                            @click="(block.text || block.musicTaskId) && toggleMusicOpen()">
+                            <!-- 音符图标：对位工具卡 w-5 直出无底圈 -->
+                            <div class="flex-none">
+                                <MusicalNoteIcon class="w-5 h-5"
+                                    :class="block.musicStatus === 'error' ? 'text-error' : 'text-success'" />
+                            </div>
+                            <div class="flex-1 min-w-0 break-words font-medium text-base-content/80 flex items-center gap-2 flex-wrap">
+                                <span>{{ $t('chat.musicReport.title') }}</span>
+                                <span v-if="block.musicStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.musicReport.error') }}</span>
+                                <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.musicReport.completed') }}</span>
+                            </div>
+                            <!-- 原地播放：卡内 <audio>（无 controls，纯按钮驱动）留在头部——
+                                 折叠只卸载正文，播放不中断；虚拟滚动保活由 VirtualMessageList
+                                 通用检测接管（!paused 的行保持挂载，离屏不掐断，滚动回来
+                                 进度/播放态原样保留）；全局单播经 chat-media 单点暂停
+                                 其他聊天媒体。.stop 防止触发头部开合 -->
                             <audio v-if="block.musicUrl" :ref="assignMusicAudioEl" :src="block.musicUrl" preload="metadata"
                                 data-music-audio @play="onMusicPlay" @pause="musicPlaying = false" @ended="musicPlaying = false" />
-                            <button v-if="block.musicUrl" type="button" @click="toggleMusicAudio"
-                                class="btn btn-ghost btn-xs btn-circle ml-auto shrink-0 text-base-content/50 hover:text-base-content"
+                            <button v-if="block.musicUrl" type="button" @click.stop="toggleMusicAudio"
+                                class="btn btn-ghost btn-xs btn-circle shrink-0 text-base-content/50 hover:text-base-content"
                                 :title="musicPlaying ? $t('chat.musicReport.pause') : $t('chat.musicReport.play')">
                                 <PauseIcon v-if="musicPlaying" class="h-3.5 w-3.5" />
                                 <PlayIcon v-else class="h-3.5 w-3.5" />
                             </button>
+                            <!-- 开合指示（对位工具卡 chevron）：标题区 flex-1 占满后自然贴右 -->
+                            <div class="flex-none text-base-content/50">
+                                <ChevronDownIcon v-if="musicOpen" class="w-4 h-4" />
+                                <ChevronRightIcon v-else class="w-4 h-4" />
+                            </div>
                         </div>
-                        <div v-if="block.text" class="mt-2 text-sm opacity-90">
-                            <MarkdownRenderer :content="block.text" />
-                        </div>
-                        <div v-if="block.musicTaskId" class="mt-1 font-mono text-xs opacity-50">
-                            taskId: {{ block.musicTaskId }}
+                        <!-- 正文（描述/原因 + taskId）：收起时零挂载；内边距对位工具卡 body；
+                             文本与 taskId 皆空时头部点击不触发无效果开合 -->
+                        <div v-if="musicOpen" class="px-3 py-2 pt-0">
+                            <div v-if="block.text" class="text-sm opacity-90">
+                                <MarkdownRenderer :content="block.text" />
+                            </div>
+                            <div v-if="block.musicTaskId" class="mt-1 font-mono text-xs opacity-50">
+                                taskId: {{ block.musicTaskId }}
+                            </div>
                         </div>
                     </div>
                     <div v-else-if="block.type === 'unknown'" class="alert alert-warning text-xs p-2 my-1">
@@ -785,16 +803,6 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
     100% {
         filter: drop-shadow(0 0 0 transparent);
     }
-}
-
-/* 后台子代理回传报告卡（回执气泡唯一块）：轻量边框卡，对位 bash-receipt 风格。
- * daisyUI 5 主题变量是 --color-base-*（oklch 全色值，见 main.css 自定义 dark 主题），
- * 旧版 --b2/--b3 已不存在——透明度用 color-mix（GoalBar/TaskBar 同范式） */
-.subagent-report-card {
-    border: 1px solid var(--color-base-300);
-    border-radius: 0.75rem;
-    padding: 0.75rem 0.875rem;
-    background: color-mix(in oklab, var(--color-base-200) 60%, transparent);
 }
 
 @media (max-width: 768px) {

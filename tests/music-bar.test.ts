@@ -82,7 +82,8 @@ test('音乐回执气泡接线（解析 → DisplayBlock → 卡片）', () => {
     assert.match(bubble, /const assignMusicAudioEl = \(el: Element \| ComponentPublicInstance \| null\) => \{/)/
     assert.match(bubble, /musicAudioEl\.value = el instanceof HTMLAudioElement \? el : null/)
     assert.match(bubble, /data-music-audio @play="onMusicPlay"/)
-    assert.match(bubble, /v-if="block\.musicUrl" type="button" @click="toggleMusicAudio"/)
+    // @click.stop：头部现承担折叠开合，播放键不得冒泡触发开合
+    assert.match(bubble, /v-if="block\.musicUrl" type="button" @click\.stop="toggleMusicAudio"/)
     assert.match(bubble, /<PauseIcon v-if="musicPlaying" class="h-3\.5 w-3\.5" \/>/)
     assert.match(bubble, /<PlayIcon v-else class="h-3\.5 w-3\.5" \/>/)
     // 全局单播：新播放经 chat-media 单点暂停其他聊天媒体（markdown 内嵌 + 其他音乐卡）
