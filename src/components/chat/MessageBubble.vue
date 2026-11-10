@@ -9,6 +9,8 @@ import {
     PencilSquareIcon,
     EyeIcon,
     ChevronDownIcon,
+    CheckCircleIcon,
+    ExclamationCircleIcon,
     MusicalNoteIcon,
     PlayIcon,
     PauseIcon
@@ -613,41 +615,39 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     <DeliverablesPanel v-else-if="block.type === 'deliverables' && block.deliverableFiles"
                         :files="block.deliverableFiles" :summary="block.deliverableSummary!" />
                     <!-- 后台子代理回传报告（[bg-subagent-report] user 输入的回执气泡唯一块）：
-                         agent 徽标 + 状态 + 可折叠答案（默认收起，对位工具卡：头部点击开合，
-                         收起时内容零挂载）。与 bash-receipt 同语义的独立回执泡 -->
-                    <div v-else-if="block.type === 'subagent-report'" class="subagent-report-card">
-                        <div class="flex items-center gap-2 text-sm font-medium cursor-pointer select-none"
+                         agent 徽标 + 状态 + 可折叠答案（默认收起）。卡片结构/头高/内边距
+                         对位 ToolInvocation 卡（card bg-base-200 + px-3 py-2 头部 +
+                         px-3 py-2 pt-0 正文），不再用独立 subagent-report-card 样式 -->
+                    <div v-else-if="block.type === 'subagent-report'" class="card bg-base-200 overflow-hidden">
+                        <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-sm"
                             @click="block.text && toggleReportOpen()">
-                            <span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-base-300 shrink-0"
-                                :class="block.subagentStatus === 'error' ? 'text-error' : 'text-success'">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                    stroke="currentColor" stroke-width="2">
-                                    <path v-if="block.subagentStatus === 'error'" stroke-linecap="round" stroke-linejoin="round"
-                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                    <path v-else stroke-linecap="round" stroke-linejoin="round"
-                                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </span>
-                            <span class="opacity-80">{{ $t('chat.subagentReport.title') }}</span>
-                            <span class="badge badge-sm badge-ghost font-mono">{{ block.subagentName }}</span>
-                            <span v-if="block.subagentStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.subagentReport.error') }}</span>
-                            <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.subagentReport.completed') }}</span>
+                            <!-- 状态图标：对位工具卡（error 叉圆 / success 勾圆，w-5 直出无底圈） -->
+                            <div class="flex-none">
+                                <ExclamationCircleIcon v-if="block.subagentStatus === 'error'" class="w-5 h-5 text-error" />
+                                <CheckCircleIcon v-else class="w-5 h-5 text-success" />
+                            </div>
+                            <div class="flex-1 min-w-0 break-words font-medium text-base-content/80 flex items-center gap-2 flex-wrap">
+                                <span>{{ $t('chat.subagentReport.title') }}</span>
+                                <span class="badge badge-sm badge-ghost font-mono">{{ block.subagentName }}</span>
+                                <span v-if="block.subagentStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.subagentReport.error') }}</span>
+                                <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.subagentReport.completed') }}</span>
+                            </div>
                             <!-- 轨迹入口：按名查到当前分支注册表条目才显示（与前台子代理卡同一抽屉）；
                                  .stop 防止触发头部开合 -->
                             <button v-if="reportTraceTarget(block.subagentName!)" @click.stop="openReportTrace(block.subagentName!)"
                                 class="btn btn-ghost btn-xs btn-circle shrink-0" :title="$t('subagentTrace.viewAgentTrace', { agent: block.subagentName })">
                                 <EyeIcon class="h-3.5 w-3.5" />
                             </button>
-                            <!-- 开合指示（对位工具卡 chevron）：ml-auto 吸走剩余空间，
-                                 无轨迹入口时保持右对齐 -->
-                            <span class="ml-auto shrink-0 text-base-content/50">
-                                <ChevronDownIcon v-if="reportOpen" class="h-4 w-4" />
-                                <ChevronRightIcon v-else class="h-4 w-4" />
-                            </span>
+                            <!-- 开合指示（对位工具卡 chevron）：标题区 flex-1 占满后自然贴右 -->
+                            <div class="flex-none text-base-content/50">
+                                <ChevronDownIcon v-if="reportOpen" class="w-4 h-4" />
+                                <ChevronRightIcon v-else class="w-4 h-4" />
+                            </div>
                         </div>
                         <!-- 答案正文：收起时零挂载（与工具卡/思考块同策略，虚拟滚动省渲染）；
-                             正文为空（报告 body 可为空串）时头部点击不触发无效果开合 -->
-                        <div v-if="reportOpen && block.text" class="mt-2 text-sm opacity-90">
+                             正文为空（报告 body 可为空串）时头部点击不触发无效果开合；
+                             内边距对位工具卡 body（px-3 py-2 pt-0） -->
+                        <div v-if="reportOpen && block.text" class="px-3 py-2 pt-0 text-sm opacity-90">
                             <MarkdownRenderer :content="block.text" />
                         </div>
                     </div>
