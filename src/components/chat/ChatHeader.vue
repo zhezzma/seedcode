@@ -42,6 +42,8 @@ const panel = useWorkspacePanel()
 
 
 const showStatusTip = ref(false)
+/** 会话名 tooltip：点击 agent icon/name 切换（移动端顶栏不显示会话名，靠这里看 title） */
+const showTitleTip = ref(false)
 const notifyEnabled = ref(false)
 const notifyLoading = ref(false)
 /** 会话级压缩设置弹窗（pi-durable 1.5.1；仅既有会话可开——新会话页无 sessionId）。 */
@@ -115,7 +117,20 @@ const refreshPage = () => {
 // Close tooltip when clicking outside
 const handleClickOutside = (event: MouseEvent) => {
     showStatusTip.value = false
+    showTitleTip.value = false
 }
+
+// ---- Agent icon + name（title 区，badge 从 id 换为 name）----
+
+/** agent 显示名：优先 name，未命名回退 id（AgentInfo.name 可选） */
+const agentDisplayName = computed(() => chatState.currentAgent?.name || chatState.agentsSelectedId || '')
+
+/** avatar 字段可能是 URL/base64（可作 img src）或 emoji 文字——判定同 MessageBubble.isAvatarUrl */
+const agentIconUrl = computed(() => {
+    const a = chatState.currentAgent?.avatar
+    return a && (a.startsWith('http') || a.startsWith('data:') || a.startsWith('/')) ? a : ''
+})
+const agentIconEmoji = computed(() => (agentIconUrl.value ? '' : chatState.currentAgent?.avatar || ''))
 
 // ---- 状态 tooltip 行（服务端 status 扩展拼好的展示行，纯渲染零拼接：token 统计 /
 // 模型与思考等级 / CPU·内存·磁盘，显示段由服务端设置表单控制） ----
@@ -143,14 +158,33 @@ defineExpose({
         <template #title>
             <div class="flex-1 flex items-center min-w-0">
                 <div v-if="isSession" class="lg:pl-5 font-semibold flex items-center gap-2 min-w-0 flex-1">
+                    <!-- Agent icon + name：点击弹出当前会话名 tooltip——
+                         移动端顶栏不显示会话名（空间紧张），靠这里辨识当前会话 -->
+                    <div v-if="chatState.agentsSelectedId"
+                        class="relative flex items-center gap-1.5 cursor-pointer select-none shrink-0"
+                        role="button" tabindex="0" :aria-expanded="showTitleTip"
+                        :aria-label="$t('chat.sessionTitle')"
+                        @click.stop="showStatusTip = false; showTitleTip = !showTitleTip"
+                        @keydown.enter.prevent.stop="showStatusTip = false; showTitleTip = !showTitleTip"
+                        @keydown.space.prevent.stop="showStatusTip = false; showTitleTip = !showTitleTip"
+                        @keydown.escape="showTitleTip = false">
+                        <!-- icon：URL/base64 用图，emoji 直接文字，空则默认 🤖 -->
+                        <img v-if="agentIconUrl" :src="agentIconUrl" :alt="agentDisplayName"
+                            class="w-6 h-6 rounded-full object-cover shrink-0" />
+                        <span v-else class="text-base leading-none shrink-0">{{ agentIconEmoji || '🤖' }}</span>
+                        <span class="text-sm truncate max-w-[12ch]">{{ agentDisplayName }}</span>
+                        <!-- 当前会话名 tooltip：点 agent 区切换，点外部关闭（handleClickOutside） -->
+                        <div v-if="sessionName" role="tooltip"
+                            class="absolute top-full mt-2 left-0 z-50 transition-opacity duration-200
+                                bg-neutral text-neutral-content text-xs font-normal rounded-lg px-3 py-2
+                                shadow-lg truncate max-w-[70vw]"
+                            :class="showTitleTip ? 'opacity-100' : 'opacity-0 pointer-events-none'">
+                            {{ sessionName }}
+                        </div>
+                    </div>
                     <!-- 会话名仅 PC 显示：移动端顶栏空间紧张（新增压缩设置按钮后放不下），
-                         移动端靠 agent 徽章 + 会话列表辨识当前会话 -->
+                         移动端点击上方 agent 区看会话名 -->
                     <span class="truncate max-w-[300px] lg:max-w-none text-lg hidden lg:inline">{{ sessionName }}</span>
-                    <span v-if="chatState.agentsSelectedId"
-                        class="badge badge-sm badge-ghost shrink-0 max-w-[10ch] overflow-hidden align-middle"
-                        :title="chatState.agentsSelectedId">
-                        <span class="block truncate whitespace-nowrap">{{ chatState.agentsSelectedId }}</span>
-                    </span>
                 </div>
             </div>
         </template>
@@ -159,11 +193,11 @@ defineExpose({
         <template #actions>
             <div class="flex items-center lg:gap-5">
                 <!-- Connection Status Indicator -->
-                <div class="relative group flex items-center" @click.stop="showStatusTip = !showStatusTip" role="button"
+                <div class="relative group flex items-center" @click.stop="showTitleTip = false; showStatusTip = !showStatusTip" role="button"
                     tabindex="0" :aria-expanded="showStatusTip"
                     :aria-label="isConnected ? $t('common.connected') : $t('common.disconnected')"
-                    @keydown.enter.prevent.stop="showStatusTip = !showStatusTip"
-                    @keydown.space.prevent.stop="showStatusTip = !showStatusTip" @keydown.escape="showStatusTip = false">
+                    @keydown.enter.prevent.stop="showTitleTip = false; showStatusTip = !showStatusTip"
+                    @keydown.space.prevent.stop="showTitleTip = false; showStatusTip = !showStatusTip" @keydown.escape="showStatusTip = false">
                     <div class="w-3 h-3 rounded-full transition-colors duration-300 cursor-pointer" aria-hidden="true"
                         :class="isConnected ? 'bg-success' : 'bg-error/50'"></div>
                     <!-- Multi-line tooltip: hover (PC) + click (mobile) -->

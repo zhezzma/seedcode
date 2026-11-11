@@ -687,6 +687,7 @@ export default {
         },
         voiceInput: '语音输入',
         openSessionTree: '打开会话树',
+        sessionTitle: '查看当前会话名',
         sessionTreeTitle: '当前会话分支',
         sessionTreeEmpty: '当前会话暂无可展示的树节点',
         treeCurrent: '当前',

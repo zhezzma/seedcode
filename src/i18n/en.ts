@@ -686,6 +686,7 @@ export default {
         },
         voiceInput: 'Voice Input',
         openSessionTree: 'Open Session Tree',
+        sessionTitle: 'Show session title',
         sessionTreeTitle: 'Current Conversation Branches',
         sessionTreeEmpty: 'No tree nodes in this session yet',
         treeCurrent: 'Current',
