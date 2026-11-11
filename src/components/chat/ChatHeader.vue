@@ -161,7 +161,7 @@ defineExpose({
                     <!-- Agent icon + name：点击弹出当前会话名 tooltip——
                          移动端顶栏不显示会话名（空间紧张），靠这里辨识当前会话 -->
                     <div v-if="chatState.agentsSelectedId"
-                        class="relative flex items-center gap-1.5 cursor-pointer select-none shrink-0"
+                        class="relative group flex items-center gap-1.5 cursor-pointer select-none shrink-0"
                         role="button" tabindex="0" :aria-expanded="showTitleTip"
                         :aria-label="$t('chat.sessionTitle')"
                         @click.stop="showStatusTip = false; showTitleTip = !showTitleTip"
@@ -173,12 +173,13 @@ defineExpose({
                             class="w-6 h-6 rounded-full object-cover shrink-0" />
                         <span v-else class="text-base leading-none shrink-0">{{ agentIconEmoji || '🤖' }}</span>
                         <span class="text-sm truncate max-w-[12ch]">{{ agentDisplayName }}</span>
-                        <!-- 当前会话名 tooltip：点 agent 区切换，点外部关闭（handleClickOutside） -->
+                        <!-- 当前会话名 tooltip：PC hover + 移动端点击（同状态指示器模式），
+                             点外部经 handleClickOutside 链关闭 -->
                         <div v-if="sessionName" role="tooltip"
                             class="absolute top-full mt-2 left-0 z-50 transition-opacity duration-200
                                 bg-neutral text-neutral-content text-xs font-normal rounded-lg px-3 py-2
                                 shadow-lg truncate max-w-[70vw]"
-                            :class="showTitleTip ? 'opacity-100' : 'opacity-0 pointer-events-none'">
+                            :class="showTitleTip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-events-none'">
                             {{ sessionName }}
                         </div>
                     </div>
