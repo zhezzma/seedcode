@@ -178,6 +178,16 @@ const updateVisibleRange = () => {
         if (playing) next.add(key)
     }
 
+    // 编辑中的行不卸载（虚拟滚动编辑态丢失修复）：isEditing/editText 是
+    // MessageBubble 组件本地状态，行离屏换 spacer 即整体销毁——滚回来重挂载
+    // 变回原样，半成品编辑文本无声丢失。对位上方媒体保活：DOM 标记检测，
+    // data-editing 随编辑框 v-if 卸载而消失，提交/取消后下一次滚动更新自然
+    // 回收该行（spacer 顶替，高度已缓存）。
+    for (const key of visibleKeys.value) {
+        if (next.has(key)) continue
+        if (rowEls.get(key)?.querySelector('[data-editing]')) next.add(key)
+    }
+
     visibleKeys.value = next
     activeKey.value = centerKey
 }

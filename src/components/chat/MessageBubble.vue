@@ -15,7 +15,7 @@ import {
     PlayIcon,
     PauseIcon
 } from '@heroicons/vue/24/outline'
-import { computed, ref, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, ref, type ComponentPublicInstance } from 'vue'
 import { useUiSettingsStore } from '../../stores/setting'
 import { useMediaPreview } from '../../composables/useMediaPreview'
 import { useI18n } from 'vue-i18n'
@@ -165,8 +165,24 @@ function formatA2UIAction(block: any): { label: string; summary: string } {
 // Edit state
 const isEditing = ref(false)
 const editText = ref('')
+const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
 
-const startEdit = () => {
+/**
+ * 编辑框自适应高度（对齐 ChatInput.adjustHeight 模式）：按内容撑高，超 60vh
+ * 内部滚动。长消息进入编辑后行高≈原内容高度，避免行高从几千像素塌缩到
+ * 4 行输入框——下方内容整体上移涌入视口、scrollHeight 骤降触发浏览器钳制，
+ * 虚拟列表高度缓存也随之骤变（图片加载场景的同类问题见 utils/imageDimensions.ts）。
+ * 「≈」是量级近似：纯文本成立；原内容 h-0 折叠使图片/文件卡/markdown 排版
+ * 差成为残余 delta（编辑态接受，有界），仅衰减而非根除塌缩链。
+ */
+const adjustEditTextareaHeight = () => {
+    const el = editTextareaRef.value
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+}
+
+const startEdit = async () => {
     // Extract text from user message blocks
     const text = (props.message.blocks || [])
         .filter(b => b.type === 'text')
@@ -174,6 +190,14 @@ const startEdit = () => {
         .join('\n')
     editText.value = text
     isEditing.value = true
+    // 编辑框可见性：长消息只露下半截时点行底的编辑按钮，塌缩后行顶（textarea
+    // 所在处）可能已在视口上方之外——用户触发了编辑却看不到编辑框。撑高后把
+    // 编辑框滚回视口；focus 的 preventScroll 关掉默认滚动行为，滚动交给显式
+    // 的 nearest（尽量少动视口）
+    await nextTick()
+    adjustEditTextareaHeight()
+    editTextareaRef.value?.focus({ preventScroll: true })
+    editTextareaRef.value?.scrollIntoView({ block: 'nearest' })
 }
 
 const cancelEdit = () => {
@@ -369,10 +393,13 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
             class="max-w-full md:max-w-[90%] chat-bubble bg-primary/10 text-base-content relative transition-opacity duration-200 px-2"
             :class="message.pending ? 'opacity-70' : ''">
             <div class="whitespace-normal flex flex-col gap-2  ">
-                <!-- Edit mode: textarea shown above invisible original content -->
-                <textarea v-if="isEditing" v-model="editText" rows="4"
-                    class="textarea textarea-bordered w-full bg-base-200 text-base-content text-sm resize-y min-h-[80px]"
-                    @keydown.ctrl.enter="submitEdit" />
+                <!-- Edit mode: textarea shown above invisible original content。
+                     data-editing 是虚拟列表编辑态保活的检测标记（见 VirtualMessageList
+                     保活循环）：行离屏时保持挂载，滚回来编辑中的文本原样保留；
+                     提交/取消后随 v-if 卸载，标记消失，下次滚动更新自然回收 -->
+                <textarea v-if="isEditing" ref="editTextareaRef" v-model="editText" rows="1" data-editing
+                    class="textarea textarea-bordered w-full bg-base-200 text-base-content text-sm resize-none min-h-[80px] max-h-[60vh] overflow-y-auto"
+                    @input="adjustEditTextareaHeight" @keydown.ctrl.enter="submitEdit" />
                 <!-- Original content: visible normally, invisible (but still in layout) when editing to preserve width -->
                 <div :class="{ 'invisible h-0 overflow-hidden': isEditing }">
                     <!-- Text blocks first -->
