@@ -183,8 +183,18 @@ function isHistoryLoadFresh(targetKey: string): boolean {
 }
 
 // 导出供跨 composable 复用（useA2UIActions：面板提交后服务端 steer 续跑 run 的流附着入口）。
-// 语义不变：已有活跃 SSE 时跳过（shouldAttachSession）。
+// 语义：已有活跃 SSE 时跳过（shouldAttachSession）；且只为「当前会话」建流。
+// 非当前会话不得建 attach（2026-11 状态条丢失 bug 根因）：attach 快照线只在
+// 建流时发一次（服务端 chat.ts collect 一遍扩展现态），而切换会话的 watch 会
+// 清空音乐/后台子代理/goal 状态。若给非当前会话建流（WS 报告触发
+// refreshSettledMessages、快速切换时 loadChatHistory 晚到调用），其快照被
+// 键守卫拒收，连接却留在 sseConnections 占坑——切回时本函数命中注册表跳过
+// 重挂，快照永不再来，三条 bar 全部丢失（直到下一次推送/再切一轮/刷新）。
+// 守卫后非当前会话的消息照常静默重拉，切回时由此处正常 attach 拿全量快照。
 export function attachToSessionIfNeeded(targetKey: string) {
+    if (targetKey !== state.sessionKey) {
+        return
+    }
     if (!shouldAttachSession(sseConnections.has(targetKey))) {
         return
     }
@@ -546,9 +556,11 @@ const refreshSettledMessages = (targetKey: string): void => {
         // 服务端发起的 run 仍在进行（如 /goal start|restart|resume：命令流
         // streamCommand 只发回执不订阅 run 事件，任务 run 是服务端 startRun
         // 另开的——无流附着则续跑回复/轮数推进对客户端全部不可见，直到手动
-        // 刷新）。重拉发现 busy 即附着：快照线补回扩展状态（如 GoalBar），
-        // 推送线接上后续所有轮次。已持活跃连接时幂等跳过；期间用户已开新流
-        // （sendMessage）同样跳过，无副作用。
+        // 刷新）。重拉发现 busy 且是当前会话则附着（快照线补回扩展状态如
+        // GoalBar，推送线接上后续轮次）；非当前会话不附着（attachToSessionIfNeeded
+        // 守卫拦下，避免后台流占住注册表导致切回时快照丢失），切回时由
+        // setSessionKey 正常 attach 拿全量快照。已持活跃连接时幂等跳过；期间
+        // 用户已开新流（sendMessage）同样跳过，无副作用。
         if (result?.isStreaming) {
             attachToSessionIfNeeded(targetKey)
         }

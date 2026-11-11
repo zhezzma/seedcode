@@ -61,8 +61,9 @@ async function resumeGoal(): Promise<void> {
         applyState(res?.state ?? null, key)
         // 恢复在服务端开了新 run（followUp 驱动），但按钮路径没有流附着：不主动 attach
         // 的话续跑回复/轮数推进/done 对客户端全部不可见（唯一兜底是切会话/刷新）。
-        // 已有活跃连接时 attach 幂等跳过；切走会话后响应才到的场景，attach 的旧 key
-        // 事件被 applyState 归属守卫拦下，无副作用。stop 不需要：停止不产生新内容。
+        // 已有活跃连接时 attach 幂等跳过；切走会话后响应才到的场景，attachToSessionIfNeeded
+        // 入口的会话守卫直接拦下（不为非当前会话建流，不会占住注册表导致切回时快照
+        // 丢失），切回时由 setSessionKey 正常 attach。stop 不需要：停止不产生新内容。
         // （同款先例：useA2UIActions 面板提交后的服务端续跑流附着）
         if (res?.state?.enabled) attachToSessionIfNeeded(key)
     } catch {
