@@ -7,7 +7,7 @@
 //   （BackgroundAgents doc + LiveDoc busy 判定）
 // - 按钮线：stop POST 响应直接带回新清单（面板 stopAgent 调 applyAgents）
 // 后台子代理列表不落聊天 transcript（状态面与内容面分离，goal 同模式）。
-import { computed, ref, watch } from 'vue'
+import { computed, effectScope, ref, watch } from 'vue'
 import { onExtensionEvent, type ExtensionEventListener } from './extension-events'
 import { useChatState } from './useChatState'
 import { apiPost } from './api-client'
@@ -205,9 +205,16 @@ function buildBackgroundAgentsState() {
 }
 
 // 模块级共享单例（与 useGoalState/useTaskBarState 同模式）
+//
+// ⚠ detached effectScope（useReplySuggestion 同解法）：懒构建的首个调用方是 HomeView setup，
+// 构建期同步创建的 watch 会挂到 HomeView 实例作用域。离开聊天页（设置/
+// 智能体等非聊天路由）或窗口跨 1024px 断点换布局都会卸载 HomeView，作用域 stop 杀掉
+// 「切会话清空」watch，单例却留在模块里——之后切到无后台子代理的会话（服务端快照对空
+// 列表不发事件），状态条残留上个会话的工人，刷新才恢复。detached 让单例的响应式
+// effect 独立于任何组件实例存活（与模块同寿命）。
 let shared: ReturnType<typeof buildBackgroundAgentsState> | undefined
 
 export function useBackgroundAgents() {
-    if (!shared) shared = buildBackgroundAgentsState()
+    if (!shared) shared = effectScope(true).run(() => buildBackgroundAgentsState())!
     return shared
 }

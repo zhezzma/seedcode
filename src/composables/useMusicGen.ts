@@ -7,7 +7,7 @@
 // - 快照线：attach/刷新/切会话时 attach 流携带服务端从 tasks 表重建的现态
 // - 按钮线：stop POST 响应直接带回新清单（面板 stopMusic 调 applyMusics）
 // 音乐状态不落聊天 transcript（状态面与内容面分离，bg-agents 同模式）。
-import { computed, ref, watch } from 'vue'
+import { computed, effectScope, ref, watch } from 'vue'
 import { onExtensionEvent, type ExtensionEventListener } from './extension-events'
 import { useChatState } from './useChatState'
 import { apiPost } from './api-client'
@@ -192,9 +192,13 @@ function buildMusicGenState() {
 }
 
 // 模块级共享单例（useBackgroundAgents 同模式）
+//
+// ⚠ detached effectScope（缘由同 useBackgroundAgents）：首个调用方 HomeView setup 内构建的
+// 「切会话清空」watch 会随 HomeView 卸载（离开聊天页 / 跨 1024px 断点换布局）而失效，
+// 之后切到无音乐任务的会话，状态条残留上个会话的曲目。detached 让 effect 与模块同寿命。
 let shared: ReturnType<typeof buildMusicGenState> | undefined
 
 export function useMusicGen() {
-    if (!shared) shared = buildMusicGenState()
+    if (!shared) shared = effectScope(true).run(() => buildMusicGenState())!
     return shared
 }
