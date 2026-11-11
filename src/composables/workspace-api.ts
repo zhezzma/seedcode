@@ -490,6 +490,13 @@ export function fetchAgentTree(agentId: string, path: string): Promise<TreeResul
     return wsGet<TreeResult>(`${base(agentId)}/agent-tree${qs}`)
 }
 
+/** 读任意绝对路径目录的子项列表（输入框 @ 路径补全的 absolute 分支）。
+ *  走 /api/files/tree，无沙箱限制——与 /api/files/open 同一信任级别（认证用户）。
+ *  契约与 workspace tree 同形（listDirTreeEntries 共用），entry.path 为绝对路径。 */
+export function fetchAbsoluteTree(path: string): Promise<TreeResult> {
+    return wsGet<TreeResult>(`/api/files/tree?path=${encodeURIComponent(path)}`)
+}
+
 /** 读任意绝对路径文件（工具调用返回的真实文件系统路径，不属于任何 agent 沙箱）。
  *  走 /api/files/open，无 resolveSafe 越界保护（与 workspace scope 的语义不同）。
  *  后端已复用 workspace 的二进制检测 / 5MB 截断，返回完整 FileContent 契约，这里直接透传。 */

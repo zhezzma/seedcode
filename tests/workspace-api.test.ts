@@ -426,3 +426,18 @@ test('fetchRawFile: 透传 AbortSignal 给 fetch（切文件/卸载时中止下�
     assert.equal(signals.length, 4)
     for (const s of signals) assert.equal(s, ctrl.signal, '每个分支都必须透传同一个 signal')
 })
+
+test('fetchAbsoluteTree 打到 /api/files/tree 并编码绝对路径', async () => {
+    let captured: { url: string, init?: RequestInit } | null = null
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+        captured = { url, init }
+        return new Response(JSON.stringify({ ok: true, payload: { root: '/ro ot', path: '/ro ot', entries: [] } }), {
+            status: 200, headers: { 'content-type': 'application/json' },
+        })
+    }) as any
+
+    const r = await api.fetchAbsoluteTree('/ro ot')
+    assert.equal(r.path, '/ro ot')
+    // 空格必须走 encodeURIComponent；端点是 files 路由族（无 agent 前缀）
+    assert.match(captured!.url, /\/api\/files\/tree\?path=%2Fro%20ot$/)
+})

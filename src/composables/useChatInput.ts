@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { SpeechRecognitionService } from '../utils/asr/speechRecognition'
 import { takeAudioControl, releaseAudioControl } from '../utils/audioManager'
 import { useUiSettingsStore } from '../stores/setting'
@@ -10,6 +10,13 @@ import { CLIENT_COMMANDS, filterClientCommands } from './clientCommands'
 import { sortByCommandMatchRank } from '../utils/command-name-match.ts'
 import { useInputHistoryStore, newSessionDraftKeyFor } from '../stores/inputHistory'
 import { decideArrowKeyPriority, shouldOpenCommandSuggestions } from '../utils/chat-input-key-routing.ts'
+import {
+    parseMentionToken,
+    isAbsolutePathLike,
+    splitDirPrefix,
+    filterMentionEntries,
+} from '../utils/path-mention.ts'
+import { fetchTree, fetchAbsoluteTree, type TreeEntry } from './workspace-api.ts'
 import { getMicrophoneErrorMessage } from '../utils/microphone-errors'
 
 export interface CommandItem {
@@ -48,6 +55,131 @@ const commandSuggestions = ref<CommandInfo[]>([])
 const commandSuggestionIndex = ref(0)
 const suppressCommandSuggestionsOnce = ref(false)
 
+// ——— @ 路径补全 ———
+// 语义：@相对路径 → agent 工作区（/:id/workspace/tree）；@/绝对路径或盘符 → /api/files/tree。
+// agentId 由 ChatInput 每次传入（chatState 在其作用域内；直接 import useChatState 会造成
+// useChatState→router→HomeView→useChatInput 的模块环，故沿用 setSessionKeyResolver 同款的
+// 调用方注入模式）。mentionAgentId 暂存最近一次值：目录确认后续探下一层时在 useChatInput
+// 内部重拉，拿不到 ChatInput 的作用域。
+const pathMentionVisible = ref(false)
+const pathMentionEntries = ref<TreeEntry[]>([])
+const pathMentionIndex = ref(0)
+let pathMentionStart = -1   // '@' 在全文中的下标（替换区间起点）
+let pathMentionEnd = -1     // token 尾（替换区间终点，即解析时光标）
+let pathMentionAgentId: string | null = null
+let pathMentionSeq = 0      // 过期守卫：新输入/关闭后自增，在飞响应作废
+let pathMentionTimer: number | null = null
+
+/** 关闭 @ 补全面板并作废在飞请求（不戏 mentionAgentId——立刻重开会用新值覆盖） */
+const closePathMention = () => {
+    pathMentionSeq++
+    if (pathMentionTimer !== null) {
+        clearTimeout(pathMentionTimer)
+        pathMentionTimer = null
+    }
+    pathMentionVisible.value = false
+    pathMentionEntries.value = []
+    pathMentionIndex.value = 0
+    pathMentionStart = -1
+    pathMentionEnd = -1
+}
+
+/** 输入事件驱动：按当前光标解析 @ token 并拉取目录条目（120ms 防抖 + seq 过期守卫）。
+ *  无 token / 无匹配 / 目录不存在 / 网络失败 → 静默收起。 */
+const updatePathMention = (caret: number, agentId: string | null) => {
+    const token = parseMentionToken(inputText.value, caret)
+    if (!token) {
+        closePathMention()
+        return
+    }
+    const absolute = isAbsolutePathLike(token.query)
+    if (!absolute && !agentId) {
+        // 工作区补全没有 agent 无从列目录（新会话页未选 agent 等）
+        closePathMention()
+        return
+    }
+    const split = splitDirPrefix(token.query)
+    let dirPath = split.dirPath
+    if (absolute && dirPath === '') {
+        // `@/`、`@/ro` 的目录部分在 split 后为空串：绝对分支空段指文件系统根 '/'
+        dirPath = '/'
+    }
+    if (absolute && /^[a-zA-Z]:$/.test(dirPath)) {
+        // 盘符根的 split 产物是裸盘符（'C:/x'、'C:/' → dirPath 'C:'，尾分隔符被吃掉），
+        // 而服务端校验与服务端同口径要求盘符后带分隔符，补回 '/'
+        dirPath += '/'
+    }
+    pathMentionStart = token.start
+    pathMentionEnd = token.end
+    pathMentionAgentId = agentId
+    const seq = ++pathMentionSeq
+    const prefix = split.prefix
+    if (pathMentionTimer !== null) clearTimeout(pathMentionTimer)
+    pathMentionTimer = window.setTimeout(() => {
+        pathMentionTimer = null
+        if (seq !== pathMentionSeq) return
+        const req: Promise<{ entries: TreeEntry[] }> = absolute
+            ? fetchAbsoluteTree(dirPath)
+            : fetchTree(agentId as string, dirPath)
+        req.then(result => {
+            if (seq !== pathMentionSeq) return
+            const entries = filterMentionEntries(result.entries, prefix)
+            if (entries.length === 0) {
+                closePathMention()
+                return
+            }
+            pathMentionEntries.value = entries
+            pathMentionIndex.value = 0
+            pathMentionVisible.value = true
+        }).catch(() => {
+            // 目录不存在（404）/ 越界 / 网络错误：收起不打扰
+            if (seq !== pathMentionSeq) return
+            closePathMention()
+        })
+    }, 120)
+}
+
+// 回焦依赖调用方注入的 textarea 定位器（ChatInput setup 里用 textareaRef 注册）。
+// 不能用 document.querySelector('textarea')：消息区 a2ui longText 字段等更靠前的
+// textarea 常驻 DOM，会抢走焦点。selectCommand/confirmCommandSuggestion 的同款全局
+// 查找是既有行为，未在本次一并改动。
+let textareaResolver: (() => HTMLTextAreaElement | null) | null = null
+const setTextareaResolver = (resolver: () => HTMLTextAreaElement | null) => {
+    textareaResolver = resolver
+}
+
+/** 聚焦输入框并把光标落到指定位置（确认补全后使用） */
+const focusTextareaAt = (caret: number) => {
+    const el = textareaResolver?.() ?? null
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(caret, caret)
+}
+
+/** 确认一条 @ 补全：替换 [start, end) 为 '@'+entry.path；目录补 '/' 续探下一层，
+ *  文件补空格并收起。替换区间是解析时的光标段，光标后的木选文本保留。 */
+const confirmPathMention = (entry: TreeEntry) => {
+    if (pathMentionStart < 0 || pathMentionEnd < 0) return
+    const isDir = entry.type === 'dir'
+    const insert = '@' + entry.path + (isDir ? '/' : ' ')
+    const before = inputText.value.slice(0, pathMentionStart)
+    const after = inputText.value.slice(pathMentionEnd)
+    inputText.value = before + insert + after
+    const newCaret = pathMentionStart + insert.length
+    const agentId = pathMentionAgentId
+    if (isDir) {
+        // 续探：收起旧列表（作废在飞请求），光标就位后按新文本重新解析（拉取该目录内容）
+        closePathMention()
+        nextTick(() => {
+            focusTextareaAt(newCaret)
+            updatePathMention(newCaret, agentId)
+        })
+    } else {
+        closePathMention()
+        nextTick(() => focusTextareaAt(newCaret))
+    }
+}
+
 // ——— 其他 UI 状态 ———
 const isRecording = ref(false)
 const commandDropdownOpen = ref(false)
@@ -60,6 +192,9 @@ const savedDraft = ref('')     // 进入历史浏览前暂存当前输入
 // ——— 命令补全 watch（模块级，只注册一次）———
 const { filterCommands } = useCommandState()
 watch(inputText, (val) => {
+    // 发送后 HomeView 乐观清空输入框等外部置空：补全面板随之收起（历史浏览/命令
+    // 选择等同文件内的程序化修改各自显式关闭，这里兑底一切非 DOM 输入路径）
+    if (!val) closePathMention()
     // 按当前 session 记录输入框内容（草稿）：切换会话时恢复，发送时输入被清空、草稿随之清除。
     // /new 新会话页没有 sessionKey，落到按网关模式区分的哨兵 key 上（两侧服务器互不窜台）
     useInputHistoryStore().setDraft(_sessionKeyResolver?.() || newSessionDraftKeyFor(useUiSettingsStore().activeGatewayId), val)
@@ -103,6 +238,7 @@ const selectCommand = (cmd: string) => {
     inputText.value = cmd + ' '
     commandDropdownOpen.value = false
     commandSuggestionsVisible.value = false
+    closePathMention()
     const el = document.querySelector('textarea') as HTMLTextAreaElement
     if (el) el.focus()
 }
@@ -112,6 +248,7 @@ const confirmCommandSuggestion = (cmd: CommandInfo) => {
     inputText.value = `/${cmd.name} `
     commandSuggestionsVisible.value = false
     commandSuggestions.value = []
+    closePathMention()
     const el = document.querySelector('textarea') as HTMLTextAreaElement
     if (el) el.focus()
 }
@@ -230,9 +367,43 @@ const restoreSessionDraft = () => {
     // 切换会话退出历史浏览态
     historyIndex.value = -1
     savedDraft.value = ''
+    closePathMention()
 }
 
 const handleKeydown = (e: KeyboardEvent, onSend: () => void) => {
+    // ——— @ 路径补全键盘路由 ———
+    // 与命令补全互斥（命令要求全文 ^/ 开头，@ token 以 @ 起头），两块各自判可见即可；
+    // 历史浏览态优先（历史恢复时已显式收起面板，historyIndex!==-1 分支是双保险）。
+    // Tab 仅在面板可见时拦截（否则保持原生焦点移动/ghost 建议等既有路由）；
+    // Shift+Enter 保持换行不确认。
+    if (pathMentionVisible.value && historyIndex.value === -1) {
+        // IME 组合期不接管（组合期 Enter 是确认候选词、方向键属于 IME）；
+        // 带修饰键的方向键（Shift+↑↓ 跨行选文本）/ Shift+Tab（反向焦点移动）不劫持
+        if (e.isComposing || e.keyCode === 229) return
+        const count = pathMentionEntries.value.length
+        if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !e.metaKey) {
+            e.preventDefault()
+            if (count > 0) pathMentionIndex.value = (pathMentionIndex.value + 1) % count
+            return
+        }
+        if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && !e.metaKey) {
+            e.preventDefault()
+            if (count > 0) pathMentionIndex.value = (pathMentionIndex.value - 1 + count) % count
+            return
+        }
+        if ((e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) || (e.key === 'Tab' && !e.ctrlKey && !e.shiftKey)) {
+            e.preventDefault()
+            const selected = pathMentionEntries.value[pathMentionIndex.value]
+            if (selected) confirmPathMention(selected)
+            return
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault()
+            closePathMention()
+            return
+        }
+    }
+
     const arrowKeyPriority = decideArrowKeyPriority({
         key: e.key,
         commandSuggestionsVisible: commandSuggestionsVisible.value,
@@ -283,6 +454,7 @@ const handleKeydown = (e: KeyboardEvent, onSend: () => void) => {
                 historyIndex.value--
             }
             suppressCommandSuggestionsOnce.value = true
+            closePathMention()
             inputText.value = history[historyIndex.value]
             return
         }
@@ -299,11 +471,13 @@ const handleKeydown = (e: KeyboardEvent, onSend: () => void) => {
                 if (historyIndex.value < history.length - 1) {
                     historyIndex.value++
                     suppressCommandSuggestionsOnce.value = true
+                    closePathMention()
                     inputText.value = history[historyIndex.value]
                 } else {
                     // 回到最新：恢复草稿
                     historyIndex.value = -1
                     suppressCommandSuggestionsOnce.value = true
+                    closePathMention()
                     inputText.value = savedDraft.value
                 }
                 return
@@ -365,6 +539,7 @@ const appendText = (text: string) => {
     if (!text) return
     historyIndex.value = -1
     savedDraft.value = ''
+    closePathMention()
     const current = inputText.value
     if (!current) {
         inputText.value = text
@@ -400,6 +575,13 @@ const _chatInputState = {
     commandSuggestionIndex,
     confirmCommandSuggestion,
     closeSuggestions,
+    pathMentionVisible,
+    pathMentionEntries,
+    pathMentionIndex,
+    updatePathMention,
+    confirmPathMention,
+    closePathMention,
+    setTextareaResolver,
     pushInputHistory,
     restoreSessionDraft,
     setSessionKeyResolver,

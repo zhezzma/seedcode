@@ -17,7 +17,9 @@ import {
     BoltIcon,
     InboxArrowDownIcon,
     XMarkIcon,
-    SparklesIcon
+    SparklesIcon,
+    FolderIcon,
+    DocumentIcon,
 } from '@heroicons/vue/24/outline'
 import { useChatInput, COMMANDS, type CommandItem } from '../../composables/useChatInput'
 import { useReplySuggestion } from '../../composables/useReplySuggestion'
@@ -79,6 +81,13 @@ const {
     confirmCommandSuggestion,
     closeSuggestions,
     clientCommands,
+    pathMentionVisible,
+    pathMentionEntries,
+    pathMentionIndex,
+    updatePathMention,
+    confirmPathMention,
+    closePathMention,
+    setTextareaResolver,
 } = useChatInput()
 
 // busy 时输入的是命令调用 → 显示原发送按钮而非双胶囊：命令在 HomeView Case 2
@@ -137,6 +146,11 @@ const sourceBadge = (source: CommandInfo['source']) =>
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const commandSuggestionsPanelRef = ref<HTMLDivElement | null>(null)
+const pathMentionPanelRef = ref<HTMLDivElement | null>(null)
+
+// 注入聊天输入框定位器：useChatInput 确认补全后的回焦/光标定位用它，
+// 避免全局 document.querySelector('textarea') 命中消息区更靠前的 a2ui 字段
+setTextareaResolver(() => textareaRef.value)
 
 const { openLightbox } = useMediaPreview()
 
@@ -281,6 +295,16 @@ const adjustHeight = () => {
     }
 }
 
+// textarea 输入事件：除自适应高度外，把光标位置交给 @ 路径补全解析。
+// agentId 每次从 chatState 现取（新会话页/会话页都能解析到当前 agent；不在
+// useChatInput 里 import useChatState，避免 useChatState→router→HomeView→useChatInput
+// 的模块环）。v-model 的 input 监听先于本回调，inputText 已是最新值。
+const onTextareaInput = (e: Event) => {
+    adjustHeight()
+    const el = e.target as HTMLTextAreaElement
+    updatePathMention(el.selectionStart, chatState.currentAgent?.id ?? null)
+}
+
 // Watch input text changes to adjust height (handles clearing)
 watch(inputText, () => {
     nextTick(() => {
@@ -296,6 +320,17 @@ watch(commandSuggestionIndex, () => {
         if (!panel || !commandSuggestionsVisible.value) return
 
         const activeItem = panel.querySelector<HTMLElement>('[data-command-suggestion-active="true"]')
+        activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+})
+
+// @ 路径补全同款：键盘切高亮时滚到可视区（与命令建议同一模式）
+watch(pathMentionIndex, () => {
+    nextTick(() => {
+        const panel = pathMentionPanelRef.value
+        if (!panel || !pathMentionVisible.value) return
+
+        const activeItem = panel.querySelector<HTMLElement>('[data-path-mention-active="true"]')
         activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
 })
@@ -415,9 +450,12 @@ const handleToolbarClickOutside = (event: MouseEvent) => {
         thinkingDropdownOpen.value = false
         permDropdownOpen.value = false
     }
-    // 点击外部时关闭命令补全浮层
+    // 点击外部时关闭命令补全浮层与 @ 路径补全浮层
     if (!target.closest('.command-suggestions-panel') && !target.closest('textarea')) {
         closeSuggestions()
+    }
+    if (!target.closest('.path-mention-panel') && !target.closest('textarea')) {
+        closePathMention()
     }
 }
 
@@ -498,10 +536,39 @@ defineExpose({
             </div>
 
 
+            <!-- @ 路径补全浮层（与命令建议同锚点同结构；互斥不会同屏）。
+                 path-mention-panel 类挂外层（含标题栏）：点击外部关闭的 closest 判定
+                 需覆盖标题栏，否则点自己面板的头部会把自己关掉 -->
+            <div v-if="pathMentionVisible"
+                class="path-mention-panel absolute left-3 right-3 bottom-full mb-2 w-auto max-w-[calc(100vw-1.5rem)] sm:right-auto sm:w-96 sm:max-w-none max-h-64 bg-base-100 border border-base-300 rounded-xl shadow-xl z-[200] overflow-hidden flex flex-col">
+                <div
+                    class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-base-content/40 border-b border-base-300 shrink-0">
+                    文件建议
+                </div>
+                <div ref="pathMentionPanelRef"
+                    class="p-1 flex flex-col overflow-y-auto hover:scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-transparent">
+                    <button v-for="(entry, idx) in pathMentionEntries" :key="entry.path"
+                        @mousedown.prevent="confirmPathMention(entry)" @mouseenter="pathMentionIndex = idx"
+                        :title="entry.path" :data-path-mention-active="idx === pathMentionIndex"
+                        class="flex items-center gap-2 w-full overflow-hidden rounded-lg py-2 px-3 text-left transition-colors shrink-0"
+                        :class="idx === pathMentionIndex ? 'bg-primary/10 text-primary' : 'hover:bg-base-content/10'">
+                        <FolderIcon v-if="entry.type === 'dir'" class="h-4 w-4 shrink-0 opacity-70" />
+                        <DocumentIcon v-else class="h-4 w-4 shrink-0 opacity-70" />
+                        <span
+                            class="font-mono text-sm whitespace-nowrap shrink-0 max-w-[9rem] overflow-hidden text-ellipsis">{{
+                                entry.name }}</span>
+                        <span v-if="entry.type === 'dir'" class="text-sm opacity-50 shrink-0">/</span>
+                        <span class="ml-auto text-xs opacity-50 whitespace-nowrap overflow-hidden text-ellipsis min-w-0">{{
+                                entry.path }}</span>
+                    </button>
+                </div>
+            </div>
+
+
             <textarea ref="textareaRef" v-model="inputText" rows="1"
                 :placeholder="ghostText || (centered ? $t('chat.inputPlaceholderHome') : $t('chat.inputPlaceholder'))"
                 class="textarea textarea-ghost w-full resize-none focus:outline-none focus:bg-transparent text-base min-h-[44px] max-h-[200px] px-3 py-3 leading-6 placeholder:text-base-content/40 hide-scrollbar"
-                @keydown="handleInputKeydown" @focus="handleInputFocus" @input="adjustHeight" @paste="handlePaste"
+                @keydown="handleInputKeydown" @focus="handleInputFocus" @input="onTextareaInput" @paste="handlePaste"
                 :disabled="disabled"></textarea>
 
             <!-- Toolbar Bottom -->
