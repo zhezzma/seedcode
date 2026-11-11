@@ -110,6 +110,8 @@ export interface OpenAICompletionsCompat {
     maxTokensField?: 'max_completion_tokens' | 'max_tokens'
     requiresToolResultName?: boolean
     requiresAssistantAfterToolResult?: boolean
+    requiresNonNullAssistantContent?: boolean
+    requiresToolsWithToolHistory?: boolean
     requiresThinkingAsText?: boolean
     requiresReasoningContentOnAssistantMessages?: boolean
     thinkingFormat?: 'openai' | 'openrouter' | 'deepseek' | 'together' | 'baseten' | 'zai' | 'qwen' | 'chat-template' | 'qwen-chat-template' | 'string-thinking' | 'ant-ling'
@@ -136,6 +138,8 @@ export interface OpenAICompletionsCompat {
     cacheControlFormat?: 'anthropic'
     sendSessionAffinityHeaders?: boolean
     sessionAffinityFormat?: 'openai' | 'openai-nosession' | 'openrouter'
+    /** prompt_cache_key 发送策略（auto=官方端点/长缓存时发；enabled=强制；disabled=不发）。 */
+    promptCacheKeyMode?: 'auto' | 'disabled' | 'enabled'
     supportsLongCacheRetention?: boolean
     /** vLLM 调度优先级（顶层 priority 字段）。 */
     vllmPriority?: number
@@ -158,6 +162,8 @@ export interface AnthropicMessagesCompat {
     supportsMidConvoSystemMessages?: boolean
     /** 对话中段 tool_addition/tool_removal 块（需 supportsMidConvoSystemMessages）。 */
     supportsMidConvoToolChanges?: boolean
+    /** anthropic message threads 续接（thread 字段；代理转发不丢字段时才开）。 */
+    supportsMessageThreads?: boolean
     /** 服务端拒绝降级模型列表（含本地定价）；无 UI，保存时必须透传。 */
     allowedFallbackModels?: Array<{ provider: string; model: string; cost: ModelCost }>
 }
@@ -170,9 +176,13 @@ export interface OpenAIResponsesCompat {
     supportsAdditionalTools?: boolean
     supportsToolSearch?: boolean
     supportsExplicitPromptCacheMode?: boolean
+    /** 对话中段 effort system 消息（同 anthropic；上游 OpenAIResponsesCompat 同字段）。 */
+    supportsMidConvoEffort?: boolean
     supportsMaxOutputTokens?: boolean
     supportsMidConvoSystemMessages?: boolean
     sessionAffinityFormat?: 'openai' | 'openai-nosession' | 'openrouter'
+    /** prompt_cache_key 发送策略（同 OpenAICompletionsCompat）。 */
+    promptCacheKeyMode?: 'auto' | 'disabled' | 'enabled'
     supportsLongCacheRetention?: boolean
 }
 

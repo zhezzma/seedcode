@@ -61,6 +61,8 @@ const OPENAI_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsMidConvoToolAdditions', labelKey: 'provider.compat.supportsMidConvoToolAdditions' },
     { kind: 'bool', name: 'requiresToolResultName', labelKey: 'provider.compat.requiresToolResultName' },
     { kind: 'bool', name: 'requiresAssistantAfterToolResult', labelKey: 'provider.compat.requiresAssistantAfterToolResult' },
+    { kind: 'bool', name: 'requiresNonNullAssistantContent', labelKey: 'provider.compat.requiresNonNullAssistantContent' },
+    { kind: 'bool', name: 'requiresToolsWithToolHistory', labelKey: 'provider.compat.requiresToolsWithToolHistory' },
     { kind: 'bool', name: 'requiresThinkingAsText', labelKey: 'provider.compat.requiresThinkingAsText' },
     { kind: 'bool', name: 'requiresReasoningContentOnAssistantMessages', labelKey: 'provider.compat.requiresReasoningContentOnAssistantMessages' },
     { kind: 'bool', name: 'zaiToolStream', labelKey: 'provider.compat.zaiToolStream' },
@@ -70,6 +72,7 @@ const OPENAI_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'enum', name: 'maxTokensField', labelKey: 'provider.compat.maxTokensField', options: ['max_completion_tokens', 'max_tokens'] },
     { kind: 'enum', name: 'thinkingFormat', labelKey: 'provider.compat.thinkingFormat', options: ['openai', 'openrouter', 'deepseek', 'together', 'baseten', 'zai', 'qwen', 'chat-template', 'qwen-chat-template', 'string-thinking', 'ant-ling'] },
     { kind: 'enum', name: 'sessionAffinityFormat', labelKey: 'provider.compat.sessionAffinityFormat', options: ['openai', 'openai-nosession', 'openrouter'] },
+    { kind: 'enum', name: 'promptCacheKeyMode', labelKey: 'provider.compat.promptCacheKeyMode', options: ['auto', 'disabled', 'enabled'] },
 ]
 
 // 无 UI 的字段（嵌套对象与标量数字）：编辑 provider 时必须透传，否则 PATCH 会冲掉 models.json 里的配置。
@@ -84,6 +87,7 @@ const ANTHROPIC_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsMidConvoEffort', labelKey: 'provider.compat.supportsMidConvoEffort' },
     { kind: 'bool', name: 'supportsMidConvoSystemMessages', labelKey: 'provider.compat.supportsMidConvoSystemMessages' },
     { kind: 'bool', name: 'supportsMidConvoToolChanges', labelKey: 'provider.compat.supportsMidConvoToolChanges' },
+    { kind: 'bool', name: 'supportsMessageThreads', labelKey: 'provider.compat.supportsMessageThreads' },
     { kind: 'bool', name: 'supportsLongCacheRetention', labelKey: 'provider.compat.supportsLongCacheRetention' },
     { kind: 'bool', name: 'sendSessionAffinityHeaders', labelKey: 'provider.compat.sendSessionAffinityHeaders' },
     { kind: 'bool', name: 'supportsTemperature', labelKey: 'provider.compat.supportsTemperature' },
@@ -100,10 +104,12 @@ const OPENAI_RESPONSES_COMPAT_FIELDS: CompatFieldDef[] = [
     { kind: 'bool', name: 'supportsAdditionalTools', labelKey: 'provider.compat.supportsAdditionalTools' },
     { kind: 'bool', name: 'supportsToolSearch', labelKey: 'provider.compat.supportsToolSearch' },
     { kind: 'bool', name: 'supportsExplicitPromptCacheMode', labelKey: 'provider.compat.supportsExplicitPromptCacheMode' },
+    { kind: 'bool', name: 'supportsMidConvoEffort', labelKey: 'provider.compat.supportsMidConvoEffort' },
     { kind: 'bool', name: 'supportsMaxOutputTokens', labelKey: 'provider.compat.supportsMaxOutputTokens' },
     { kind: 'bool', name: 'supportsMidConvoSystemMessages', labelKey: 'provider.compat.supportsMidConvoSystemMessages' },
     { kind: 'bool', name: 'supportsLongCacheRetention', labelKey: 'provider.compat.supportsLongCacheRetention' },
     { kind: 'enum', name: 'sessionAffinityFormat', labelKey: 'provider.compat.sessionAffinityFormat', options: ['openai', 'openai-nosession', 'openrouter'] },
+    { kind: 'enum', name: 'promptCacheKeyMode', labelKey: 'provider.compat.promptCacheKeyMode', options: ['auto', 'disabled', 'enabled'] },
 ]
 
 const compatFields = computed<CompatFieldDef[]>(() => {

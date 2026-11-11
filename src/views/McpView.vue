@@ -43,7 +43,7 @@ import {
     formToPayload,
     isOAuthServer,
     logLineClass,
-    mcpToolName,
+    mcpToolNames,
     MCP_LOG_LEVELS,
     needsAuthPolling,
     needsConvergePolling,
@@ -80,6 +80,9 @@ let editToken = 0
 // 工具抽屉
 const toolsTarget = ref<McpServerItem | null>(null)
 const tools = ref<Array<{ name: string; description?: string }>>([])
+/** 原始工具名 → 注册名（mcp__<server>__<tool>，撞名/超长带 hash 后缀；
+ *  与服务端上游 createMcpToolName 同序计算，见 utils/mcp.ts）。 */
+const toolDisplayNames = ref<Map<string, string>>(new Map())
 const toolsState = ref<McpServerState>('disabled')
 const toolsLoading = ref(false)
 /** 工具请求代次：后发者覆盖先到者。 */
@@ -438,6 +441,7 @@ async function openTools(item: McpServerItem) {
     const seq = ++toolsSeq
     toolsLoading.value = true
     tools.value = []
+    toolDisplayNames.value = new Map()
     toolsState.value = 'disabled'
     try {
         const res = await apiGet<{ tools?: Array<{ name: string; description?: string }>; state?: McpServerState }>(
@@ -446,9 +450,13 @@ async function openTools(item: McpServerItem) {
         )
         if (seq !== toolsSeq) return // 已被更新的请求取代
         tools.value = res?.tools ?? []
+        toolDisplayNames.value = mcpToolNames(item.id, tools.value.map((t) => t.name))
         toolsState.value = res?.state ?? 'disabled'
     } catch {
-        if (seq === toolsSeq) tools.value = []
+        if (seq === toolsSeq) {
+            tools.value = []
+            toolDisplayNames.value = new Map()
+        }
     } finally {
         if (seq === toolsSeq) toolsLoading.value = false
     }
@@ -1325,7 +1333,7 @@ onUnmounted(() => {
                 </div>
                 <ul v-else class="space-y-2 max-h-[60vh] overflow-y-auto">
                     <li v-for="tool in tools" :key="tool.name" class="border border-base-300 rounded-lg p-3">
-                        <div class="font-mono text-sm">{{ mcpToolName(toolsTarget?.id ?? '', tool.name) }}</div>
+                        <div class="font-mono text-sm">{{ toolDisplayNames.get(tool.name) ?? tool.name }}</div>
                         <div v-if="tool.description" class="text-xs opacity-60 mt-1">{{ tool.description }}</div>
                     </li>
                 </ul>

@@ -10,6 +10,7 @@ import {
     BellIcon,
     BellSlashIcon,
     ArrowPathIcon,
+    ArrowsPointingInIcon,
     RectangleGroupIcon,
     QueueListIcon
 } from '@heroicons/vue/24/outline'
@@ -17,6 +18,7 @@ import { isConnected } from '../../composables/notify-server-connection'
 import { useWorkspacePanel } from '../../composables/useWorkspacePanel'
 
 import ViewHeader from '../ViewHeader.vue'
+import SessionCompactionModal from './SessionCompactionModal.vue'
 import { NEW_SESSION_ROUTE_NAME } from '../../utils/route-helpers'
 import { useChatState } from '../../composables/useChatState'
 import { apiPost } from '../../composables/api-client'
@@ -42,6 +44,8 @@ const panel = useWorkspacePanel()
 const showStatusTip = ref(false)
 const notifyEnabled = ref(false)
 const notifyLoading = ref(false)
+/** 会话级压缩设置弹窗（pi-durable 1.5.1；仅既有会话可开——新会话页无 sessionId）。 */
+const compactionModalOpen = ref(false)
 
 const isSession = computed(() => Boolean(chatState.sessionKey))
 
@@ -139,7 +143,9 @@ defineExpose({
         <template #title>
             <div class="flex-1 flex items-center min-w-0">
                 <div v-if="isSession" class="lg:pl-5 font-semibold flex items-center gap-2 min-w-0 flex-1">
-                    <span class="truncate max-w-[150px] lg:max-w-none text-lg">{{ sessionName }}</span>
+                    <!-- 会话名仅 PC 显示：移动端顶栏空间紧张（新增压缩设置按钮后放不下），
+                         移动端靠 agent 徽章 + 会话列表辨识当前会话 -->
+                    <span class="truncate max-w-[300px] lg:max-w-none text-lg hidden lg:inline">{{ sessionName }}</span>
                     <span v-if="chatState.agentsSelectedId"
                         class="badge badge-sm badge-ghost shrink-0 max-w-[10ch] overflow-hidden align-middle"
                         :title="chatState.agentsSelectedId">
@@ -215,6 +221,13 @@ defineExpose({
                 <!-- Background subagents 入口已迁至输入框上方 dock 区（BgAgentsBar）：
                      PC/移动端统一，顶栏不再放按钮 -->
 
+                <!-- Session compaction settings：会话级压缩覆盖（跟随/覆盖 agent 默认）。
+                     PC/移动共用；移动端顶栏为此隐藏了会话名（见上方 title 区）。 -->
+                <button v-if="isSession" @click="compactionModalOpen = true"
+                    class="btn btn-ghost btn-circle btn-xs" :title="$t('chat.compaction.title')">
+                    <ArrowsPointingInIcon class="h-5 w-5" />
+                </button>
+
                 <!-- Workspace panel toggle: PC 与移动端共用（移动端在 ChatHeader
                      按钮区开 right-drawer，与左侧 sidebar drawer 对称）。
                      无 agent 选中时隐藏，避免点开个空 drawer。 -->
@@ -226,4 +239,8 @@ defineExpose({
             </div>
         </template>
     </ViewHeader>
+
+    <!-- 会话级压缩设置（pi-durable 1.5.1）：按钮在上方 actions 区，弹窗挂在页尾 -->
+    <SessionCompactionModal :open="compactionModalOpen" :session-id="chatState.sessionKey ?? ''"
+        @close="compactionModalOpen = false" />
 </template>

@@ -2,13 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+    createMcpToolName,
     emptyForm,
     errorsForAuthMode,
     errorsForTransportKind,
     formFromItem,
     formToPayload,
     logLineClass,
-    mcpToolName,
+    mcpToolNames,
     MCP_LOG_LEVELS,
     needsAuthPolling,
     needsConvergePolling,
@@ -18,6 +19,7 @@ import {
     stateTone,
     validateForm,
 } from '../src/utils/mcp.ts'
+import { createHash } from 'node:crypto'
 import type { McpFormErrorKey, McpServerItem } from '../src/utils/mcp.ts'
 
 /** 最小 http 型服务器条目（新字段测试的基底）。 */
@@ -352,10 +354,31 @@ test('formFromItem: 回填编辑表单（stdio 含 env / http 含 oauth）', () 
     assert.deepEqual(form2.extraTransport, { env: { A: '1' }, inheritEnv: false })
 })
 
-test('mcpToolName: 与服务端一致的清洗与前缀', () => {
-    assert.equal(mcpToolName('fs', 'read.file'), 'mcp_fs_read_file')
-    assert.equal(mcpToolName('a-b', 'x y/z'), 'mcp_a-b_x_y_z')
-    assert.equal(mcpToolName('s', 'x'.repeat(80)).length, 64)
+test('createMcpToolName: 与服务端上游一致（mcp__ 前缀、清洗、64 截断 + sha256 后缀）', () => {
+    // 期望值由服务端仓 node 直跑 @earendil-works/pi-mcp createMcpToolName 生成钉死
+    assert.equal(createMcpToolName('fs', 'read.file'), 'mcp__fs__read_file')
+    // `-` 也清洗为 `_`（上游 Codex 同款，与旧版单下划线行为不同）
+    assert.equal(createMcpToolName('a-b', 'x y/z'), 'mcp__a_b__x_y_z')
+    // >64 字符：截断 + `_` + sha256(`${server}\0${tool}`) 前 8 位 hex
+    assert.equal(createMcpToolName('s', 'x'.repeat(80)), 'mcp__s__xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_cbf4205d')
+    // 撞名（isTaken）：同基名后到者换 hash 后缀，两个工具都保留
+    assert.equal(createMcpToolName('srv', 'a-b', (n) => n === 'mcp__srv__a_b'), 'mcp__srv__a_b_3d325570')
+    assert.equal(createMcpToolName('srv', 'a_b', (n) => n === 'mcp__srv__a_b'), 'mcp__srv__a_b_5c15ffbd')
+    // vendored sha256 与 node:crypto 对拍（UTF-8 输入，含非 ASCII；hash 输入 = `${server}\0${tool}`）
+    const longTool = 'y'.repeat(80)
+    for (const s of ['', 'srv', 'rea', '中_文']) {
+        const expect = createHash('sha256').update(`${s}\0${longTool}`).digest('hex')
+        const name = createMcpToolName(s, longTool)
+        assert.ok(name.endsWith(`_${expect.slice(0, 8)}`), `hash mismatch for ${JSON.stringify(s)}`)
+    }
+})
+
+test('mcpToolNames: 同 server 批量，撞名按序走 hash 后缀', () => {
+    const map = mcpToolNames('srv', ['a-b', 'a_b', 'plain'])
+    // 先到者占基名，后到者（清洗后同名）获 hash 后缀
+    assert.equal(map.get('a-b'), 'mcp__srv__a_b')
+    assert.equal(map.get('a_b'), 'mcp__srv__a_b_5c15ffbd')
+    assert.equal(map.get('plain'), 'mcp__srv__plain')
 })
 
 test('stateTone / needsAuthPolling / needsConvergePolling', () => {
