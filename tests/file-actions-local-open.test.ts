@@ -48,8 +48,8 @@ test('useFileActions: 本地打开菜单项 —— runOpener 统一入口 + open
         /toast\.error\(`\$\{tr\(labelKey\)\}: \$\{e\?\.message \|\| String\(e\)\}`\)/,
         'runOpener must own the toast.error with action-name prefix (single source)',
     )
-    assert.match(src, /runOpener\('workspace\.menu\.openLocally'/, 'open action must route through runOpener with its label key')
-    assert.match(src, /runOpener\('workspace\.menu\.revealInFileManager'/, 'reveal action must route through runOpener with its label key')
+    assert.match(src, /runOpenerAction\('workspace\.menu\.openLocally'/, 'open action must route through runOpenerAction with its label key')
+    assert.match(src, /runOpenerAction\('workspace\.menu\.revealInFileManager'/, 'reveal action must route through runOpenerAction with its label key')
     assert.match(src, /o\.openPath\(absPath\)/, 'open action must call openPath with absolute path')
     assert.match(src, /o\.revealItemInDir\(absPath\)/, 'reveal action must call revealItemInDir with absolute path')
     // 绝对路径复用既有 helper（root 由调用方透入）

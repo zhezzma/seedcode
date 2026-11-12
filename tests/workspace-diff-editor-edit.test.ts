@@ -178,3 +178,10 @@ test('GitTab: discard 后 diff 分支尊重 dirty buffer（deleted 确认 / reve
     assert.match(revert[0], /dirty[\s\S]*?wsFile/,
         'reverted diff must skip reload when buffer is dirty')
 })
+
+test('DiffEditor: expose content（viewer ⋮ 菜单复制 modified 侧实时内容用）', () => {
+    const src = read('src/components/workspace/WorkspaceDiffEditor.vue')
+    const expose = src.match(/defineExpose\(\{[\s\S]*?\n\}\)/)
+    assert.ok(expose, 'defineExpose must exist')
+    assert.match(expose[0], /\bcontent\b/, 'must expose content ref (modified side live value)')
+})

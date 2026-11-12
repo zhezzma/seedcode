@@ -85,7 +85,7 @@ export function buildAbsolutePath(root: string | null, relPath: string): string 
 /** 把文件内容包成 fenced code block。
  *  关键：扫一遭 content 中最长连续反引号，外层用 N+1 个（至少 3），否则 README
  *  / SKILL.md 里本身的 ``` 会提前关闭外层、让 chat 渲染乱。CommonMark 允许任意 ≥3 个。 */
-function fenceContent(path: string, content: string): string {
+export function fenceContent(path: string, content: string): string {
     const longest = (content.match(/`+/g) || []).reduce((m, s) => Math.max(m, s.length), 0)
     const fence = '`'.repeat(Math.max(3, longest + 1))
     return `\n${fence}${guessLang(path)} title="${path}"\n${content}\n${fence}\n`
@@ -106,8 +106,10 @@ function guessLang(path: string): string {
 
 /** entry.path 的父目录（去掉最后一段）；根是 ""。与 parentOf 区别：这个始终去掉一段，
  *  用于删除场景——被删者本身不再存在，只能刷新它的原父。 */
-function parentDir(p: string): string {
-    const i = p.lastIndexOf('/')
+export function parentDir(p: string): string {
+    // 分隔符无关（/ 与 \）：viewer 菜单「在终端中打开」直接传 buildAbsolutePath 的
+    // 产物，Windows 上是反斜杠路径；文件树调用方传正斜杠相对路径，行为不变。
+    const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
     return i === -1 ? '' : p.slice(0, i)
 }
 
@@ -279,6 +281,21 @@ export async function openInTerminalAt(dirAbsPath: string | null): Promise<void>
     }
 }
 
+/** opener 动作统一入口：动态加载插件（与 local-server.ts 同模式，非 Tauri 不加载）
+ *  + 失败 toast（带动作名前缀）。文件树菜单与 viewer 菜单共用。 */
+export async function runOpenerAction(
+    labelKey: string,
+    run: (opener: typeof import('@tauri-apps/plugin-opener')) => Promise<void>,
+) {
+    const toast = useToast()
+    try {
+        const opener = await import('@tauri-apps/plugin-opener')
+        await run(opener)
+    } catch (e: any) {
+        toast.error(`${tr(labelKey)}: ${e?.message || String(e)}`)
+    }
+}
+
 export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
     const { entry, scope, agentId, root, onMutated, onDeleted } = args
     const isFile = entry.type === 'file'
@@ -299,25 +316,11 @@ export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
     const showLocalOpen = shouldShowLocalOpenItems(isTauri, effectiveGatewayMode())
     const absPath = buildAbsolutePath(root, entry.path)
 
-    /** opener 动作统一入口：动态加载插件（与 local-server.ts 同模式，非 Tauri 不加载）
-     *  + 失败 toast（带动作名前缀）。 */
-    const runOpener = async (
-        labelKey: string,
-        run: (opener: typeof import('@tauri-apps/plugin-opener')) => Promise<void>,
-    ) => {
-        try {
-            const opener = await import('@tauri-apps/plugin-opener')
-            await run(opener)
-        } catch (e: any) {
-            toast.error(`${tr(labelKey)}: ${e?.message || String(e)}`)
-        }
-    }
-
     /** 目录 → 系统文件管理器；文件 → 系统默认关联程序。 */
-    const openWithLocalApp = () => runOpener('workspace.menu.openLocally', o => o.openPath(absPath))
+    const openWithLocalApp = () => runOpenerAction('workspace.menu.openLocally', o => o.openPath(absPath))
 
     /** 打开所在目录并选中该项（文件 / 目录皆可）。 */
-    const revealInFileManager = () => runOpener('workspace.menu.revealInFileManager', o => o.revealItemInDir(absPath))
+    const revealInFileManager = () => runOpenerAction('workspace.menu.revealInFileManager', o => o.revealItemInDir(absPath))
 
     /** 文件行入口：目录 → 它自身；文件 → 其父目录（终端只能 cd 进目录）。 */
     const openInTerminal = () => openInTerminalAt(root ? buildAbsolutePath(root, parentOf(entry)) : null)

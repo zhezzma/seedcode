@@ -163,15 +163,20 @@ test('useFileActions.buildAbsolutePath: 跨平台拼接 + 缺省安全退退', (
     )
 })
 
-test('useFileActions: i18n key 与原 copyPath 不再共存', () => {
+test('useFileActions: copyPath key 归属 viewer 菜单，文件树不回退到单一 copyPath', () => {
     const en = read('src/i18n/en.ts')
     const zh = read('src/i18n/zh.ts')
     assert.match(en, /copyAbsolutePath:/, 'en must define copyAbsolutePath')
     assert.match(en, /copyRelativePath:/, 'en must define copyRelativePath')
     assert.match(zh, /copyAbsolutePath:/, 'zh must define copyAbsolutePath')
     assert.match(zh, /copyRelativePath:/, 'zh must define copyRelativePath')
-    assert.doesNotMatch(en, /copyPath:/, 'en must drop the legacy copyPath key')
-    assert.doesNotMatch(zh, /copyPath:/, 'zh must drop the legacy copyPath key')
+    // copyPath 重生为 viewer 菜单（useViewerActions）的单一「复制路径」项：
+    // viewer 只有一项（绝对路径，root 缺失退回相对），与文件树的绝对/相对拆分不冲突。
+    // 文件树菜单源码仍不得引用它（拆分是 UX 调整，不回退）。
+    assert.match(en, /copyPath:/, 'en must define copyPath for the viewer menu')
+    assert.match(zh, /copyPath:/, 'zh must define copyPath for the viewer menu')
+    const va = read('src/composables/useViewerActions.ts')
+    assert.match(va, /workspace\.menu\.copyPath/, 'viewer menu must own the copyPath key')
 })
 
 test('useFileActions: mutation 三件套（newFile / newDir / delete）均存在', () => {
@@ -355,4 +360,12 @@ test('useFileActions: upload 相关 i18n 双侧补齐', () => {
     assert.match(zh, /upload: '上传文件'/, 'zh upload')
     assert.match(zh, /uploadedMany: '已上传 \{count\} 个文件'/, 'zh uploadedMany')
     assert.match(zh, /uploadPartial: '已上传 \{ok\} 个，\{failed\} 个失败'/, 'zh uploadPartial')
+})
+
+test('useFileActions.parentDir: 分隔符无关（Windows 反斜杠绝对路径也能取父目录）', () => {
+    // viewer 菜单「在终端中打开」直接传 buildAbsolutePath 的产物；Windows 上是
+    // 反斜杠路径，只认 / 的 parentDir 会返回 '' → openInTerminalAt('') 静默 no-op。
+    // 文件树调用方传正斜杠相对路径，lastIndexOf('\\') 恒为 -1，行为不变。
+    assert.match(src, /export function parentDir\(p: string\): string \{[\s\S]*?lastIndexOf\('\\\\'\)/,
+        'parentDir must handle backslash separators too')
 })

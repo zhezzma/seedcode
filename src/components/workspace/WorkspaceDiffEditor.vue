@@ -355,6 +355,8 @@ defineExpose({
     previewMode,
     togglePreview,
     getUnifiedDiff,
+    /** modified 侧实时内容（onDidChangeContent 同步）：viewer ⋮ 菜单「复制内容」用 */
+    content,
     isDirty,
     isSaving,
     save,

@@ -26,7 +26,7 @@ import {
     EyeSlashIcon,
     ViewColumnsIcon,
     Bars3Icon,
-    ClipboardDocumentIcon,
+    EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline'
 import WorkspaceFileView from './WorkspaceFileView.vue'
 import WorkspaceDiffEditor from './WorkspaceDiffEditor.vue'
@@ -34,8 +34,8 @@ import ViewHeader from '../ViewHeader.vue'
 import { previewableExt } from '../../composables/workspace-api'
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useConfirm } from '../../composables/useConfirm'
-import { useToast } from '../../composables/useToast'
-import { writeClipboard } from '../../utils/clipboard'
+import { useContextMenu } from '../../composables/useContextMenu'
+import { buildViewerMenuItems } from '../../composables/useViewerActions'
 
 const props = defineProps<{
     agentId: string
@@ -65,6 +65,16 @@ const breadcrumb = computed(() => {
         return tgt.repo === '.' ? `${tgt.file}${sha}` : `${tgt.repo} / ${tgt.file}${sha}`
     }
     return ''
+})
+
+/** 移动端面包屑：只显示文件名（全路径在窄屏截断后可读性差）；PC 端仍显示全路径。 */
+const breadcrumbShort = computed(() => {
+    const tgt = target.value
+    if (!tgt) return ''
+    if (tgt.type === 'text') return tgt.title || t('fileViewer.preview')
+    const p = tgt.type === 'diff' ? tgt.file : tgt.path
+    const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+    return i === -1 ? p : p.slice(i + 1)
 })
 
 // ── file 模式按钮状态：通过 fileViewRef.value 直接读 expose 的 ref ──
@@ -153,16 +163,25 @@ async function onClickSaveDiff() {
     await diffViewRef.value.save()
 }
 
-/** 复制当前内容到剪贴板（file 模式）。content 是编辑器实时内容，含未保存修改。 */
-async function onClickCopy() {
-    const text = fileViewRef.value?.content ?? ''
-    if (!text) return
-    try {
-        await writeClipboard(text)
-        useToast().success(t('common.copied'))
-    } catch {
-        // 剪贴板权限失败：静默即可（浏览器/WebView 受限场景罕见）
-    }
+// ── ⋮ 更多菜单：复用单例 ContextMenu（与文件树 kebab 同链路），菜单工厂见 useViewerActions ──
+const ctxMenu = useContextMenu()
+
+/** 内容 getter 取编辑器实时值（含未保存修改）；onClose 走本组件 confirm-aware close，
+ *  发送类动作关 viewer 时 dirty buffer 不静默丢弃。 */
+function onMoreMenuClick(e: MouseEvent) {
+    const tgt = target.value
+    if (!tgt) return
+    ctxMenu.openAtElement(
+        buildViewerMenuItems({
+            agentId: props.agentId,
+            target: tgt,
+            fileContent: () => fileViewRef.value?.content ?? '',
+            diffContent: () => diffViewRef.value?.content ?? '',
+            getUnifiedDiff: () => diffViewRef.value?.getUnifiedDiff() ?? Promise.resolve(''),
+            onClose: close,
+        }),
+        e.currentTarget as HTMLElement,
+    )
 }
 
 function onClickPreview() {
@@ -181,27 +200,13 @@ function onClickDiffPreview() {
     diffViewRef.value?.togglePreview()
 }
 
-/** 复制 diff 模式的 unified diff 文本（git 原生输出，按需拉取）。 */
-const isCopyingDiff = ref(false)
-async function onClickCopyDiff() {
-    if (!diffViewRef.value || isCopyingDiff.value) return
-    isCopyingDiff.value = true
-    try {
-        const text = await diffViewRef.value.getUnifiedDiff()
-        if (!text) return
-        await writeClipboard(text)
-        useToast().success(t('common.copied'))
-    } catch {
-        // 拉取 diff 走网络，失败给出可感知提示（与 file 复制仅剪贴板静默失败不同）
-        useToast().error(t('common.networkError'))
-    } finally {
-        isCopyingDiff.value = false
-    }
-}
-
 async function onEscape(e: KeyboardEvent) {
     if (e.key !== 'Escape') return
     if (e.isComposing) return
+    // ⋮ 菜单打开时 Esc 只关菜单（分层关闭，同 ChatInput 下拉惯例）：ContextMenu 是
+    // 文档级单例且先注册，菜单自己会关；这里必须让位，否则菜单后面的 viewer 也被
+    // 连带关掉（dirty 时还会弹丢弃确认）。
+    if (ctxMenu.visible) return
     const tag = (e.target as HTMLElement | null)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
     e.preventDefault()
@@ -260,9 +265,11 @@ watch(target, () => {
             <template #title>
                 <!-- max-w：移动端标题视觉上限（同 ChatHeader）；正确性由 ViewHeader 左区容器
                      min-w-0 兜底（容器可缩 → 截断必生效，按钮不会被挤出视口）。
-                     dirty 点放 truncate 元素外（shrink-0），路径截断时不被一起裁掉 -->
+                     dirty 点放 truncate 元素外（shrink-0），路径截断时不被一起裁掉。
+                     移动端只显示文件名（全路径截断后可读性差），PC 端显示全路径 -->
                 <div class="flex-1 min-w-0 flex items-center gap-1 max-w-[150px] lg:max-w-none">
-                    <span class="min-w-0 truncate text-sm font-mono text-base-content/70" :title="breadcrumb">{{ breadcrumb }}</span>
+                    <span class="min-w-0 truncate text-sm font-mono text-base-content/70 lg:hidden" :title="breadcrumbShort">{{ breadcrumbShort }}</span>
+                    <span class="min-w-0 truncate text-sm font-mono text-base-content/70 hidden lg:inline" :title="breadcrumb">{{ breadcrumb }}</span>
                     <span v-if="(isFileMode && fileIsDirty) || diffIsDirty" class="text-warning shrink-0">●</span>
                 </div>
             </template>
@@ -279,11 +286,6 @@ watch(target, () => {
                             {{ filePreviewMode ? $t('workspace.previewExit') : $t('workspace.preview') }}
                         </span>
                     </button>
-                    <button class="btn btn-ghost btn-sm gap-1" :title="$t('common.copy')"
-                        :disabled="!fileViewRef?.content" @click="onClickCopy">
-                        <ClipboardDocumentIcon class="h-4 w-4" />
-                        <span class="hidden md:inline text-xs">{{ $t('common.copy') }}</span>
-                    </button>
                     <button class="btn btn-sm gap-1"
                         :class="fileIsDirty && !fileIsReadOnly ? 'btn-primary' : 'btn-ghost'"
                         :disabled="fileSaveDisabled" :title="$t('workspace.save') + ' (Ctrl+S)'"
@@ -295,7 +297,8 @@ watch(target, () => {
                     </button>
                 </template>
 
-                <!-- diff 模式按钮：Preview（按需）+ Save（仅可编辑）+ Copy unified diff + Split / Inline 切换 -->
+                <!-- diff 模式按钮：Preview（按需）+ Save（仅可编辑）+ Split / Inline 切换；
+                     复制类动作在下方 ⋮ 菜单（复制路径/diff/内容、下载 .patch） -->
                 <template v-else-if="target?.type === 'diff'">
                     <button v-if="showDiffPreviewButton" class="btn btn-sm gap-1"
                         :class="diffPreviewMode ? 'btn-primary' : 'btn-ghost'"
@@ -316,11 +319,6 @@ watch(target, () => {
                             {{ diffIsSaving ? $t('workspace.saving') : $t('workspace.save') }}
                         </span>
                     </button>
-                    <button class="btn btn-ghost btn-sm gap-1" :title="$t('common.copy')"
-                        :disabled="isCopyingDiff" @click="onClickCopyDiff">
-                        <ClipboardDocumentIcon class="h-4 w-4" />
-                        <span class="hidden md:inline text-xs">{{ $t('common.copy') }}</span>
-                    </button>
                     <button class="btn btn-ghost btn-sm gap-1"
                         :title="diffSideBySide ? $t('workspace.diffInline') : $t('workspace.diffSplit')"
                         @click="onClickToggleSplit">
@@ -331,6 +329,14 @@ watch(target, () => {
                         </span>
                     </button>
                 </template>
+
+                <!-- ⋮ 更多：复制/发送/下载/本地打开（file、diff、text 各自组菜单，见 useViewerActions）。
+                     复用单例 ContextMenu（与文件树 kebab 同链路）；a11y 同 FileTreeNode kebab -->
+                <button type="button" class="btn btn-ghost btn-sm btn-circle shrink-0"
+                    :aria-label="$t('workspace.menu.more')" :title="$t('workspace.menu.more')"
+                    aria-haspopup="menu" @click="onMoreMenuClick">
+                    <EllipsisVerticalIcon class="h-5 w-5" />
+                </button>
             </template>
         </ViewHeader>
 
