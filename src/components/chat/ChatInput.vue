@@ -396,6 +396,13 @@ const handlePaste = (e: ClipboardEvent) => {
     if (!items) return
 
     for (const item of items) {
+        // 粘贴视频：与选择/拖入同口径交给 addAttachment（提示改用路径引用），不静默丢弃
+        if (item.type.startsWith('video/')) {
+            e.preventDefault()
+            const blob = item.getAsFile()
+            if (blob) addAttachment(new File([blob], 'clipboard-video', { type: item.type }))
+            continue
+        }
         if (item.type.startsWith('image/')) {
             e.preventDefault()
             const blob = item.getAsFile()

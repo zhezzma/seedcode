@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createI18n } from 'vue-i18n'
 import zhMessages from '../src/i18n/zh.ts'
 import enMessages from '../src/i18n/en.ts'
 
@@ -61,4 +62,40 @@ test('i18n: src 中所有字面量 $t()/t() 键在 zh 与 en 中均存在（通�
     }
     assert.deepEqual(missingZh, [], `keys missing in zh.ts:\n  ${missingZh.join('\n  ')}`)
     assert.deepEqual(missingEn, [], `keys missing in en.ts:\n  ${missingEn.join('\n  ')}`)
+})
+
+/** 递归收集全部字符串词条的点分键 */
+function collectMessageKeys(node: Record<string, unknown>, prefix = '', out: string[] = []): string[] {
+    for (const [k, v] of Object.entries(node)) {
+        const key = prefix ? `${prefix}.${k}` : k
+        if (typeof v === 'string') out.push(key)
+        else if (v && typeof v === 'object') collectMessageKeys(v as Record<string, unknown>, key, out)
+    }
+    return out
+}
+
+test('i18n: zh/en 全部词条能被 vue-i18n 编译（裸 @ { } | 等语法字符必须转义）', () => {
+    // 键存在性测试抓不到消息语法错误：裸 @ 会被当链接消息，t() 运行时抛
+    // 「Invalid linked format」——字面量需写成 {'@'}
+    const i18n = createI18n({
+        legacy: false,
+        locale: 'zh',
+        messages: { zh: zhMessages, en: enMessages } as never,
+        missingWarn: false,
+        fallbackWarn: false,
+        warnHtmlMessage: false,
+    })
+    const broken: string[] = []
+    for (const [locale, messages] of [['zh', zhMessages], ['en', enMessages]] as const) {
+        const keys = collectMessageKeys(messages as Record<string, unknown>)
+        assert.ok(keys.length > 100, `${locale} 词条收集过少（${keys.length}），扫描器可能失效`)
+        for (const key of keys) {
+            try {
+                i18n.global.t(key, {}, { locale })
+            } catch (error) {
+                broken.push(`${locale} ${key}: ${(error as Error).message.split('\n')[0]}`)
+            }
+        }
+    }
+    assert.deepEqual(broken, [], `无法编译的词条:\n  ${broken.join('\n  ')}`)
 })

@@ -35,7 +35,7 @@ export interface DeliverableSummary {
 }
 
 export interface DisplayBlock {
-    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables' | 'subagent-report' | 'music-report'
+    type: 'text' | 'tool' | 'image' | 'thinking' | 'error' | 'unknown' | 'a2ui' | 'a2ui_loading' | 'a2ui-action' | 'compacting' | 'deliverables' | 'subagent-report' | 'music-report' | 'video-report'
     text?: string
     /** thinking 块专用：仍处于流式增长中（delta 正落在该块上）→ 纯文本直播，不做 markdown 渲染。
      * 语义是「曾经增长过」（保守，交错推理防抖见 chat-attach.markLiveStreamBlock） */
@@ -82,6 +82,13 @@ export interface DisplayBlock {
     musicUrl?: string
     /** 失败：上游 taskId（排查锚点，卡片脚注）。 */
     musicTaskId?: string
+    // video-report 块专用：视频生成后台任务回执（seedagent video-task.ts
+    // injectVideoReport 的两仓文本契约——前缀 [视频生成完成/失败]）
+    videoStatus?: 'completed' | 'error'
+    /** 完成：视频播放地址（/assets/...，卡内常驻 <video> 预览）。 */
+    videoUrl?: string
+    /** 失败：上游 taskId（排查锚点，卡片脚注）。 */
+    videoTaskId?: string
 }
 
 export interface DisplayMessage {
@@ -457,6 +464,7 @@ const RECEIPT_CUSTOM_TYPES = new Set(['bash-receipt', 'command-response'])
 
 import { extractMessageText, parseSubagentReport } from '../utils/subagentReport.ts'
 import { parseMusicReport } from '../utils/musicReport.ts'
+import { parseVideoReport } from '../utils/videoReport.ts'
 
 export function useChatMessages(state: ChatStateShape) {
 
@@ -644,6 +652,36 @@ export function useChatMessages(state: ChatStateShape) {
                                 ? { musicUrl: resolveMediaUrl(musicReport.url, settings.apiBaseUrl) }
                                 : {}),
                             ...(musicReport.taskId !== undefined ? { musicTaskId: musicReport.taskId } : {}),
+                        }],
+                        timestamp: msg.timestamp,
+                        entryId: msg.entryId,
+                        parentEntryId: msg.parentEntryId,
+                    })
+                    continue
+                }
+            }
+
+            // 1.17 视频生成回执（两仓文本契约：[视频生成完成/失败] 前缀的 user 输入，
+            // seedagent video-task.ts injectVideoReport 产出）：模型消化用的工作面，
+            // 展示层渲染为独立回执气泡（相机徽标 + 状态 + 描述/原因，完成带卡内
+            // 常驻 <video> 预览）——语义与 music-report 回执泡一致（同独立成泡）
+            if (msg.role === 'user') {
+                const videoText = extractMessageText(msg.content)
+                const videoReport = videoText !== null ? parseVideoReport(videoText) : null
+                if (videoReport) {
+                    displayMessages.push({
+                        id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                        role: 'assistant',
+                        blocks: [{
+                            type: 'video-report',
+                            videoStatus: videoReport.status,
+                            text: videoReport.text,
+                            // 播放地址同图片块规则拼 apiBaseUrl：服务端注入 /assets 相对地址，
+                            // Tauri 壳 origin（tauri://localhost）下裸相对链接是死链
+                            ...(videoReport.url !== undefined
+                                ? { videoUrl: resolveMediaUrl(videoReport.url, settings.apiBaseUrl) }
+                                : {}),
+                            ...(videoReport.taskId !== undefined ? { videoTaskId: videoReport.taskId } : {}),
                         }],
                         timestamp: msg.timestamp,
                         entryId: msg.entryId,

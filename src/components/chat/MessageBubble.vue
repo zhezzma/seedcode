@@ -12,6 +12,7 @@ import {
     CheckCircleIcon,
     ExclamationCircleIcon,
     MusicalNoteIcon,
+    VideoCameraIcon,
     PlayIcon,
     PauseIcon
 } from '@heroicons/vue/24/outline'
@@ -124,6 +125,19 @@ const onMusicPlay = () => {
 // audio 留在头部不进正文——折叠卸载不打断播放，虚拟滚动保活照常生效
 const musicOpen = ref(false)
 const toggleMusicOpen = (): void => { musicOpen.value = !musicOpen.value }
+
+// ── 视频回执卡：卡内常驻 <video>（原生 controls）——折叠只卸载下方正文，播放不中断 ──
+// 虚拟滚动保活：VirtualMessageList 对含 !paused 媒体的行保持挂载（通用 audio/video
+// 检测自动覆盖）。全局单播：play 时经 chat-media 单点暂停其他聊天媒体（markdown
+// 内嵌 + 其他音乐/视频卡）。
+const onVideoReportPlay = (event: Event) => {
+    const el = event.target
+    if (el instanceof HTMLVideoElement) pauseOtherChatMedia(el)
+}
+// 视频回执折叠态（对位音乐卡：头部点击开合，收起时正文零挂载；<video> 在卡内
+// 常驻不受折叠影响）
+const videoOpen = ref(false)
+const toggleVideoOpen = (): void => { videoOpen.value = !videoOpen.value }
 
 // A2UI action handling
 function onA2UIAction(action: any, dataModel: Record<string, any>, surfaceId: string, sourceComponentId: string) {
@@ -726,6 +740,45 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                             </div>
                             <div v-if="block.musicTaskId" class="mt-1 font-mono text-xs opacity-50">
                                 taskId: {{ block.musicTaskId }}
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 视频生成回执（[视频生成完成/失败] user 输入的回执气泡唯一块）：
+                         相机徽标 + 状态 + 卡内常驻 <video>（原生 controls + preload=metadata
+                         + playsinline；折叠只卸载下方正文，播放不中断，虚拟滚动保活由
+                         VirtualMessageList 通用 video 检测接管）+ 可折叠正文（描述/原因
+                         + taskId）。卡片结构/头高/内边距对位 music-report 卡 -->
+                    <div v-else-if="block.type === 'video-report'" class="card bg-base-200 overflow-hidden">
+                        <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-sm"
+                            @click="(block.text || block.videoTaskId) && toggleVideoOpen()">
+                            <!-- 相机图标：对位工具卡 w-5 直出无底圈 -->
+                            <div class="flex-none">
+                                <VideoCameraIcon class="w-5 h-5"
+                                    :class="block.videoStatus === 'error' ? 'text-error' : 'text-success'" />
+                            </div>
+                            <div class="flex-1 min-w-0 break-words font-medium text-base-content/80 flex items-center gap-2 flex-wrap">
+                                <span>{{ $t('chat.videoReport.title') }}</span>
+                                <span v-if="block.videoStatus === 'error'" class="badge badge-sm badge-error badge-outline">{{ $t('chat.videoReport.error') }}</span>
+                                <span v-else class="badge badge-sm badge-success badge-outline">{{ $t('chat.videoReport.completed') }}</span>
+                            </div>
+                            <!-- 开合指示（对位工具卡 chevron）：标题区 flex-1 占满后自然贴右 -->
+                            <div class="flex-none text-base-content/50">
+                                <ChevronDownIcon v-if="videoOpen" class="w-4 h-4" />
+                                <ChevronRightIcon v-else class="w-4 h-4" />
+                            </div>
+                        </div>
+                        <!-- 成片预览：卡内常驻（不受折叠影响）；@play 全局单播经
+                             chat-media 暂停其他聊天媒体 -->
+                        <video v-if="block.videoUrl" :src="block.videoUrl" controls preload="metadata" playsinline
+                            data-video-report class="w-full max-h-96 rounded"
+                            @play="onVideoReportPlay" />
+                        <!-- 正文（描述/原因 + taskId）：收起时零挂载；内边距对位工具卡 body -->
+                        <div v-if="videoOpen" class="px-3 py-2 pt-0">
+                            <div v-if="block.text" class="text-sm opacity-90">
+                                <MarkdownRenderer :content="block.text" />
+                            </div>
+                            <div v-if="block.videoTaskId" class="mt-1 font-mono text-xs opacity-50">
+                                taskId: {{ block.videoTaskId }}
                             </div>
                         </div>
                     </div>

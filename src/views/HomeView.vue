@@ -37,6 +37,7 @@ import { useTaskBarState } from '../composables/useTaskBarState'
 import { useGoalState } from '../composables/useGoalState'
 import { useBackgroundAgents } from '../composables/useBackgroundAgents'
 import { useMusicGen } from '../composables/useMusicGen'
+import { useVideoGen } from '../composables/useVideoGen'
 import { SessionRow, useSessionsState } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
@@ -61,6 +62,7 @@ const taskBarState = useTaskBarState()
 const goalbarState = useGoalState()
 const bgAgentsState = useBackgroundAgents()
 const musicGenState = useMusicGen()
+const videoGenState = useVideoGen()
 const sessionsState = useSessionsState()
 const agentsState = useAgentsState()
 const { loadCommands, setCurrentAgent, allCommands, isLoaded } = useCommandState()
@@ -411,6 +413,20 @@ const handleSend = async (mode?: BusySendBehavior) => {
         }
         if (!musicGenState.togglePanel()) {
             useToast().info(t('home.noMusicTasks'))
+        }
+        return
+    }
+
+    // /videobar：客户端命令——切换视频生成状态条（输入框上方 VideoBar 的逐条清单），
+    // 不经服务端。纯 UI 操作 busy 时也放行（同 /musicbar——视频在后台生成、恰恰是
+    // 最需要看进度的时刻）。正则字面量被注册表↔HomeView 对齐测试锚定。
+    const videoBarCommand = /^\/videobar(?:\s|$)/i.test(inputText)
+    if (videoBarCommand && !hasAttachments) {
+        if (chatInputRef.value) {
+            chatInputRef.value.inputText = ''
+        }
+        if (!videoGenState.togglePanel()) {
+            useToast().info(t('home.noVideoTasks'))
         }
         return
     }

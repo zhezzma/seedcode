@@ -98,11 +98,11 @@ test('内嵌播放器共享图片的 hover 下载按钮与包装', () => {
 
 test('一次只播一个：新播放暂停会话内其他 markdown 媒体', () => {
   assert.match(markdownRendererSource, /media\.addEventListener\('play', \(\) => \{\s*\n\s*pauseOtherChatMedia\(media\)\s*\n\s*\}\)/)
-  // 互斥选择器单点在 chat-media.ts（markdown 内嵌 + 音乐回执卡音频共享，防两处
-  // 各自维护漂移）：document 级查询 + 两个媒体面都在选择器里，缺一面即红
+  // 互斥选择器单点在 chat-media.ts（markdown 内嵌 + 音乐回执卡音频 + 视频回执卡
+  // 共享，防三处各自维护漂移）：document 级查询 + 三个媒体面都在选择器里，缺一面即红
   const chatMediaSource = readSource('src/utils/chat-media.ts')
   assert.match(chatMediaSource, /document\.querySelectorAll<HTMLMediaElement>\(CHAT_MEDIA_SELECTOR\)/)
-  assert.match(chatMediaSource, /'\.markdown-body audio, \.markdown-body video, audio\[data-music-audio\]'/)
+  assert.match(chatMediaSource, /'\.markdown-body audio, \.markdown-body video, audio\[data-music-audio\], video\[data-video-report\]'/)
 })
 
 test('流式重渲染播放器保活：v-html 重写前摘下 wrapper、新 DOM 升级后移植回来', () => {

@@ -758,6 +758,23 @@ export default {
             play: '播放',
             pause: '暂停',
         },
+        videoBar: {
+            title: '视频生成',
+            stop: '停止生成（仅排队中的任务能在上游取消，已开始生成的仍会计费）',
+            dismissHint: '关闭状态条（有新视频任务时自动恢复）',
+            status: {
+                working: '生成中',
+                completed: '已完成',
+                error: '失败',
+                aborted: '已停止',
+            },
+        },
+        videoAttachmentRejected: "视频文件不能作为附件发送：请把视频放进工作区，用 {'@'}相对路径 或绝对路径告诉 AI",
+        videoReport: {
+            title: '视频生成回执',
+            completed: '已完成',
+            error: '出错',
+        },
         subagentReport: {
             title: '后台子代理报告',
             completed: '已完成',
@@ -820,6 +837,7 @@ export default {
         noGoalRunning: '当前没有运行中的自动续跑',
         noBackgroundAgents: '当前会话没有后台子代理',
         noMusicTasks: '当前会话没有音乐生成任务',
+        noVideoTasks: '当前会话没有视频生成任务',
         createSessionFailed: '创建会话失败，请重试',
     },
     extensions: {

@@ -24,6 +24,7 @@ const repoRoot = join(testDir, '..')
 const entry = `
 export { useBackgroundAgents } from './src/composables/useBackgroundAgents.ts'
 export { useMusicGen } from './src/composables/useMusicGen.ts'
+export { useVideoGen } from './src/composables/useVideoGen.ts'
 export { emitExtensionEvent } from './src/composables/extension-events.ts'
 export { useChatState } from './src/composables/useChatState'
 `
@@ -87,7 +88,7 @@ const { createApp } = createRenderer<HostNode, HostNode>({
     nextSibling: (n) => (n.parent ? n.parent.children[n.parent.children.indexOf(n) + 1] ?? null : null),
 })
 
-test('首个调用方组件卸载后切到无数据的会话：后台子代理/音乐状态条必须清空，不得残留上个会话', async () => {
+test('首个调用方组件卸载后切到无数据的会话：后台子代理/音乐/视频状态条必须清空，不得残留上个会话', async () => {
     const mod = await loadComposables()
     const chat = mod.useChatState()
     chat.sessionKey = 'A'
@@ -98,6 +99,7 @@ test('首个调用方组件卸载后切到无数据的会话：后台子代理/�
         setup() {
             mod.useBackgroundAgents()
             mod.useMusicGen()
+            mod.useVideoGen()
             return () => null
         },
     })
@@ -106,14 +108,19 @@ test('首个调用方组件卸载后切到无数据的会话：后台子代理/�
 
     const bg = mod.useBackgroundAgents()
     const music = mod.useMusicGen()
+    const video = mod.useVideoGen()
     mod.emitExtensionEvent('ext.subagent_state', {
         agents: [{ name: 'w-alpha', subagentId: 'sub1', conversationId: 'c-alpha', status: 'working', lastActivityAt: 1 }],
     }, 'A')
     mod.emitExtensionEvent('ext.music_state', {
         musics: [{ taskId: 'm-alpha', caption: 'A 的曲子', provider: 'stepmusic', status: 'working', lastActivityAt: 1 }],
     }, 'A')
+    mod.emitExtensionEvent('ext.video_state', {
+        videos: [{ taskId: 'v-alpha', caption: 'A 的视频', model: 'MiniMax-H3', status: 'working', lastActivityAt: 1 }],
+    }, 'A')
     assert.equal(bg.barVisible.value, true, '前置：A 会话后台子代理条可见')
     assert.equal(music.barVisible.value, true, '前置：A 会话音乐条可见')
+    assert.equal(video.barVisible.value, true, '前置：A 会话视频条可见')
 
     // 离开聊天页（首个调用方卸载）→ 回到聊天页（新实例复用同一单例）
     show.value = false
@@ -121,22 +128,26 @@ test('首个调用方组件卸载后切到无数据的会话：后台子代理/�
     show.value = true
     await nextTick()
 
-    // 左侧切到 B：B 无后台子代理/音乐，服务端快照不发事件，只能靠切会话 watch 清空
+    // 左侧切到 B：B 无后台子代理/音乐/视频，服务端快照不发事件，只能靠切会话 watch 清空
     chat.sessionKey = 'B'
     await nextTick()
 
-    // 两条 bar 合并断言：失败时一次 diff 同时看到两边残留
+    // 三条 bar 合并断言：失败时一次 diff 同时看到三边残留
     assert.deepEqual({
         agents: bg.agents.value.map((a: any) => a.name),
         bgBarVisible: bg.barVisible.value,
         musics: music.musics.value.map((m: any) => m.taskId),
         musicBarVisible: music.barVisible.value,
+        videos: video.videos.value.map((v: any) => v.taskId),
+        videoBarVisible: video.barVisible.value,
     }, {
         agents: [],
         bgBarVisible: false,
         musics: [],
         musicBarVisible: false,
-    }, 'B 会话不得残留 A 的后台子代理/音乐任务')
+        videos: [],
+        videoBarVisible: false,
+    }, 'B 会话不得残留 A 的后台子代理/音乐/视频任务')
 
     app.unmount()
 })

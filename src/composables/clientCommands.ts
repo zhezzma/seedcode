@@ -36,6 +36,8 @@ export const CLIENT_COMMANDS: ClientCommand[] = [
     { name: 'bgagents', description: '后台子代理面板', source: 'client', dropdownLabel: '/bgagents (后台子代理面板)', intercept: 'prefix' },
     // 音乐生成状态条切换（输入框上方 MusicBar 的逐曲清单）；无音乐任务时 togglePanel 返 false → toast 提示
     { name: 'musicbar', description: '音乐生成状态条', source: 'client', dropdownLabel: '/musicbar (音乐生成状态条)', intercept: 'prefix' },
+    // 视频生成状态条切换（输入框上方 VideoBar 的逐条清单）；无视频任务时 togglePanel 返 false → toast 提示
+    { name: 'videobar', description: '视频生成状态条', source: 'client', dropdownLabel: '/videobar (视频生成状态条)', intercept: 'prefix' },
 ]
 
 /**

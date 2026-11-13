@@ -3,6 +3,7 @@ import { SpeechRecognitionService } from '../utils/asr/speechRecognition'
 import { takeAudioControl, releaseAudioControl } from '../utils/audioManager'
 import { useUiSettingsStore } from '../stores/setting'
 import { useToast } from './useToast'
+import { i18n } from '../i18n'
 import { readFile } from '../utils/fileReader'
 import { createRuntimeId } from '../utils/runtime-id.ts'
 import { useCommandState, type CommandInfo } from './useCommandState'
@@ -503,8 +504,21 @@ const closeDropdowns = () => {
     modelDropdownOpen.value = false
 }
 
+/** 视频文件判定：MIME 优先；部分平台（.mkv/.avi 拖放、WebView）MIME 为空时按扩展名兜底，
+ *  否则会走 readFileTextAsync 把多 GB 二进制整读成文本 */
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|mkv|avi|webm|wmv|flv|3gp)$/i
+const isVideoFile = (file: File): boolean =>
+    file.type.startsWith('video/') || (!file.type && VIDEO_EXT_RE.test(file.name))
+
 const addAttachment = async (file: File) => {
     try {
+        // 视频文件不再按文本读取（二进制当文本读只会污染上下文，模型也无法用）:
+        // 提示放进工作区用路径引用——generate_video 的素材地址（@相对路径/绝对
+        // 路径）语义，服务端会解析并上传
+        if (isVideoFile(file)) {
+            useToast().warning(i18n.global.t('chat.videoAttachmentRejected'))
+            return
+        }
         const isImage = file.type.startsWith('image/')
         const result = await readFile(file)
         attachments.value.push({

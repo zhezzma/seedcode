@@ -6,11 +6,13 @@ import TaskBar from './TaskBar.vue'
 import GoalBar from './GoalBar.vue'
 import BgAgentsBar from './BgAgentsBar.vue'
 import MusicBar from './MusicBar.vue'
+import VideoBar from './VideoBar.vue'
 import { getChatDockWidgets, registerChatDockWidget } from './chat-dock-registry'
 
 registerChatDockWidget({ id: 'pending-queue', order: 10, component: PendingQueueBar })
 registerChatDockWidget({ id: 'bg-agents', order: 12, component: BgAgentsBar })
 registerChatDockWidget({ id: 'music-bar', order: 14, component: MusicBar })
+registerChatDockWidget({ id: 'video-bar', order: 15, component: VideoBar })
 registerChatDockWidget({ id: 'taskbar', order: 20, component: TaskBar })
 registerChatDockWidget({ id: 'goalbar', order: 5, component: GoalBar })
 

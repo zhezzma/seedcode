@@ -757,6 +757,23 @@ export default {
             play: 'Play',
             pause: 'Pause',
         },
+        videoBar: {
+            title: 'Video Generation',
+            stop: 'Stop generation (only queued tasks can be cancelled upstream; started ones are still billed)',
+            dismissHint: 'Dismiss bar (returns when a new video task is submitted)',
+            status: {
+                working: 'Generating',
+                completed: 'Completed',
+                error: 'Failed',
+                aborted: 'Stopped',
+            },
+        },
+        videoAttachmentRejected: "Video files cannot be sent as attachments: put the video in the workspace and reference it with an {'@'}relative path or an absolute path",
+        videoReport: {
+            title: 'Video generation report',
+            completed: 'Completed',
+            error: 'Error',
+        },
         subagentReport: {
             title: 'Background subagent report',
             completed: 'Completed',
@@ -820,6 +837,7 @@ export default {
         noGoalRunning: 'No auto-continue is currently running',
         noBackgroundAgents: 'No background agents in this session',
         noMusicTasks: 'No music generation tasks in this session',
+        noVideoTasks: 'No video generation tasks in this session',
         createSessionFailed: 'Failed to create session, please retry',
     },
     extensions: {
