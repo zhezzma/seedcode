@@ -42,6 +42,8 @@ import {
 } from '../../utils/tool-diff.ts'
 import ToolDiffView from './ToolDiffView.vue'
 import { sortBackgroundAgents } from '../../utils/background-agents-sort.ts'
+import { extractToolResultImages, toolResultText } from '../../utils/tool-result-media.ts'
+import { useUiSettingsStore } from '../../stores/setting'
 
 const props = defineProps<{
     toolName: string
@@ -56,6 +58,7 @@ const { t } = useI18n()
 const wsViewer = useWorkspaceViewer()
 const traceViewer = useSubagentTrace()
 const chatState = useChatState()
+const settings = useUiSettingsStore()
 
 const isOpen = ref(false)
 
@@ -193,45 +196,17 @@ const formatJson = (data: any) => {
 }
 
 /**
- * 判断结果是否为特定格式：[{ "type": "text", "text": "..." }, ...]
- * 如果是，则提取其文本内容直接显示。
+ * 结果文本部分（纯函数提取，见 utils/tool-result-media.ts）：全文本拼接；
+ * 含 image 块的结果取文本部分（图片由 resultImages 缩略图渲染，base64 不再
+ * JSON 序列化成巨块——read 读图曾整 MB 塞进 <pre>）；null = 回退 JSON 显示。
  */
-const textResultContent = computed(() => {
-    if (!props.result) return null
+const textResultContent = computed(() => toolResultText(props.result))
 
-    // 如果 result 是数组
-    if (Array.isArray(props.result)) {
-        // 检查是否每一项都是 { type: 'text', text: '...' }
-        const isAllText = props.result.every(item =>
-            item &&
-            typeof item === 'object' &&
-            item.type === 'text' &&
-            typeof item.text === 'string'
-        )
-
-        if (isAllText && props.result.length > 0) {
-            return props.result.map(item => item.text).join('\n')
-        }
-
-        // view_image 工具返回 image 块（含几 MB base64），提取文本部分，
-        // 避免把 base64 JSON 序列化渲染。
-        if (props.toolName === 'view_image') {
-            const imageCount = props.result.filter(item => item?.type === 'image').length
-            const textParts = props.result
-                .filter(item => item?.type === 'text' && typeof item.text === 'string')
-                .map(item => item.text)
-            const prefix = `[${imageCount} 张图片]`
-            return textParts.length > 0 ? `${prefix}\n${textParts.join('\n')}` : prefix
-        }
-    }
-
-    // 如果 result 本身就是单一的 { type: 'text', text: '...' }
-    if (props.result && typeof props.result === 'object' && props.result.type === 'text' && typeof props.result.text === 'string') {
-        return props.result.text
-    }
-
-    return null
-})
+/**
+ * 结果 image 块 → 可渲染 src（view_image url 形式经 resolveMediaUrl 拼
+ * apiBaseUrl；read 等 inline base64 拼 data URI）
+ */
+const resultImages = computed(() => extractToolResultImages(props.result, settings.apiBaseUrl))
 
 /**
  * 从文本中提取合法的文件路径（支持 Unix 和 Windows 路径）
@@ -530,14 +505,21 @@ function onHeaderClick() {
                         </button>
                     </div>
 
-                    <!-- 优化：如果包含纯文本结果，直接展示 -->
+                    <!-- 结果图片（view_image url 形式 / read inline base64）：缩略图渲染，
+                         base64 不再 JSON 序列化成巨块 -->
+                    <div v-if="resultImages.length" class="flex flex-wrap gap-2">
+                        <img v-for="(src, i) in resultImages" :key="i" :src="src" :alt="`tool result image ${i + 1}`"
+                            class="max-h-60 max-w-full rounded border border-base-300 object-contain" />
+                    </div>
+
+                    <!-- 文本部分直接展示 -->
                     <div v-if="textResultContent !== null"
                         class="bg-base-300 p-2 rounded text-xs text-base-content/80 whitespace-pre-wrap break-words leading-relaxed overflow-x-auto max-h-96">
                         {{ textResultContent }}
                     </div>
 
-                    <!-- 否则显示原始 JSON 格式 -->
-                    <pre v-else
+                    <!-- 无图片且非文本形状时回退原始 JSON -->
+                    <pre v-else-if="resultImages.length === 0"
                         class="bg-base-300 p-2 rounded text-xs font-mono overflow-x-auto max-h-60">{{ formatJson(result) }}</pre>
                 </div>
 
