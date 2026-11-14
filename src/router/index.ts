@@ -15,6 +15,7 @@ import AgentsView from '../views/AgentsView.vue'
 import ModelsView from '../views/ModelsView.vue'
 import McpView from '../views/McpView.vue'
 import CronView from '../views/CronView.vue'
+import HooksView from '../views/HooksView.vue'
 import LogView from '../views/LogView.vue'
 import PromptsView from '../views/PromptsView.vue'
 
@@ -77,6 +78,11 @@ const router = createRouter({
                     path: 'cron',
                     name: 'cron',
                     component: CronView
+                },
+                {
+                    path: 'hooks',
+                    name: 'hooks',
+                    component: HooksView
                 },
                 {
                     path: 'logs',

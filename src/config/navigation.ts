@@ -6,6 +6,7 @@ import {
     ChatBubbleLeftRightIcon,
     DocumentTextIcon,
     ClockIcon,
+    BoltIcon,
     PuzzlePieceIcon,
     ServerStackIcon
 } from '@heroicons/vue/24/outline'
@@ -18,6 +19,7 @@ import {
     ChatBubbleLeftRightIcon as ChatBubbleLeftRightIconSolid,
     DocumentTextIcon as DocumentTextIconSolid,
     ClockIcon as ClockIconSolid,
+    BoltIcon as BoltIconSolid,
     PuzzlePieceIcon as PuzzlePieceIconSolid,
     ServerStackIcon as ServerStackIconSolid
 } from '@heroicons/vue/24/solid'
@@ -79,6 +81,13 @@ export const ALL_NAV_ITEMS: NavItem[] = [
         icon: ClockIcon,
         activeIcon: ClockIconSolid,
         route: 'cron',
+        showInSidebar: true
+    },
+    {
+        label: 'sidebar.hooks',
+        icon: BoltIcon,
+        activeIcon: BoltIconSolid,
+        route: 'hooks',
         showInSidebar: true
     },
     {
