@@ -7,8 +7,8 @@
  *
  * - file / agent-file / absolute：复制路径（绝对，root 缺失退回相对）/ 复制内容
  *   （编辑器实时值，含未保存修改）/ 复制文件名 / 发送 @引用 / 发送内容 / 下载
- *   （absolute 无 download 端点 → 隐藏）/ 本地打开三件套（/assets URL 不是真实
- *   文件系统路径 → 隐藏）
+ *   （absolute 走 /api/files/download，/assets URL 直连公开端点）/ 本地打开三件套
+ *   （/assets URL 不是真实文件系统路径 → 隐藏）
  * - diff：复制路径 / 复制 diff（git 原生 unified，按需拉取）/ 复制内容（modified 侧
  *   实时值）；发送 @引用 与本地打开仅 unstaged/untracked（staged/commit 的右侧是
  *   index/commit 内容，不是工作区文件）；下载 .patch（可直接 git apply）
@@ -69,8 +69,9 @@ export interface ViewerMenuArgs {
     onClose: () => Promise<void>
 }
 
-/** 下载文件（workspace/agent scope）：常驻 info toast 提示进行中（同 useFileActions.download）。 */
-async function downloadFlow(agentId: string, path: string, scope: 'workspace' | 'agent', name: string) {
+/** 下载文件（workspace/agent/absolute scope）：常驻 info toast 提示进行中（同 useFileActions.download）。
+ *  absolute 分流在 fetchDownload 内部：/assets URL 直连公开端点，真实路径走 /api/files/download。 */
+async function downloadFlow(agentId: string, path: string, scope: 'workspace' | 'agent' | 'absolute', name: string) {
     const toast = useToast()
     const downloadingId = toast.info(tr('workspace.menu.downloading'), 0)
     try {
@@ -178,13 +179,12 @@ export function buildViewerMenuItems(args: ViewerMenuArgs): ContextMenuItem[] {
                     await onClose()
                 },
             },
-            // 下载仅 workspace/agent scope：absolute 走 /api/files/open，无 download 端点
-            ...(scope !== 'absolute' ? [{
+            {
                 label: tr('workspace.menu.download'),
                 icon: ArrowDownTrayIcon,
                 separator: true,
-                action: () => downloadFlow(agentId, target.path, scope as 'workspace' | 'agent', name),
-            }] as ContextMenuItem[] : []),
+                action: () => downloadFlow(agentId, target.path, scope, name),
+            },
             ...(canLocalOpen ? localOpenItems(absPath) : []),
         ]
     }

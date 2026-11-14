@@ -60,10 +60,12 @@ test('useViewerActions: /assets URL 隐藏本地打开三件套（不是真实�
     assert.match(va, /startsWith\('\/assets'\)/, 'must guard /assets prefix')
 })
 
-test('useViewerActions: 下载仅 workspace/agent scope（absolute 无对应端点，隐藏不 disabled）', () => {
-    assert.match(va, /scope !== 'absolute'/, 'download item must be hidden for absolute scope')
+test('useViewerActions: 下载常驻——absolute 也渲染（服务端 /api/files/download 补齐后不再隐藏）', () => {
+    assert.doesNotMatch(va, /scope !== 'absolute'/, 'absolute download gate must be removed')
     assert.match(va, /fetchDownload\(/, 'download must reuse fetchDownload')
     assert.match(va, /saveBlob\(/, 'download must save via saveBlob')
+    // downloadFlow 的 scope 类型收 absolute（/assets 分流在 fetchDownload 内部）
+    assert.match(va, /'workspace' \| 'agent' \| 'absolute'/, 'downloadFlow scope must accept absolute')
 })
 
 test('useViewerActions: 本地打开三件套门控与文件树一致（Tauri+local）+ 终端打开父目录', () => {

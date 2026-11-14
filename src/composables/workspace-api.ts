@@ -313,14 +313,36 @@ function rejectIfTooLarge(response: Response, maxBytes: number | undefined): voi
     }
 }
 
-/** 下载任意文件的原始字节（attachment）。scope 决定走 workspace 还是 agent 配置目录。
- *  与 fetchRawFile 不同：不限扩展名、不设 5MB 上限，后端走流式返回。
+/** 下载任意文件的原始字节（attachment）。scope 决定走 workspace、agent 配置目录还是
+ *  任意绝对路径。与 fetchRawFile 不同：不限扩展名、不设 5MB 上限，后端走流式返回。
  *  返回 Blob，调用方负责落盘 / 触发浏览器下载。 */
 export async function fetchDownload(
     agentId: string,
     path: string,
-    scope: 'workspace' | 'agent' = 'workspace',
+    scope: 'workspace' | 'agent' | 'absolute' = 'workspace',
 ): Promise<Blob> {
+    // absolute scope 分流与 fetchRawFile 同构：/assets/ 前缀是公开静态端点 URL
+    // （image-gen 等 session 图片地址），直连无需 auth；真实文件系统绝对路径走
+    // /api/files/download（与 workspace/agent 的 download 端点不同，无沙箱）。
+    if (scope === 'absolute') {
+        const isAssetUrl = path.startsWith('/assets/')
+        const url = isAssetUrl
+            ? `${baseUrl()}${path}`
+            : `${baseUrl()}/api/files/download?path=${encodeURIComponent(path)}`
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: isAssetUrl ? undefined : authHeaders(),
+        })
+        if (!response.ok) {
+            let msg = `HTTP ${response.status}`
+            try {
+                const body = await response.json()
+                if (body?.error) msg = body.error
+            } catch { /* 二进制响应不是 JSON，忽略 */ }
+            throw new WorkspaceApiError(msg, response.status)
+        }
+        return await response.blob()
+    }
     const endpoint = scope === 'agent' ? 'agent-download' : 'download'
     const url = `${baseUrl()}${base(agentId)}/${endpoint}?path=${encodeURIComponent(path)}`
     const response = await fetch(url, { method: 'GET', headers: authHeaders() })

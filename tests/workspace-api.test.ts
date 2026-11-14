@@ -292,6 +292,49 @@ test('fetchRawFile: absolute + /assets/ 前缀走公开静态端点，不带 aut
     assert.ok(!headers?.['Authorization'])
 })
 
+test('fetchDownload: absolute scope 走 /api/files/download 且带 auth', async () => {
+    let captured: { url: string, init?: RequestInit } | null = null
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+        captured = { url, init }
+        return new Response(new Blob(['x'], { type: 'application/octet-stream' }), { status: 200 })
+    }) as any
+    await api.fetchDownload('coder', '/tmp/pics/a.zip', 'absolute')
+    assert.match(captured!.url, /\/api\/files\/download\?path=%2Ftmp%2Fpics%2Fa\.zip$/)
+    assert.equal((captured!.init!.headers as Record<string, string>)['Authorization'], 'Bearer tk')
+})
+
+test('fetchDownload: absolute + /assets/ 前缀直连公开静态端点，不带 auth', async () => {
+    // 与 fetchRawFile 同构：/assets URL 不是文件系统路径，/api/files/download 只认
+    // 真实绝对路径，直接拼公开端点访问（无需 auth）。
+    let captured: { url: string, init?: RequestInit } | null = null
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+        captured = { url, init }
+        return new Response(new Blob(['x'], { type: 'image/png' }), { status: 200 })
+    }) as any
+    await api.fetchDownload(
+        'coder',
+        '/assets/images/session/01a04b48-13ca-79bd-9be7-1375e7b2d4bd/image-x.png',
+        'absolute',
+    )
+    assert.match(
+        captured!.url,
+        /^http:\/\/localhost:8088\/assets\/images\/session\/01a04b48-13ca-79bd-9be7-1375e7b2d4bd\/image-x\.png$/,
+    )
+    const headers = captured!.init?.headers as Record<string, string> | undefined
+    assert.equal(headers, undefined)
+    assert.ok(!headers?.['Authorization'])
+})
+
+test('fetchDownload: absolute scope 非 2xx 解析 {error} 抛 WorkspaceApiError', async () => {
+    globalThis.fetch = (async () => {
+        return new Response(JSON.stringify({ ok: false, error: 'File does not exist' }), { status: 404 })
+    }) as any
+    await assert.rejects(
+        () => api.fetchDownload('coder', '/tmp/nope.bin', 'absolute'),
+        (err: any) => /File does not exist/.test(err.message),
+    )
+})
+
 test('fetchRawFile: maxBytes 预检——content-length 超限抛 413 不拉 body，未超/缺头放行', async () => {
     // 服务端流式响应都带 content-length；预检避免大文件整段 blob() 进 WebView 内存
     globalThis.fetch = (async () =>
