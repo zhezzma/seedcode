@@ -558,16 +558,15 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                      isBranchTail 门控避免与同回合 assistant 气泡的导航重复渲染同一个 n/n；
                      !isBusy 与 assistant 侧一致：run 期间两侧导航整体不渲染 -->
                 <div v-if="!isBusy && isBranchTail && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
-                    <button @click="emit('navigate-branch', message, 'prev')" :disabled="branchInfo.currentIndex <= 0"
-                        class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300 disabled:opacity-30 disabled:cursor-not-allowed">
+                    <button @click="emit('navigate-branch', message, 'prev')"
+                        class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                         <ChevronLeftIcon class="h-3.5 w-3.5" />
                     </button>
                     <span class="text-xs text-base-content/50 min-w-[2rem] text-center select-none">
                         {{ branchInfo.currentIndex + 1 }}/{{ branchInfo.siblings.length }}
                     </span>
                     <button @click="emit('navigate-branch', message, 'next')"
-                        :disabled="branchInfo.currentIndex >= branchInfo.siblings.length - 1"
-                        class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300 disabled:opacity-30 disabled:cursor-not-allowed">
+                        class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                         <ChevronRightIcon class="h-3.5 w-3.5" />
                     </button>
                 </div>
@@ -849,16 +848,15 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                  且服务端会替换在途 agent 的内存上下文导致 run 失踪；隐藏比禁用更简单一致
                  （服务端 409 兑底非 UI 路径） -->
             <div v-if="!isBusy && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
-                <button @click="emit('navigate-branch', message, 'prev')" :disabled="branchInfo.currentIndex <= 0"
-                    class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300 disabled:opacity-30 disabled:cursor-not-allowed">
+                <button @click="emit('navigate-branch', message, 'prev')"
+                    class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                     <ChevronLeftIcon class="h-3.5 w-3.5" />
                 </button>
                 <span class="text-xs text-base-content/50 min-w-[2rem] text-center select-none">
                     {{ branchInfo.currentIndex + 1 }}/{{ branchInfo.siblings.length }}
                 </span>
                 <button @click="emit('navigate-branch', message, 'next')"
-                    :disabled="branchInfo.currentIndex >= branchInfo.siblings.length - 1"
-                    class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300 disabled:opacity-30 disabled:cursor-not-allowed">
+                    class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                     <ChevronRightIcon class="h-3.5 w-3.5" />
                 </button>
             </div>

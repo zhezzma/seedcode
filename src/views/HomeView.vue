@@ -687,8 +687,12 @@ const navigateBranch = async (msg: DisplayMessage, direction: 'prev' | 'next') =
     const info = getBranchInfo(msg)
     if (!info) return
 
-    const newIndex = direction === 'prev' ? info.currentIndex - 1 : info.currentIndex + 1
-    if (newIndex < 0 || newIndex >= info.siblings.length) return
+    // 循环导航：末支向右绕回首支，首支向左绕到末支（9 → 右 → 1，1 → 左 → 9）。
+    // 渲染门控保证 siblings.length > 1，取模不会出现自导航。
+    const count = info.siblings.length
+    const newIndex = direction === 'prev'
+        ? (info.currentIndex - 1 + count) % count
+        : (info.currentIndex + 1) % count
 
     // 分支锚点记忆：离开某分支时记录停靠条目，切回时优先回到离开时的样子
     // （否则一律下钻到分支最新叶子——fork 停靠在裸 user 消息时会被替换成
