@@ -811,6 +811,11 @@ export default {
         empty: 'No trace yet (subagent has not produced output)',
         cleaned: ' (trace cleaned up or not yet created)',
         loadFailed: 'Failed to load',
+        config: {
+            title: 'Runtime config',
+            hint: 'Takes effect from the next model request',
+            unset: 'Not set',
+        },
     },
     fileViewer: {
         title: 'File Viewer',

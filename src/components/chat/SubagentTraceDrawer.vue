@@ -17,20 +17,26 @@
  *
  * 布局：桌面右侧滑入面板；移动端（<sm）底部 sheet（拖拽条/遮罩点击关闭）。
  */
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
-import { apiGet, ApiError } from '../../composables/api-client'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { apiGet, apiPut, ApiError } from '../../composables/api-client'
 import { onExtensionEvent } from '../../composables/extension-events'
 import { resolveTraceDelta } from '../../utils/subagent-trace-cursor'
 import { i18n } from '../../i18n'
 import { useSubagentTrace, type SubagentTraceTarget } from '../../composables/useSubagentTrace'
+import { splitModelId } from '../../composables/useChatState'
+import { useModelsState } from '../../composables/useModelsState'
 import { createContentConverter, type DisplayMessage, type DisplayBlock } from '../../composables/useChatMessages'
 import { useTTS } from '../../composables/useTTS'
 import { writeClipboard } from '../../utils/clipboard'
 import MessageBubble from './MessageBubble.vue'
+import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
 
 const trace = useSubagentTrace()
 const { currentReadingMsgId, readAloud: ttsReadAloud } = useTTS()
+const modelsState = useModelsState()
+// 会话模型选择器同款模型列表（ComputedRef，模板自动解包）
+const availableModels = modelsState.availableModels
 
 // ─── Tab（每个有 subagentSessionId 的子代理一个）───
 const tabs = computed(() => {
@@ -53,6 +59,159 @@ const traceActive = computed(() => {
     // idle = 后台工人无 run 在跑（BgAgentsBar 眼睛合入行携带）：与终态同样不算活跃直播
     return !!r && r.status !== 'completed' && r.status !== 'error' && r.status !== 'aborted' && r.status !== 'idle'
 })
+
+// ─── 运行配置（GET/PUT /subagents/:subId/config，服务端 ChildConfigView 契约）───
+// 模型/思考档随改随存，从下一次模型请求起生效；PUT 只提交改动的键（provider/model
+// 恒成对提交，服务端 parseConfigBody 校验）。归属校验用 configKey（父会话 + subId），
+// 与 poll 的 pollEpoch 代际同理：切 tab/关抽屉后晚到的响应一律丢弃，不写进当前 tab。
+interface SubagentRuntimeConfig { provider?: string; model?: string; thinkingLevel: string; thinkingLevels: string[] }
+const runtimeConfig = ref<SubagentRuntimeConfig | null>(null)
+/** 配置读写失败的内联提示（静默 GET 与 PUT 404/409 均不弹全局 toast，在此呈现） */
+const configError = ref('')
+/** save 代际（竞态防线，发起时递增占代）：连续两次保存时，后发起的 PUT 使
+ *  先发起的在途响应全部作废——PUT1 晚到的成功/失败响应不再覆盖 PUT2 的结果；
+ *  loadRuntimeConfig 发起时快照，期间发起过 save（不等完成）则晚到的 GET
+ *  响应已过期，丢弃——防止旧值覆盖刚保存的新显示、或 GET 成功路径清掉刚写入
+ *  的内联保存错误（与 configKey 守卫同理）。 */
+let saveEpoch = 0
+/** `${parentSessionId}::${subId}`，缺一为 ''：key 变化 = 切 tab / 开关抽屉 */
+const configKey = computed(() => {
+    const t = trace.current.value
+    const subId = activeSubId.value
+    return t && subId ? `${t.parentSessionId}::${subId}` : ''
+})
+
+async function loadRuntimeConfig(): Promise<void> {
+    const key = configKey.value
+    const epoch = saveEpoch
+    const t = trace.current.value
+    const subId = activeSubId.value
+    if (!key || !t || !subId) return
+    try {
+        const res = await apiGet<SubagentRuntimeConfig>(
+            `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}/config`,
+            true, // 静默：失败写内联 configError，不打断轨迹浏览
+        )
+        if (configKey.value !== key) return // 晚到（切 tab/关抽屉）：丢弃
+        if (epoch !== saveEpoch) return // 期间发起过 save：响应是旧值，丢弃防覆盖刚保存的显示
+        runtimeConfig.value = res
+        configError.value = ''
+    } catch (e: any) {
+        if (configKey.value !== key) return
+        if (epoch !== saveEpoch) return // 同上：save 发起后的晚到失败不再改写当前状态
+        configError.value = e?.message || (i18n.global as any).t('subagentTrace.loadFailed')
+    }
+}
+
+async function saveRuntimeConfig(patch: { provider?: string; model?: string; thinkingLevel?: string }): Promise<void> {
+    const key = configKey.value
+    const t = trace.current.value
+    const subId = activeSubId.value
+    if (!key || !t || !subId) return
+    // 发起即占代：连续两次保存（如先改模型再改档位）时，后发起的 PUT 使本请求
+    // 的响应变过期——PUT1 晚到的响应落地前发现 epoch 已前进即丢弃，否则会把
+    // PUT2 刚写入的显示回显成旧值（正是本竞态的根因）
+    const epoch = ++saveEpoch
+    try {
+        const res: SubagentRuntimeConfig = await apiPut(
+            `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}/config`,
+            patch,
+        )
+        if (configKey.value !== key) return
+        // 已有更新的 save 发起（epoch 前进）：本响应属旧保存，丢弃防回显旧值
+        if (epoch !== saveEpoch) return
+        // 成功用响应整体替换（含按新模型算出的 thinkingLevels）
+        runtimeConfig.value = res
+        configError.value = ''
+    } catch (e) {
+        if (configKey.value !== key) return
+        // 已有更新的 save 发起：本失败不覆盖其结果（最新保存的响应自有最新代
+        // 兄落地）
+        if (epoch !== saveEpoch) return
+        // 404/409 走 api-client 的 SILENT_CODES 不弹全局 toast，在此内联显示
+        // （与 GET 404 同通道；409 服务端此路由目前不返回，防御性保留——
+        // api-client 的 SILENT_CODES 含它，将来返回也不至于无反馈）；其他码仍
+        // 走全局 toast。数据层保持原值不动。
+        if (e instanceof ApiError && (e.code === 404 || e.code === 409)) {
+            configError.value = e.message
+        }
+        // 其他错误：保持原值，详情由全局 toast 显示
+    }
+}
+
+/** 切 tab / 开关抽屉：清空重读（模型列表冷启动兜底同 AgentSubagents） */
+watch(configKey, (key) => {
+    runtimeConfig.value = null
+    configError.value = ''
+    if (key) {
+        if (modelsState.providers.value.length === 0) {
+            // 失败仅影响下拉内容（空列表），不静默 Promise 拒绝
+            void modelsState.loadModels().catch(() => { })
+        }
+        void loadRuntimeConfig()
+    }
+}, { immediate: true })
+
+// 模型下拉（复用 ModelSelectMenuContent）：手动 ref 开合，触发按钮 @click.stop +
+// document 点击按包含关系关外（菜单开合模式照 AgentFormModal）
+const modelMenuOpen = ref(false)
+const modelMenuRef = ref<HTMLElement | null>(null)
+
+/** 当前模型 composite id（'provider/modelId'）；未设置时为 '' */
+const currentModelId = computed(() => {
+    const c = runtimeConfig.value
+    return c?.provider && c?.model ? `${c.provider}/${c.model}` : ''
+})
+
+/** 触发按钮标签：与 ModelSelectMenuContent.currentModelLabel 同规则（未知模型回退原值） */
+const currentModelLabel = computed(() => {
+    const val = currentModelId.value
+    if (!val) return ''
+    for (const group of availableModels.value) {
+        const matched = group.models.find((m) => `${group.provider}/${m.id}` === val)
+        if (matched) return `${group.provider} / ${matched.name}`
+    }
+    return val
+})
+
+function onModelSelect(modelId: string) {
+    modelMenuOpen.value = false
+    const split = splitModelId(modelId)
+    // 拆不开（无 provider 前缀）就忽略：服务端要求 provider/model 成对提交
+    if (!split) return
+    void saveRuntimeConfig({ provider: split.provider, model: split.model })
+}
+
+const handleModelMenuDocClick = (event: MouseEvent) => {
+    if (!modelMenuOpen.value) return
+    if (!modelMenuRef.value?.contains(event.target as Node)) {
+        modelMenuOpen.value = false
+    }
+}
+
+onMounted(() => {
+    document.addEventListener('click', handleModelMenuDocClick)
+})
+
+/** 档位选项：来自 GET 响应；当前档位不在列表（服务端回落标准五档等）时补在首位仍显示 */
+const thinkingLevelOptions = computed<string[]>(() => {
+    const c = runtimeConfig.value
+    if (!c) return []
+    return c.thinkingLevels.includes(c.thinkingLevel) ? c.thinkingLevels : [c.thinkingLevel, ...c.thinkingLevels]
+})
+
+/** 档位文案：标准档走 chat.thinkingLevels.*，未知档原样显示 */
+function thinkingLevelLabel(level: string): string {
+    const g = i18n.global as any
+    const key = `chat.thinkingLevels.${level}`
+    return g.te(key) ? g.t(key) : level
+}
+
+function onThinkingLevelChange(e: Event) {
+    const level = (e.target as HTMLSelectElement).value
+    if (!level || level === runtimeConfig.value?.thinkingLevel) return
+    void saveRuntimeConfig({ thinkingLevel: level })
+}
 
 // ─── 轨迹数据与轮询 ───
 interface TraceEntry {
@@ -204,6 +363,7 @@ onUnmounted(() => {
     pollEpoch++
     stopReconcile()
     unsubscribeTracePush()
+    document.removeEventListener('click', handleModelMenuDocClick)
 })
 
 function startReconcile(): void {
@@ -324,7 +484,10 @@ function statusBadge(r: any): { label: string; cls: string } {
     }
 }
 
-function close() { trace.close() }
+function close() {
+    modelMenuOpen.value = false // 防重开抽屉时残留菜单开合态
+    trace.close()
+}
 </script>
 
 <template>
@@ -364,9 +527,36 @@ function close() { trace.close() }
                     <!-- 状态徽标行 -->
                     <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs text-base-content/50">
                         <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
-                        <span v-if="activeResult.model" class="font-mono">{{ activeResult.model }}</span>
                         <span v-if="Number(activeResult.usage?.turns) > 0">Turn {{ activeResult.usage.turns }}</span>
                     </div>
+                    <!-- 运行配置行：模型 + 思考档（所有有 subId 的 tab 恒显示），改动即时 PUT 下发 -->
+                    <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs">
+                        <span class="text-base-content/50">{{ $t('subagentTrace.config.title') }}</span>
+                        <div ref="modelMenuRef" class="dropdown dropdown-bottom"
+                            :class="{ 'dropdown-open': modelMenuOpen }">
+                            <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen"
+                                class="btn btn-ghost btn-xs font-mono gap-1 normal-case"
+                                :disabled="runtimeConfig === null && !configError">
+                                <!-- 首个配置在途：禁用并显示加载占位，避免短暂误显「未设置」 -->
+                                <span class="truncate max-w-[200px]">{{ runtimeConfig === null && !configError ? $t('common.loading') : (currentModelLabel || $t('subagentTrace.config.unset')) }}</span>
+                                <ChevronDownIcon class="w-3 h-3 shrink-0 opacity-50 transition-transform"
+                                    :class="{ 'rotate-180': modelMenuOpen }" />
+                            </button>
+                            <div v-if="modelMenuOpen"
+                                class="dropdown-content shadow-xl bg-base-100 rounded-box border border-base-300 z-[100] w-72 max-h-96 overflow-hidden flex flex-col mt-1">
+                                <ModelSelectMenuContent :available-models="availableModels"
+                                    :current-model="currentModelId" @select="onModelSelect" />
+                            </div>
+                        </div>
+                        <select v-if="thinkingLevelOptions.length > 0" class="select select-bordered select-xs"
+                            :value="runtimeConfig?.thinkingLevel" @change="onThinkingLevelChange">
+                            <option v-for="level in thinkingLevelOptions" :key="level" :value="level">
+                                {{ thinkingLevelLabel(level) }}
+                            </option>
+                        </select>
+                        <span v-if="configError" class="text-error truncate">{{ configError }}</span>
+                    </div>
+                    <div v-if="activeResult" class="mt-1 text-[10px] text-base-content/40">{{ $t('subagentTrace.config.hint') }}</div>
                 </div>
 
                 <!-- 轨迹内容：与主会话同款 MessageBubble -->

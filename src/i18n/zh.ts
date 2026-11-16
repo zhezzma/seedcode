@@ -811,6 +811,11 @@ export default {
         empty: '暂无轨迹（子代理尚未产出）',
         cleaned: '（轨迹已清理或尚未创建）',
         loadFailed: '加载失败',
+        config: {
+            title: '运行配置',
+            hint: '从下一次模型请求起生效',
+            unset: '未设置',
+        },
     },
     fileViewer: {
         title: '文件查看器',
