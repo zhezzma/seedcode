@@ -528,10 +528,8 @@ function close() {
                             {{ r.agent }}
                         </button>
                     </div>
-                    <!-- 状态徽标 + 运行配置行：模型 + 思考档（有 subId 的 tab 恒显示），改动即时 PUT 下发 -->
+                    <!-- 运行配置行：模型/思考档在前（有 subId 的 tab 恒显示），改动即时 PUT 下发；状态徽标 + Turn 随后 -->
                     <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs">
-                        <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
-                        <span v-if="Number(activeResult.usage?.turns) > 0" class="text-base-content/50">Turn {{ activeResult.usage.turns }}</span>
                         <div ref="modelMenuRef" class="dropdown dropdown-bottom"
                             :class="{ 'dropdown-open': modelMenuOpen }">
                             <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false"
@@ -574,6 +572,8 @@ function close() {
                                 </li>
                             </ul>
                         </div>
+                        <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
+                        <span v-if="Number(activeResult.usage?.turns) > 0" class="text-base-content/50">Turn {{ activeResult.usage.turns }}</span>
                         <span v-if="configError" class="text-error truncate">{{ configError }}</span>
                     </div>
                 </div>
