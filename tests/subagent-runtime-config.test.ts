@@ -81,6 +81,6 @@ test('静态模型文字已移除（会过时，与运行配置行重复）', ()
 
 test('i18n 两种语言都有运行配置文案', () => {
     for (const file of ['src/i18n/zh.ts', 'src/i18n/en.ts']) {
-        assert.match(read(file), /subagentTrace:\s*\{[\s\S]*?config:\s*\{[\s\S]*?title:[\s\S]*?hint:[\s\S]*?unset:/)
+        assert.match(read(file), /subagentTrace:\s*\{[\s\S]*?config:\s*\{[\s\S]*?unset:/)
     }
 })

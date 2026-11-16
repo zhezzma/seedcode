@@ -812,8 +812,6 @@ export default {
         cleaned: ' (trace cleaned up or not yet created)',
         loadFailed: 'Failed to load',
         config: {
-            title: 'Runtime config',
-            hint: 'Takes effect from the next model request',
             unset: 'Not set',
         },
     },

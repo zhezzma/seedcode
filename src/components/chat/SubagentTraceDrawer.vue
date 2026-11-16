@@ -18,7 +18,7 @@
  * 布局：桌面右侧滑入面板；移动端（<sm）底部 sheet（拖拽条/遮罩点击关闭）。
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon, CpuChipIcon, LightBulbIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import { apiGet, apiPut, ApiError } from '../../composables/api-client'
 import { onExtensionEvent } from '../../composables/extension-events'
 import { resolveTraceDelta } from '../../utils/subagent-trace-cursor'
@@ -157,6 +157,10 @@ watch(configKey, (key) => {
 const modelMenuOpen = ref(false)
 const modelMenuRef = ref<HTMLElement | null>(null)
 
+// 思考档下拉：同款手动开合（照 ChatInput 思考菜单，改 dropdown-bottom 适配顶部布局）
+const thinkingMenuOpen = ref(false)
+const thinkingMenuRef = ref<HTMLElement | null>(null)
+
 /** 当前模型 composite id（'provider/modelId'）；未设置时为 '' */
 const currentModelId = computed(() => {
     const c = runtimeConfig.value
@@ -182,11 +186,16 @@ function onModelSelect(modelId: string) {
     void saveRuntimeConfig({ provider: split.provider, model: split.model })
 }
 
+function onThinkingLevelSelect(level: string) {
+    thinkingMenuOpen.value = false
+    if (!level || level === runtimeConfig.value?.thinkingLevel) return
+    void saveRuntimeConfig({ thinkingLevel: level })
+}
+
 const handleModelMenuDocClick = (event: MouseEvent) => {
-    if (!modelMenuOpen.value) return
-    if (!modelMenuRef.value?.contains(event.target as Node)) {
-        modelMenuOpen.value = false
-    }
+    if (!modelMenuOpen.value && !thinkingMenuOpen.value) return
+    if (!modelMenuRef.value?.contains(event.target as Node)) modelMenuOpen.value = false
+    if (!thinkingMenuRef.value?.contains(event.target as Node)) thinkingMenuOpen.value = false
 }
 
 onMounted(() => {
@@ -205,12 +214,6 @@ function thinkingLevelLabel(level: string): string {
     const g = i18n.global as any
     const key = `chat.thinkingLevels.${level}`
     return g.te(key) ? g.t(key) : level
-}
-
-function onThinkingLevelChange(e: Event) {
-    const level = (e.target as HTMLSelectElement).value
-    if (!level || level === runtimeConfig.value?.thinkingLevel) return
-    void saveRuntimeConfig({ thinkingLevel: level })
 }
 
 // ─── 轨迹数据与轮询 ───
@@ -486,6 +489,7 @@ function statusBadge(r: any): { label: string; cls: string } {
 
 function close() {
     modelMenuOpen.value = false // 防重开抽屉时残留菜单开合态
+    thinkingMenuOpen.value = false
     trace.close()
 }
 </script>
@@ -524,21 +528,19 @@ function close() {
                             {{ r.agent }}
                         </button>
                     </div>
-                    <!-- 状态徽标行 -->
-                    <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs text-base-content/50">
-                        <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
-                        <span v-if="Number(activeResult.usage?.turns) > 0">Turn {{ activeResult.usage.turns }}</span>
-                    </div>
-                    <!-- 运行配置行：模型 + 思考档（所有有 subId 的 tab 恒显示），改动即时 PUT 下发 -->
+                    <!-- 状态徽标 + 运行配置行：模型 + 思考档（有 subId 的 tab 恒显示），改动即时 PUT 下发 -->
                     <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs">
-                        <span class="text-base-content/50">{{ $t('subagentTrace.config.title') }}</span>
+                        <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
+                        <span v-if="Number(activeResult.usage?.turns) > 0" class="text-base-content/50">Turn {{ activeResult.usage.turns }}</span>
                         <div ref="modelMenuRef" class="dropdown dropdown-bottom"
                             :class="{ 'dropdown-open': modelMenuOpen }">
-                            <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen"
-                                class="btn btn-ghost btn-xs font-mono gap-1 normal-case"
+                            <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false"
+                                class="btn btn-ghost btn-xs gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all"
                                 :disabled="runtimeConfig === null && !configError">
                                 <!-- 首个配置在途：禁用并显示加载占位，避免短暂误显「未设置」 -->
-                                <span class="truncate max-w-[200px]">{{ runtimeConfig === null && !configError ? $t('common.loading') : (currentModelLabel || $t('subagentTrace.config.unset')) }}</span>
+                                <CpuChipIcon class="h-3.5 w-3.5 shrink-0" />
+                                <span class="truncate max-w-[200px]">{{ runtimeConfig === null && !configError ? $t('common.loading')
+                                    : $t('chat.models') + (currentModelLabel ? '(' + currentModelLabel + ')' : '(' + $t('subagentTrace.config.unset') + ')') }}</span>
                                 <ChevronDownIcon class="w-3 h-3 shrink-0 opacity-50 transition-transform"
                                     :class="{ 'rotate-180': modelMenuOpen }" />
                             </button>
@@ -548,15 +550,32 @@ function close() {
                                     :current-model="currentModelId" @select="onModelSelect" />
                             </div>
                         </div>
-                        <select v-if="thinkingLevelOptions.length > 0" class="select select-bordered select-xs"
-                            :value="runtimeConfig?.thinkingLevel" @change="onThinkingLevelChange">
-                            <option v-for="level in thinkingLevelOptions" :key="level" :value="level">
-                                {{ thinkingLevelLabel(level) }}
-                            </option>
-                        </select>
+                        <div ref="thinkingMenuRef" class="dropdown dropdown-bottom"
+                            :class="{ 'dropdown-open': thinkingMenuOpen }">
+                            <button type="button" @click.stop="thinkingMenuOpen = !thinkingMenuOpen; modelMenuOpen = false"
+                                class="btn btn-ghost btn-xs gap-1 font-normal rounded-full border border-primary/20 hover:bg-base-300 transition-all"
+                                :disabled="runtimeConfig === null && !configError">
+                                <LightBulbIcon class="h-3.5 w-3.5 shrink-0" />
+                                <span class="truncate">{{ runtimeConfig === null && !configError ? $t('common.loading')
+                                    : $t('chat.thinking') + (runtimeConfig ? '(' + thinkingLevelLabel(runtimeConfig.thinkingLevel) + ')' : '') }}</span>
+                                <ChevronDownIcon class="w-3 h-3 shrink-0 opacity-50 transition-transform"
+                                    :class="{ 'rotate-180': thinkingMenuOpen }" />
+                            </button>
+                            <ul v-if="thinkingMenuOpen"
+                                class="dropdown-content menu p-2 shadow-xl bg-base-100 rounded-box border border-base-300 z-[100] w-36 mt-1">
+                                <li class="menu-title"><span>{{ $t('chat.thinkingLevel') }}</span></li>
+                                <li v-for="level in thinkingLevelOptions" :key="level">
+                                    <a @click="onThinkingLevelSelect(level)" class="flex items-center gap-2 rounded-lg"
+                                        :class="{ 'bg-primary/10 text-primary': level === runtimeConfig?.thinkingLevel }">
+                                        <span class="flex-1">{{ thinkingLevelLabel(level) }}</span>
+                                        <CheckIcon v-if="level === runtimeConfig?.thinkingLevel" class="h-4 w-4 shrink-0" />
+                                        <span v-else class="w-4 h-4 shrink-0"></span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                         <span v-if="configError" class="text-error truncate">{{ configError }}</span>
                     </div>
-                    <div v-if="activeResult" class="mt-1 text-[10px] text-base-content/40">{{ $t('subagentTrace.config.hint') }}</div>
                 </div>
 
                 <!-- 轨迹内容：与主会话同款 MessageBubble -->
