@@ -7,7 +7,7 @@ const reposCache = new Map<string, Promise<{ path: string }[]>>()
 </script>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
     WrenchScrewdriverIcon,
@@ -21,7 +21,7 @@ import {
 import { useWorkspaceViewer } from '../../composables/useWorkspaceViewer'
 import { useSubagentTrace } from '../../composables/useSubagentTrace'
 import { useChatState } from '../../composables/useChatState'
-import { fetchRepos, fetchStatus, fetchTree } from '../../composables/workspace-api.ts'
+import { fetchRawFile, fetchRepos, fetchStatus, fetchTree } from '../../composables/workspace-api.ts'
 import {
     extractArgsPaths,
     findRepoFor,
@@ -42,7 +42,7 @@ import {
 } from '../../utils/tool-diff.ts'
 import ToolDiffView from './ToolDiffView.vue'
 import { sortBackgroundAgents } from '../../utils/background-agents-sort.ts'
-import { extractToolResultImages, toolResultText } from '../../utils/tool-result-media.ts'
+import { extractToolResultImages, extractAbsoluteToolResultImagePaths, toolResultText } from '../../utils/tool-result-media.ts'
 import { useUiSettingsStore } from '../../stores/setting'
 
 const props = defineProps<{
@@ -203,10 +203,56 @@ const formatJson = (data: any) => {
 const textResultContent = computed(() => toolResultText(props.result))
 
 /**
+ * 绝对路径 image url（服务端磁盘路径，view_image 传入）→ objectURL：webview
+ * 无法直接当 URL 渲染（盘符被当协议、根路径被拼 apiBaseUrl 后 404），走
+ * fetchRawFile absolute scope（/api/files/raw?path=… 带 auth 拉字节，与
+ * WorkspaceFileView 媒体分支同链路）；拉不到（文件不存在/超限）就少一张，
+ * 不出裂图。watch 源用 join 串比较：流式期间 result 引用每次变化不重拉
+ * 相同内容。agentId 不参与（absolute scope 不用 agent 前缀），无切 agent 竞态。 */
+const absoluteImagePaths = computed(() => extractAbsoluteToolResultImagePaths(props.result))
+const absoluteImageUrls = ref<string[]>([])
+let absoluteImageAbort: AbortController | null = null
+
+watch(() => absoluteImagePaths.value.join('\n'), async (joined) => {
+    absoluteImageAbort?.abort()
+    for (const u of absoluteImageUrls.value) URL.revokeObjectURL(u)
+    absoluteImageUrls.value = []
+    if (!joined) return
+    const abort = new AbortController()
+    absoluteImageAbort = abort
+    const urls: string[] = []
+    for (const p of joined.split('\n')) {
+        try {
+            // 预览大小硬顶与 WorkspaceFileView 媒体分支一致；超限抛错 → catch → 不显示
+            const blob = await fetchRawFile('', p, 'absolute', abort.signal, {
+                maxBytes: 64 * 1024 * 1024,
+            })
+            urls.push(URL.createObjectURL(blob))
+        } catch { /* 拉不到就不显示（不能显示就不显示） */ }
+    }
+    // 过期守卫：重拉/卸载已把本次作废 → 丢弃（不赋值，新值已由新轮回滚为空）
+    if (abort.signal.aborted) {
+        for (const u of urls) URL.revokeObjectURL(u)
+        return
+    }
+    absoluteImageUrls.value = urls
+}, { immediate: true })
+
+onUnmounted(() => {
+    absoluteImageAbort?.abort()
+    for (const u of absoluteImageUrls.value) URL.revokeObjectURL(u)
+    absoluteImageUrls.value = []
+})
+
+/**
  * 结果 image 块 → 可渲染 src（view_image url 形式经 resolveMediaUrl 拼
- * apiBaseUrl；read 等 inline base64 拼 data URI）
+ * apiBaseUrl；read 等 inline base64 拼 data URI；磁盘绝对路径由上方
+ * absoluteImageUrls 拉字节后并入）
  */
-const resultImages = computed(() => extractToolResultImages(props.result, settings.apiBaseUrl))
+const resultImages = computed(() => [
+    ...extractToolResultImages(props.result, settings.apiBaseUrl),
+    ...absoluteImageUrls.value,
+])
 
 /**
  * 从文本中提取合法的文件路径（支持 Unix 和 Windows 路径）
