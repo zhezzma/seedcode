@@ -94,7 +94,7 @@ test('ChatInput：权限选择框 v-if=permAvailable，隐藏时清暂存档位'
     // 精确 class 串，避免纯样式调整误红
     assert.match(
         inputSource,
-        /<div v-if="permAvailable" class="dropdown dropdown-top[^"]*"\s+:class="\{ 'dropdown-open': permDropdownOpen \}">/,
+        /<div v-if="permAvailable && !currentGroupSessionKey" class="dropdown dropdown-top[^"]*"\s+:class="\{ 'dropdown-open': permDropdownOpen \}">/,
         '权限选择框整体 v-if 隐藏（不含模型/思考下拉）',
     )
     assert.match(

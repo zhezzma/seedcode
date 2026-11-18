@@ -8,7 +8,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url))
 const componentPath = path.resolve(testDir, '../src/components/chat/ChatInput.vue')
 const source = readFileSync(componentPath, 'utf8')
 
-const thinkingSectionStart = '<!-- Thinking Level -->'
+const thinkingSectionStart = '<!-- Thinking Level'
 const thinkingSectionEnd = '<!-- Right Actions -->'
 const start = source.indexOf(thinkingSectionStart)
 const end = source.indexOf(thinkingSectionEnd, start)

@@ -77,12 +77,15 @@ const cachedSessionCandidates = computed(() => {
     const sessions = [
         ...(sessionsState.sessionsResult?.sessions || []),
         ...(sessionsState.taskSessionsResult?.sessions || []),
-    ].map(session => ({
+    ]
+        // 群会话不是 cron 执行目标（TaskExecutionTarget 只支持 default/task）
+        .filter(session => session.sessionCategory !== 'group')
+        .map(session => ({
         id: session.id,
         name: session.name,
         agentId: session.agentId,
         agentName: session.agentName,
-        sessionCategory: session.sessionCategory,
+        sessionCategory: session.sessionCategory === 'group' ? undefined : session.sessionCategory,
         modified: typeof session.modified === 'string' ? session.modified : undefined,
     }))
 

@@ -35,7 +35,7 @@ function clampPersistedHeight(h: number, min: number): number {
 function persistPanel(patch: Partial<{
     open: boolean
     width: number
-    tab: 'files' | 'git' | 'agent'
+    tab: 'files' | 'git' | 'agent' | 'groups'
     historyHeight: number
     agentFilesHeight: number
     bottomSections: Partial<{ history: boolean; agentFiles: boolean }>
@@ -66,7 +66,13 @@ export function useWorkspacePanel() {
             const w = store.workspacePanel.width
             return Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, w))
         }),
-        activeTab: computed(() => store.workspacePanel.tab),
+        // 持久化残留值域外（旧 team tab 等）：归位智能体，避免无高亮 tab 且内容落 Git。
+        // 'groups' 仅 hub 面板用（WorkspacePanel panelTab 归一；普通 agent 面板
+        // 永不会写入该值——setTab('groups') 只有 hub tab 条会发）
+        activeTab: computed(() => {
+            const tab = store.workspacePanel.tab
+            return tab === 'files' || tab === 'git' || tab === 'groups' ? tab : 'agent'
+        }),
 
         open() { persistPanel({ open: true }) },
         close() { persistPanel({ open: false }) },
@@ -78,7 +84,7 @@ export function useWorkspacePanel() {
         },
         resetWidth() { persistPanel({ width: PANEL_DEFAULT_WIDTH }) },
 
-        setTab(tab: 'files' | 'git' | 'agent') { persistPanel({ tab }) },
+        setTab(tab: 'files' | 'git' | 'agent' | 'groups') { persistPanel({ tab }) },
 
         // 提交历史区高度：getter clamp 兼底旧持久化数据里的非法值（缺键/null 走默认）。
         historyHeight: computed(() => {

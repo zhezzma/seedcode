@@ -21,9 +21,6 @@ export interface SessionRouteResult<TSession extends SessionRouteRow> {
 export interface SessionRouteBuckets<TSession extends SessionRouteRow> {
     sessionsResult: SessionRouteResult<TSession> | null
     taskSessionsResult: SessionRouteResult<TSession> | null
-    /** 群聊桶（team-chat 扩展：sessionCategory='group' 归入；/info 不感知群，
-     *  归一化前由 useSessionsState 按 agentId grp- 前缀强制改写） */
-    groupSessionsResult: SessionRouteResult<TSession> | null
     archivedSessionsResult: SessionRouteResult<TSession> | null
     deletedSessionsResult: SessionRouteResult<TSession> | null
 }
@@ -36,9 +33,11 @@ export const normalizeSessionRouteState = (routeState?: SessionRouteState): Requ
 
 export const getSessionBucketKey = (routeState?: SessionRouteState): keyof SessionRouteBuckets<SessionRouteRow> => {
     const normalized = normalizeSessionRouteState(routeState)
+    // 优先级：回收站 > 任务（不可归档）> 归档 > 对话。
+    // 群行（sessionCategory='group'）不设独立桶——归对话桶：列表/排序统一随
+    // /api/sessions 服务端投影（归档群仍进归档桶，取消归档/软删恢复后归对话桶）
     if (normalized.deleted) return 'deletedSessionsResult'
     if (normalized.sessionCategory === 'task') return 'taskSessionsResult'
-    if (normalized.sessionCategory === 'group') return 'groupSessionsResult'
     if (normalized.archived) return 'archivedSessionsResult'
     return 'sessionsResult'
 }
@@ -94,7 +93,6 @@ export const moveSessionToRouteState = <TSession extends SessionRouteRow>(
     const nextState: SessionRouteBuckets<TSession> = {
         sessionsResult: removeSessionFromResult(sessionsState.sessionsResult, session.id),
         taskSessionsResult: removeSessionFromResult(sessionsState.taskSessionsResult, session.id),
-        groupSessionsResult: removeSessionFromResult(sessionsState.groupSessionsResult, session.id),
         archivedSessionsResult: removeSessionFromResult(sessionsState.archivedSessionsResult, session.id),
         deletedSessionsResult: removeSessionFromResult(sessionsState.deletedSessionsResult, session.id),
     }
@@ -157,7 +155,6 @@ export const mergeSessionToRouteState = <TSession extends SessionRouteRow & { mo
     const nextState: SessionRouteBuckets<TSession> = {
         sessionsResult: removeSessionFromResult(sessionsState.sessionsResult, session.id),
         taskSessionsResult: removeSessionFromResult(sessionsState.taskSessionsResult, session.id),
-        groupSessionsResult: removeSessionFromResult(sessionsState.groupSessionsResult, session.id),
         archivedSessionsResult: removeSessionFromResult(sessionsState.archivedSessionsResult, session.id),
         deletedSessionsResult: removeSessionFromResult(sessionsState.deletedSessionsResult, session.id),
     }

@@ -38,7 +38,7 @@ import { useGoalState } from '../composables/useGoalState'
 import { useBackgroundAgents } from '../composables/useBackgroundAgents'
 import { useMusicGen } from '../composables/useMusicGen'
 import { useVideoGen } from '../composables/useVideoGen'
-import { SessionRow, useSessionsState } from '../composables/useSessionsState'
+import { SessionRow, useSessionsState, isGroupSessionRow } from '../composables/useSessionsState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useToast } from '../composables/useToast'
 import { useWorkspacePanel } from '../composables/useWorkspacePanel'
@@ -434,6 +434,21 @@ const handleSend = async (mode?: BusySendBehavior) => {
     // /compact 不在此拦截：与其它命令统一走 /chat 命令路径（服务端 streamCommandDeferred
     // 先开流发 compaction_start 驱动瞬态压缩行，完成后回执「会话已压缩」并持久化，
     // 展示与其它命令回执一致）。此前拦截到专用端点 + toast 反馈，交互不统一。
+
+    // 群会话命令守卫（v2）：prompt/skill 资源命令已在服务端 team-chat 端点展开
+    // 投递（与普通会话 /chat 命令路同语义）——放行；内置/扩展命令（/compact
+    // /model 等主会话语义，控制端点打向 hub 壳）仍拦下；未知 /xxx 透传（服务端
+    // 未命中原文投给成员，与普通会话透传语义一致）。上方纯 UI 客户端命令
+    // （tree/taskbar 等面板开关）不受影响。
+    if (currentGroupSessionId.value && inputText.startsWith('/') && !hasAttachments) {
+        const head = (inputText.slice(1).split(/\s/)[0] ?? '').toLowerCase()
+        const blocked = isLoaded.value && allCommands.value.some(cmd =>
+            (cmd.source === 'builtin' || cmd.source === 'extension') && cmd.name.toLowerCase() === head)
+        if (blocked) {
+            useToast().info(t('chat.groupCommandBlocked'), 3000)
+            return
+        }
+    }
 
     // 命令表命令名（builtin+extension+prompt）：null 表示未加载，isCommandInvocation 会保守回退为 startsWith 判断
     const knownCommandNames = isLoaded.value ? allCommands.value.map(cmd => cmd.name) : null
@@ -846,6 +861,23 @@ const showWorkspacePanel = computed(() =>
     wsPanel.isOpen.value && canShowWorkspacePanel.value,
 )
 
+// 当前会话是群（行级身份判定：分类/agentId，非桶位置——归档群也前置群管理
+// tab）→ 右栏前置「群管理」tab（查看/管理群内各 bot）。非群会话不传（tab
+// 不渲染，群管理内容组件不挂载）
+const currentGroupSessionId = computed(() => {
+    const key = chatState.sessionKey
+    if (!key) return undefined
+    const row = useSessionsState().findSessionLocal(key)
+    return row && isGroupSessionRow(row) ? key : undefined
+})
+
+// 群回合等待态（当前会话是群且 queue 非空）：消息区尾部「…」打字点指示器数据源
+const groupTurnBusy = computed(() => {
+    if (!currentGroupSessionId.value) return false
+    const sd = chatState.sessionsMap.get(chatState.sessionKey)
+    return sd?.groupTurnBusy === true
+})
+
 // 移动端判断与 tailwind lg 断点一致（1024px）
 const isMobile = useMediaQuery('(max-width: 1023px)')
 const showWorkspaceViewer = computed(() => wsViewer.isActive.value)
@@ -1079,6 +1111,18 @@ async function applyDefaultSessionBehavior() {
                             @fork="forkMessage" @navigate-branch="navigateBranch" />
                     </div>
 
+                    <!-- 群回合等待态：群消息是后台 durable 任务（无 SSE 流），发送到回复
+                         落位之间消息区零反馈——尾部挂「…」打字点（发送置位 → ext.team_state
+                         终态广播 busy=false 熄灭；接力/后续排队中保持亮） -->
+                    <Transition name="fade-up">
+                        <div v-if="groupTurnBusy" class="mx-auto w-full px-2 py-1"
+                            :class="{ 'lg:pl-4': settingsStore.isSessionTreeRailVisible }">
+                            <div class="chat-bubble bg-base-200/80 px-4 py-2.5 rounded-xl w-fit">
+                                <span class="loading loading-dots loading-sm text-base-content/60"></span>
+                            </div>
+                        </div>
+                    </Transition>
+
                     <!-- Scroll to bottom FAB -->
                     <Transition name="fade-up">
                         <button v-if="userScrolledUp" @click="scrollToBottom(true)"
@@ -1121,7 +1165,7 @@ async function applyDefaultSessionBehavior() {
         <!-- Workspace Panel (PC 右侧侧栏，可拖宽)。!isMobile：移动端由 drawer 实例负责，
              避免 CSS 隐藏的 PC 实例与 drawer 实例同时挂载、双份拉数据。 -->
         <WorkspacePanel v-if="showWorkspacePanel && !isMobile" :agent-id="chatState.agentsSelectedId || ''"
-            class="hidden lg:contents" />
+            :group-session-id="currentGroupSessionId" class="hidden lg:contents" />
 
         <!-- Workspace Panel (移动端右侧 drawer，与 AppSidebar 左侧 drawer 的模式一致)
              drawer-end 让它从右侧滑出。canShow 不含 isOpen： DOM 常驻才能走 daisyUI 动画。
@@ -1133,8 +1177,10 @@ async function applyDefaultSessionBehavior() {
                 @change="(e: Event) => (e.target as HTMLInputElement).checked ? wsPanel.open() : wsPanel.close()" />
             <div class="drawer-side pointer-events-auto h-full">
                 <label for="workspace-drawer" :aria-label="$t('common.close')" class="drawer-overlay app-backdrop"></label>
-                <div class="h-full bg-base-100" style="width: min(85vw, 400px)">
-                    <WorkspacePanel v-if="mobilePanelMounted" :agent-id="chatState.agentsSelectedId || ''" :mobile="true" />
+                <!-- 90vw：四 tab（群/智能体/文件/Git）图标+文字在移动端不换行；500px 上限防平板过宽 -->
+                <div class="h-full bg-base-100" style="width: min(90vw, 500px)">
+                    <WorkspacePanel v-if="mobilePanelMounted" :agent-id="chatState.agentsSelectedId || ''"
+                        :group-session-id="currentGroupSessionId" :mobile="true" />
                 </div>
             </div>
         </div>

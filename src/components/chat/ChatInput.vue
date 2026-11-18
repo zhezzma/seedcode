@@ -20,15 +20,19 @@ import {
     SparklesIcon,
     FolderIcon,
     DocumentIcon,
+    UserCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { useChatInput, COMMANDS, type CommandItem } from '../../composables/useChatInput'
 import { useReplySuggestion } from '../../composables/useReplySuggestion'
 import { useModelsState } from '../../composables/useModelsState'
 import { useChatState, type ChatSendOverrides } from '../../composables/useChatState'
 import type { CommandInfo } from '../../composables/useCommandState'
+import { useSessionsState, isGroupSessionRow } from '../../composables/useSessionsState'
+import { apiGet } from '../../composables/api-client'
 import { useUiSettingsStore, type BusySendBehavior } from '../../stores/setting'
 import { useCommandState } from '../../composables/useCommandState'
 import { isCommandInvocation } from '../../utils/command-invocation'
+import { THINKING_LEVELS, type ThinkingLevel } from '../../utils/thinking-levels'
 import { isClientInterceptedCommand } from '../../composables/clientCommands'
 import { computed } from 'vue'
 import { useMediaPreview } from '../../composables/useMediaPreview'
@@ -87,6 +91,13 @@ const {
     updatePathMention,
     confirmPathMention,
     closePathMention,
+    memberMentionVisible,
+    memberMentionEntries,
+    memberMentionIndex,
+    updateMemberMention,
+    confirmMemberMention,
+    closeMemberMention,
+    setGroupMembers,
     setTextareaResolver,
 } = useChatInput()
 
@@ -127,6 +138,8 @@ const clientCommandItems: CommandItem[] = clientCommands.map(cmd => ({
 
 // 新会话页(centered)：禁用 `/` 触发命令补全浮层。必须在状态源头关，
 // 否则内部 Enter 仍会走“确认补全”而非发送。两种输入框互斥挂载，各自 mount 时按 props 纠正全局开关。
+// 群会话不整体禁用（客户端面板命令在群里可用——服务端命令在 useChatInput
+// 按群过滤，建议只剩客户端命令）。
 commandSuggestionsEnabled.value = !props.centered
 // 开关只阻止“打开”，不复位已开的浮层：从会话页带着打开的面板切到 /new 时补一行保险
 if (!commandSuggestionsEnabled.value) closeSuggestions()
@@ -153,9 +166,6 @@ const pathMentionPanelRef = ref<HTMLDivElement | null>(null)
 setTextareaResolver(() => textareaRef.value)
 
 const { openLightbox } = useMediaPreview()
-
-const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-type ThinkingLevel = typeof THINKING_LEVELS[number]
 
 
 const thinkingDropdownOpen = ref(false)
@@ -295,15 +305,37 @@ const adjustHeight = () => {
     }
 }
 
-// textarea 输入事件：除自适应高度外，把光标位置交给 @ 路径补全解析。
+// textarea 输入事件：除自适应高度外，把光标位置交给补全解析（# 文件 / @ 群成员）。
 // agentId 每次从 chatState 现取（新会话页/会话页都能解析到当前 agent；不在
 // useChatInput 里 import useChatState，避免 useChatState→router→HomeView→useChatInput
 // 的模块环）。v-model 的 input 监听先于本回调，inputText 已是最新值。
+// 两面板互斥：updatePathMention 只认 '#'，updateMemberMention 只认 '@'（群会话且
+// 已注入成员清单时才有候选）。
 const onTextareaInput = (e: Event) => {
     adjustHeight()
     const el = e.target as HTMLTextAreaElement
     updatePathMention(el.selectionStart, chatState.currentAgent?.id ?? null)
+    updateMemberMention(el.selectionStart)
 }
+
+// ——— 群成员清单注入（@ 补全数据源） ———
+// 当前会话是群（行级身份判定：分类/agentId，非桶位置——归档群也生效）→ 拉群
+// 详情注入；离开群/非群 → 清空（面板随收）
+const sessionsState = useSessionsState()
+const currentGroupSessionKey = computed(() => {
+    const key = chatState.sessionKey
+    if (!key) return ''
+    const row = sessionsState.findSessionLocal(key)
+    return row && isGroupSessionRow(row) ? key : ''
+})
+// 名册数据源（v7.4.3 评审 A-4.2）：复用 chatState.sessionData.groupMembers
+// （useChatState 开群/回合边界同源维护）——此前自管 GET，开群与
+// refreshGroupTurnState 并发双请求，且群管理增删成员后 @ 补全名册陈旧
+watch(() => {
+    const key = currentGroupSessionKey.value
+    if (!key) return [] as Array<{ key: string, name: string }>
+    return chatState.sessionsMap.get(key)?.groupMembers ?? []
+}, (members) => setGroupMembers(members ?? []), { immediate: true })
 
 // Watch input text changes to adjust height (handles clearing)
 watch(inputText, () => {
@@ -331,6 +363,18 @@ watch(pathMentionIndex, () => {
         if (!panel || !pathMentionVisible.value) return
 
         const activeItem = panel.querySelector<HTMLElement>('[data-path-mention-active="true"]')
+        activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+})
+
+// @ 群成员补全同款：键盘切高亮时滚到可视区
+const memberMentionPanelRef = ref<HTMLDivElement | null>(null)
+watch(memberMentionIndex, () => {
+    nextTick(() => {
+        const panel = memberMentionPanelRef.value
+        if (!panel || !memberMentionVisible.value) return
+
+        const activeItem = panel.querySelector<HTMLElement>('[data-member-mention-active="true"]')
         activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
 })
@@ -461,8 +505,9 @@ const handleToolbarClickOutside = (event: MouseEvent) => {
     if (!target.closest('.command-suggestions-panel') && !target.closest('textarea')) {
         closeSuggestions()
     }
-    if (!target.closest('.path-mention-panel') && !target.closest('textarea')) {
+    if (!target.closest('.path-mention-panel') && !target.closest('.member-mention-panel') && !target.closest('textarea')) {
         closePathMention()
+        closeMemberMention()
     }
 }
 
@@ -543,14 +588,14 @@ defineExpose({
             </div>
 
 
-            <!-- @ 路径补全浮层（与命令建议同锚点同结构；互斥不会同屏）。
+            <!-- # 文件补全浮层（与命令建议同锚点同结构；互斥不会同屏）。
                  path-mention-panel 类挂外层（含标题栏）：点击外部关闭的 closest 判定
                  需覆盖标题栏，否则点自己面板的头部会把自己关掉 -->
             <div v-if="pathMentionVisible"
                 class="path-mention-panel absolute left-3 right-3 bottom-full mb-2 w-auto max-w-[calc(100vw-1.5rem)] sm:right-auto sm:w-96 sm:max-w-none max-h-64 bg-base-100 border border-base-300 rounded-xl shadow-xl z-[200] overflow-hidden flex flex-col">
                 <div
                     class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-base-content/40 border-b border-base-300 shrink-0">
-                    文件建议
+                    {{ $t('chat.fileMentionTitle') }}
                 </div>
                 <div ref="pathMentionPanelRef"
                     class="p-1 flex flex-col overflow-y-auto hover:scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-transparent">
@@ -567,6 +612,27 @@ defineExpose({
                         <span v-if="entry.type === 'dir'" class="text-sm opacity-50 shrink-0">/</span>
                         <span class="ml-auto text-xs opacity-50 whitespace-nowrap overflow-hidden text-ellipsis min-w-0">{{
                                 entry.path }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- @ 群成员补全浮层（仅群会话；与文件面板互斥：触发符 '@' 只归成员）。
+                 member-mention-panel 同款挂外层供点击外部关闭判定 -->
+            <div v-if="memberMentionVisible"
+                class="member-mention-panel absolute left-3 right-3 bottom-full mb-2 w-auto max-w-[calc(100vw-1.5rem)] sm:right-auto sm:w-72 sm:max-w-none max-h-64 bg-base-100 border border-base-300 rounded-xl shadow-xl z-[200] overflow-hidden flex flex-col">
+                <div
+                    class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-base-content/40 border-b border-base-300 shrink-0">
+                    {{ $t('sidebar.memberMentionTitle') }}
+                </div>
+                <div ref="memberMentionPanelRef"
+                    class="p-1 flex flex-col overflow-y-auto hover:scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-transparent">
+                    <button v-for="(member, idx) in memberMentionEntries" :key="member.key"
+                        @mousedown.prevent="confirmMemberMention(member)" @mouseenter="memberMentionIndex = idx"
+                        :data-member-mention-active="idx === memberMentionIndex"
+                        class="flex items-center gap-2 w-full overflow-hidden rounded-lg py-2 px-3 text-left transition-colors shrink-0"
+                        :class="idx === memberMentionIndex ? 'bg-primary/10 text-primary' : 'hover:bg-base-content/10'">
+                        <UserCircleIcon class="h-4 w-4 shrink-0 opacity-70" />
+                        <span class="text-sm whitespace-nowrap">@{{ member.name }}</span>
                     </button>
                 </div>
             </div>
@@ -590,7 +656,8 @@ defineExpose({
                         <CameraIcon class="h-5 w-5" />
                     </button>
 
-                    <!-- Command（新会话页居中卡片不显示；会话页保持原样） -->
+                    <!-- Command（新会话页居中卡片不显示；群会话保留——下拉里服务端命令段
+                         隐藏（群里不可用，见 useChatInput 群过滤），只列客户端面板命令） -->
                     <div v-if="!centered" class="dropdown dropdown-top "
                         :class="{ 'dropdown-open': commandDropdownOpen }">
                         <button
@@ -603,11 +670,15 @@ defineExpose({
                         </button>
                         <ul v-if="commandDropdownOpen"
                             class="dropdown-content menu p-2 shadow-xl bg-base-100 rounded-box w-56 border border-base-300 mb-2 z-[100]">
-                            <li class="menu-title"><span>{{ $t('chat.commonCommands') }}</span></li>
-                            <li v-for="cmd in COMMANDS" :key="cmd.value">
-                                <a @click="handleCommandSelect(cmd)" class="rounded-lg">{{ cmd.label }}</a>
-                            </li>
-                            <!-- 本地指令：客户端命令注册表派生（/taskbar /tree），不经服务端 -->
+                            <template v-if="!currentGroupSessionKey">
+                                <li class="menu-title"><span>{{ $t('chat.commonCommands') }}</span></li>
+                                <li v-for="cmd in COMMANDS" :key="cmd.value">
+                                    <a @click="handleCommandSelect(cmd)" class="rounded-lg">{{ cmd.label }}</a>
+                                </li>
+                            </template>
+                            <!-- 本地指令：客户端命令注册表派生（/taskbar /tree），不经服务端。
+                                 群聊里这是唯一命令段（常用命令段被上方 template 隐藏），
+                                 标题恒显示——裸列无分组标题（v7.4.3 评审③M3） -->
                             <li v-if="clientCommandItems.length" class="menu-title">
                                 <span>{{ $t('chat.clientCommands') }}</span>
                             </li>
@@ -630,7 +701,7 @@ defineExpose({
 
                     <!-- Permission Mode（第四下拉：新会话页选创建期档位，既有会话即时切档；
                          permission-gate 未启用时整体隐藏） -->
-                    <div v-if="permAvailable" class="dropdown dropdown-top hidden sm:block"
+                    <div v-if="permAvailable && !currentGroupSessionKey" class="dropdown dropdown-top hidden sm:block"
                         :class="{ 'dropdown-open': permDropdownOpen }">
                         <button
                             @click.stop="permDropdownOpen = !permDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; thinkingDropdownOpen = false"
@@ -658,8 +729,8 @@ defineExpose({
                     </div>
 
 
-                    <!-- Model -->
-                    <div class="dropdown dropdown-top" :class="{ 'dropdown-open': modelDropdownOpen }">
+                    <!-- Model（群会话隐藏：模型随成员/扩展默认，切会话模型无意义） -->
+                    <div v-if="!currentGroupSessionKey" class="dropdown dropdown-top" :class="{ 'dropdown-open': modelDropdownOpen }">
                         <button
                             @click.stop="() => { modelDropdownOpen = !modelDropdownOpen; commandDropdownOpen = false; thinkingDropdownOpen = false; permDropdownOpen = false }"
                             class="btn btn-ghost btn-sm gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all"
@@ -678,8 +749,8 @@ defineExpose({
 
 
 
-                    <!-- Thinking Level -->
-                    <div class="dropdown dropdown-top" :class="{ 'dropdown-open': thinkingDropdownOpen }">
+                    <!-- Thinking Level（群会话隐藏：思考随成员/扩展默认） -->
+                    <div v-if="!currentGroupSessionKey" class="dropdown dropdown-top" :class="{ 'dropdown-open': thinkingDropdownOpen }">
                         <button
                             @click.stop="thinkingDropdownOpen = !thinkingDropdownOpen; commandDropdownOpen = false; modelDropdownOpen = false; permDropdownOpen = false"
                             class="btn btn-sm gap-1 font-normal rounded-full transition-all duration-300 border-primary/20 btn-ghost hover:bg-base-300"

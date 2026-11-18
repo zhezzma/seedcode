@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 import { PlusIcon, PencilIcon, TrashIcon, UserGroupIcon, CommandLineIcon, CpuChipIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 import ModelSelectMenuContent from '@/components/models/ModelSelectMenuContent.vue'
 import { apiGet } from '@/composables/api-client'
+import { computeFloatingMenuStyle } from '@/utils/floating-menu'
 
 const props = defineProps<{
     agent: any
@@ -73,27 +74,8 @@ const modelPanelRef = ref<HTMLElement | null>(null)
 const modelDropdownStyle = ref<Record<string, string>>({})
 
 const updateModelDropdownPosition = () => {
-    const rect = modelTriggerRef.value?.getBoundingClientRect()
-    if (!rect) return
-
-    const margin = 8
-    const spaceBelow = window.innerHeight - rect.bottom
-    const spaceAbove = rect.top
-    const openUpward = spaceBelow < 240 && spaceAbove > spaceBelow
-    const maxHeight = Math.max(160, Math.min(320, (openUpward ? spaceAbove : spaceBelow) - margin * 2))
-
-    const style: Record<string, string> = {
-        position: 'fixed',
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        maxHeight: `${maxHeight}px`,
-    }
-    if (openUpward) {
-        style.bottom = `${window.innerHeight - rect.top + 4}px`
-    } else {
-        style.top = `${rect.bottom + 4}px`
-    }
-    modelDropdownStyle.value = style
+    // 公共浮层定位（与 TeamMemberFields 同源；rect 缺失返回 {} 即清位）
+    modelDropdownStyle.value = computeFloatingMenuStyle(modelTriggerRef.value)
 }
 
 const toggleModelDropdown = () => {

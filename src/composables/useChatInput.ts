@@ -8,6 +8,7 @@ import { readFile } from '../utils/fileReader'
 import { createRuntimeId } from '../utils/runtime-id.ts'
 import { useCommandState, type CommandInfo } from './useCommandState'
 import { CLIENT_COMMANDS, filterClientCommands } from './clientCommands'
+import { useSessionsState, isGroupSessionRow } from './useSessionsState'
 import { sortByCommandMatchRank } from '../utils/command-name-match.ts'
 import { useInputHistoryStore, newSessionDraftKeyFor } from '../stores/inputHistory'
 import { decideArrowKeyPriority, shouldOpenCommandSuggestions } from '../utils/chat-input-key-routing.ts'
@@ -65,13 +66,35 @@ const suppressCommandSuggestionsOnce = ref(false)
 const pathMentionVisible = ref(false)
 const pathMentionEntries = ref<TreeEntry[]>([])
 const pathMentionIndex = ref(0)
-let pathMentionStart = -1   // '@' 在全文中的下标（替换区间起点）
+let pathMentionStart = -1   // 触发符在全文中的下标（替换区间起点）
 let pathMentionEnd = -1     // token 尾（替换区间终点，即解析时光标）
 let pathMentionAgentId: string | null = null
 let pathMentionSeq = 0      // 过期守卫：新输入/关闭后自增，在飞响应作废
 let pathMentionTimer: number | null = null
 
-/** 关闭 @ 补全面板并作废在飞请求（不戏 mentionAgentId——立刻重开会用新值覆盖） */
+// ——— 群成员 @ 补全（仅群会话；成员清单由 ChatInput 按当前群注入，本地过滤无网络） ———
+const memberMentionVisible = ref(false)
+const memberMentionEntries = ref<Array<{ key: string, name: string }>>([])
+const memberMentionIndex = ref(0)
+let memberMentionStart = -1
+let memberMentionEnd = -1
+let groupMembers: Array<{ key: string, name: string }> = []
+
+/** ChatInput 在群会话切换时注入成员清单（空数组/清空即关闭成员补全） */
+const setGroupMembers = (members: Array<{ key: string, name: string }>) => {
+    groupMembers = members
+    if (memberMentionVisible.value) closeMemberMention()
+}
+
+const closeMemberMention = () => {
+    memberMentionVisible.value = false
+    memberMentionEntries.value = []
+    memberMentionIndex.value = 0
+    memberMentionStart = -1
+    memberMentionEnd = -1
+}
+
+/** 关闭文件补全面板并作废在飞请求（不戏 mentionAgentId——立刻重开会用新值覆盖） */
 const closePathMention = () => {
     pathMentionSeq++
     if (pathMentionTimer !== null) {
@@ -85,10 +108,11 @@ const closePathMention = () => {
     pathMentionEnd = -1
 }
 
-/** 输入事件驱动：按当前光标解析 @ token 并拉取目录条目（120ms 防抖 + seq 过期守卫）。
- *  无 token / 无匹配 / 目录不存在 / 网络失败 → 静默收起。 */
+/** 输入事件驱动：按当前光标解析 '#' token 并拉取目录条目（120ms 防抖 + seq 过期守卫）。
+ *  无 token / 无匹配 / 目录不存在 / 网络失败 → 静默收起。
+ *  触发符恒 '#'（'@' 专属群成员补全，不冲突）。 */
 const updatePathMention = (caret: number, agentId: string | null) => {
-    const token = parseMentionToken(inputText.value, caret)
+    const token = parseMentionToken(inputText.value, caret, '#')
     if (!token) {
         closePathMention()
         return
@@ -157,12 +181,12 @@ const focusTextareaAt = (caret: number) => {
     el.setSelectionRange(caret, caret)
 }
 
-/** 确认一条 @ 补全：替换 [start, end) 为 '@'+entry.path；目录补 '/' 续探下一层，
+/** 确认一条文件补全：替换 [start, end) 为 '#'+entry.path；目录补 '/' 续探下一层，
  *  文件补空格并收起。替换区间是解析时的光标段，光标后的木选文本保留。 */
 const confirmPathMention = (entry: TreeEntry) => {
     if (pathMentionStart < 0 || pathMentionEnd < 0) return
     const isDir = entry.type === 'dir'
-    const insert = '@' + entry.path + (isDir ? '/' : ' ')
+    const insert = '#' + entry.path + (isDir ? '/' : ' ')
     const before = inputText.value.slice(0, pathMentionStart)
     const after = inputText.value.slice(pathMentionEnd)
     inputText.value = before + insert + after
@@ -181,6 +205,45 @@ const confirmPathMention = (entry: TreeEntry) => {
     }
 }
 
+/** 输入事件驱动：群会话 '@ 成员名前缀补全（本地过滤，无防抖无网络）。
+ *  非群会话 / 无成员清单 / 无匹配 → 静默收起。与文件面板互斥：群会话里
+ *  updatePathMention 已不再消费 '@ token。 */
+const updateMemberMention = (caret: number) => {
+    if (groupMembers.length === 0) {
+        closeMemberMention()
+        return
+    }
+    const token = parseMentionToken(inputText.value, caret, '@')
+    if (!token) {
+        closeMemberMention()
+        return
+    }
+    const lower = token.query.toLowerCase()
+    const matched = groupMembers.filter(m => m.name.toLowerCase().startsWith(lower)).slice(0, 20)
+    if (matched.length === 0) {
+        closeMemberMention()
+        return
+    }
+    memberMentionStart = token.start
+    memberMentionEnd = token.end
+    memberMentionEntries.value = matched
+    memberMentionIndex.value = 0
+    memberMentionVisible.value = true
+}
+
+/** 确认一条成员补全：替换 [start, end) 为 '@成员名 '（尾空格断词，服务端
+ *  mentions.ts 同口径扫描） */
+const confirmMemberMention = (member: { key: string, name: string }) => {
+    if (memberMentionStart < 0 || memberMentionEnd < 0) return
+    const insert = `@${member.name} `
+    const before = inputText.value.slice(0, memberMentionStart)
+    const after = inputText.value.slice(memberMentionEnd)
+    inputText.value = before + insert + after
+    const newCaret = memberMentionStart + insert.length
+    closeMemberMention()
+    nextTick(() => focusTextareaAt(newCaret))
+}
+
 // ——— 其他 UI 状态 ———
 const isRecording = ref(false)
 const commandDropdownOpen = ref(false)
@@ -195,7 +258,10 @@ const { filterCommands } = useCommandState()
 watch(inputText, (val) => {
     // 发送后 HomeView 乐观清空输入框等外部置空：补全面板随之收起（历史浏览/命令
     // 选择等同文件内的程序化修改各自显式关闭，这里兑底一切非 DOM 输入路径）
-    if (!val) closePathMention()
+    if (!val) {
+        closePathMention()
+        closeMemberMention()
+    }
     // 按当前 session 记录输入框内容（草稿）：切换会话时恢复，发送时输入被清空、草稿随之清除。
     // /new 新会话页没有 sessionKey，落到按网关模式区分的哨兵 key 上（两侧服务器互不窜台）
     useInputHistoryStore().setDraft(_sessionKeyResolver?.() || newSessionDraftKeyFor(useUiSettingsStore().activeGatewayId), val)
@@ -206,7 +272,13 @@ watch(inputText, (val) => {
     if (commandSuggestionsEnabled.value
         && shouldOpenCommandSuggestions(val, fromHistoryNavigation)) {
         const query = val.slice(1)
-        const serverMatches = filterCommands.value(query)
+        // 群聊：内置/扩展命令是主会话语义（控制端点打向 hub 壳——409/消息黑洞）
+        // 不公告；prompt/skill 资源命令由 team-chat 端点展开投递（服务端
+        // resolveResourceInvocation 同款）照常公告。普通会话：服务端全量表
+        // + 客户端命令合并去重（原语义）
+        const serverMatches = isGroupChatSession()
+            ? filterCommands.value(query).filter(cmd => cmd.source === 'prompt' || cmd.source === 'skill')
+            : filterCommands.value(query)
         // 去重键同匹配口径：大小写不敏感（服务端 Taskbar 与客户端 taskbar 视为同名）
         const serverNames = new Set(serverMatches.map(cmd => cmd.name.toLowerCase()))
         // 客户端命令（clientCommands 注册表）不在服务端命令表里，按统一匹配规则合并、按 name 去重
@@ -336,6 +408,17 @@ const handleInputFocus = () => {
 
 /** session key 解析回调（由外部设置，避免循环依赖） */
 let _sessionKeyResolver: (() => string) | null = null
+
+/** 当前会话是否群聊（行级身份判定：分类/agentId，非桶位置——与 ChatInput/HomeView
+ *  同款，统一调 isGroupSessionRow）。群聊中服务端命令不可用（控制端点打向 hub
+ *  壳——409/消息黑洞），/ 补全与命令菜单只保留客户端命令（/taskbar /tree 等面板
+ *  开关，纯 UI 无服务端依赖）。 */
+const isGroupChatSession = (): boolean => {
+    const key = _sessionKeyResolver?.()
+    if (!key) return false
+    const row = useSessionsState().findSessionLocal(key)
+    return isGroupSessionRow(row)
+}
 const setSessionKeyResolver = (resolver: () => string) => {
     _sessionKeyResolver = resolver
 }
@@ -372,35 +455,53 @@ const restoreSessionDraft = () => {
 }
 
 const handleKeydown = (e: KeyboardEvent, onSend: () => void) => {
-    // ——— @ 路径补全键盘路由 ———
-    // 与命令补全互斥（命令要求全文 ^/ 开头，@ token 以 @ 起头），两块各自判可见即可；
+    // ——— 补全面板键盘路由（# 文件 / @ 群成员；两面板互斥不同屏）———
+    // 与命令补全互斥（命令要求全文 ^/ 开头，补全 token 以 #/@ 起头），各自判可见即可；
     // 历史浏览态优先（历史恢复时已显式收起面板，historyIndex!==-1 分支是双保险）。
     // Tab 仅在面板可见时拦截（否则保持原生焦点移动/ghost 建议等既有路由）；
     // Shift+Enter 保持换行不确认。
-    if (pathMentionVisible.value && historyIndex.value === -1) {
+    const memberPanelOpen = memberMentionVisible.value
+    if ((pathMentionVisible.value || memberPanelOpen) && historyIndex.value === -1) {
         // IME 组合期不接管（组合期 Enter 是确认候选词、方向键属于 IME）；
         // 带修饰键的方向键（Shift+↑↓ 跨行选文本）/ Shift+Tab（反向焦点移动）不劫持
         if (e.isComposing || e.keyCode === 229) return
-        const count = pathMentionEntries.value.length
         if (e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !e.metaKey) {
             e.preventDefault()
-            if (count > 0) pathMentionIndex.value = (pathMentionIndex.value + 1) % count
+            if (memberPanelOpen) {
+                const count = memberMentionEntries.value.length
+                if (count > 0) memberMentionIndex.value = (memberMentionIndex.value + 1) % count
+            } else {
+                const count = pathMentionEntries.value.length
+                if (count > 0) pathMentionIndex.value = (pathMentionIndex.value + 1) % count
+            }
             return
         }
         if (e.key === 'ArrowUp' && !e.shiftKey && !e.altKey && !e.metaKey) {
             e.preventDefault()
-            if (count > 0) pathMentionIndex.value = (pathMentionIndex.value - 1 + count) % count
+            if (memberPanelOpen) {
+                const count = memberMentionEntries.value.length
+                if (count > 0) memberMentionIndex.value = (memberMentionIndex.value - 1 + count) % count
+            } else {
+                const count = pathMentionEntries.value.length
+                if (count > 0) pathMentionIndex.value = (pathMentionIndex.value - 1 + count) % count
+            }
             return
         }
         if ((e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) || (e.key === 'Tab' && !e.ctrlKey && !e.shiftKey)) {
             e.preventDefault()
-            const selected = pathMentionEntries.value[pathMentionIndex.value]
-            if (selected) confirmPathMention(selected)
+            if (memberPanelOpen) {
+                const selected = memberMentionEntries.value[memberMentionIndex.value]
+                if (selected) confirmMemberMention(selected)
+            } else {
+                const selected = pathMentionEntries.value[pathMentionIndex.value]
+                if (selected) confirmPathMention(selected)
+            }
             return
         }
         if (e.key === 'Escape') {
             e.preventDefault()
             closePathMention()
+            closeMemberMention()
             return
         }
     }
@@ -595,6 +696,13 @@ const _chatInputState = {
     updatePathMention,
     confirmPathMention,
     closePathMention,
+    memberMentionVisible,
+    memberMentionEntries,
+    memberMentionIndex,
+    updateMemberMention,
+    confirmMemberMention,
+    closeMemberMention,
+    setGroupMembers,
     setTextareaResolver,
     pushInputHistory,
     restoreSessionDraft,

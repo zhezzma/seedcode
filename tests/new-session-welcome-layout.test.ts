@@ -62,7 +62,7 @@ test('the new-session welcome page centers the greeting, agent dropdown and chat
 })
 
 test('the command dropdown stays on session pages but is hidden on the centered new-session card', () => {
-    const commandSection = chatInputSource.match(/<!-- Command（新会话页居中卡片不显示；会话页保持原样） -->[\s\S]*?<!-- Model -->/)
+    const commandSection = chatInputSource.match(/<!-- Command（新会话页居中卡片不显示[\s\S]*?<!-- Model/)
     assert.ok(commandSection, 'the command dropdown section should remain in ChatInput')
 
     assert.match(

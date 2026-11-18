@@ -80,21 +80,53 @@ test('useChatInput: 目录确认续探、文件确认收起（插入物尾缀）
     )
 })
 
-test('useChatInput: 键盘路由——补全面板打开时 ↑↓/Enter/Tab/Esc 走面板', () => {
+test('useChatInput: 键盘路由——补全面板（# 文件 / @ 成员）打开时 ↑↓/Enter/Tab/Esc 走面板', () => {
     assert.match(
         composableSource,
-        /if \(pathMentionVisible\.value && historyIndex\.value === -1\)/,
-        '面板打开且非历史浏览态时接管按键',
+        /\(\(pathMentionVisible\.value \|\| memberPanelOpen\) && historyIndex\.value === -1\)/,
+        '任一补全面板打开且非历史浏览态时接管按键',
     )
     assert.match(composableSource, /e\.isComposing \|\| e\.keyCode === 229/, 'IME 组合期不接管')
     assert.match(composableSource, /e\.key === 'Tab' && !e\.ctrlKey && !e\.shiftKey/, 'Tab 确认（Ctrl/Shift+Tab 放行）')
     assert.match(composableSource, /e\.key === 'ArrowDown' && !e\.shiftKey && !e\.altKey && !e\.metaKey/, '方向键带修饰键不劫持')
     assert.match(composableSource, /e\.key === 'Enter' && !e\.shiftKey && !e\.ctrlKey/, 'Enter 确认（Shift/Ctrl+Enter 保持原生）')
     assert.match(composableSource, /e\.key === 'Escape'[\s\S]{0,200}closePathMention\(\)/, 'Esc 收起面板')
+    assert.match(composableSource, /e\.key === 'Escape'[\s\S]{0,200}closeMemberMention\(\)/, 'Esc 同步收起成员面板')
 })
 
-test('useChatInput: 程序化修改输入时收起 @ 面板（点名关键路径，不计数）', () => {
-    assert.match(composableSource, /if \(!val\) closePathMention\(\)/, 'inputText 清空兜底')
+test('useChatInput: 文件补全恒 # 触发（不消费 @——归成员补全）', () => {
+    assert.match(
+        composableSource,
+        /parseMentionToken\(inputText\.value, caret, '#'\)/,
+        'updatePathMention 应只解析 # token',
+    )
+    assert.match(
+        composableSource,
+        /parseMentionToken\(inputText\.value, caret, '@'\)/,
+        'updateMemberMention 应解析 @ token',
+    )
+    assert.match(composableSource, /'#' \+ entry\.path/, '确认插入应回写 # 前缀')
+})
+
+test('useChatInput: 群成员 @ 补全状态机（本地过滤/确认插入/清单注入）', () => {
+    assert.match(composableSource, /groupMembers\.filter\(m => m\.name\.toLowerCase\(\)\.startsWith\(lower\)\)/, '成员名前缀本地过滤')
+    assert.match(composableSource, /`@\$\{member\.name\} `/, '确认插入 @成员名+尾空格断词')
+    assert.match(composableSource, /const setGroupMembers =/, '成员清单注入入口')
+})
+
+test('ChatInput: 群会话成员清单注入（@ 补全数据源）', () => {
+    assert.match(componentSource, /updateMemberMention\(el\.selectionStart\)/, '输入事件应同步驱动成员补全解析')
+    assert.match(componentSource, /watch\(currentGroupSessionKey[\s\S]{0,600}setGroupMembers\(detail\?\.members \?\? \[\]\)/, '群会话切换时拉群详情注入成员清单')
+    assert.match(
+        componentSource,
+        /v-if="memberMentionVisible"[\s]{0,200}class="[^"]*\bmember-mention-panel\b/,
+        'member-mention-panel 类须挂在 v-if 面板根节点',
+    )
+    assert.match(componentSource, /@mousedown\.prevent="confirmMemberMention\(member\)"/, '成员条目 mousedown.prevent 确认')
+})
+
+test('useChatInput: 程序化修改输入时收起面板（点名关键路径，不计数）', () => {
+    assert.match(composableSource, /if \(!val\) \{[\s\S]{0,80}closePathMention\(\)[\s\S]{0,40}closeMemberMention\(\)/, 'inputText 清空兜底（两面板）')
     assert.match(composableSource, /const appendText[\s\S]{0,300}closePathMention\(\)/, 'appendText 收起')
     assert.match(composableSource, /restoreSessionDraft[\s\S]{0,600}closePathMention\(\)/, '会话切换恢复草稿时收起')
     // 历史浏览分支（下探/回草稿）各自收起
@@ -104,7 +136,7 @@ test('useChatInput: 程序化修改输入时收起 @ 面板（点名关键路径
     assert.ok(closesInNav >= 2, `历史浏览两分支都应收起（实际 ${closesInNav} 处）`)
 })
 
-test('ChatInput: 解构块包含全部 @ 补全 API（拦「忘记解构」回归）', () => {
+test('ChatInput: 解构块包含全部补全 API（拦「忘记解构」回归）', () => {
     const m = componentSource.match(/const \{[\s\S]{0,4000}?\}\s*=\s*useChatInput\(\)/)
     assert.ok(m, '应存在 useChatInput() 解构块')
     for (const name of [
@@ -114,6 +146,12 @@ test('ChatInput: 解构块包含全部 @ 补全 API（拦「忘记解构」回�
         'updatePathMention',
         'confirmPathMention',
         'closePathMention',
+        'memberMentionVisible',
+        'memberMentionEntries',
+        'memberMentionIndex',
+        'updateMemberMention',
+        'confirmMemberMention',
+        'setGroupMembers',
         'setTextareaResolver',
     ]) {
         assert.ok(m[0].includes(name), `解构块应包含 ${name}（否则模板引用 undefined）`)
@@ -129,7 +167,7 @@ test('ChatInput: 回焦定位器注入（不全局查 textarea）', () => {
     )
 })
 
-test('useChatInput: 导出 @ 补全面板 API 供 ChatInput 消费', () => {
+test('useChatInput: 导出补全面板 API 供 ChatInput 消费', () => {
     for (const name of [
         'pathMentionVisible',
         'pathMentionEntries',
@@ -137,6 +175,11 @@ test('useChatInput: 导出 @ 补全面板 API 供 ChatInput 消费', () => {
         'updatePathMention',
         'confirmPathMention',
         'closePathMention',
+        'memberMentionVisible',
+        'memberMentionIndex',
+        'updateMemberMention',
+        'confirmMemberMention',
+        'setGroupMembers',
         'setTextareaResolver',
     ]) {
         assert.match(composableSource, new RegExp(`\\b${name}\\b,`), `应导出 ${name}`)

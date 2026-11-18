@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, computed, watch } from 'vue'
 import { AvailableModel, ThinkingLevelKey, ThinkingLevelMap } from '../../composables/useModelsState'
+import { THINKING_LEVELS as ALL_THINKING_LEVELS } from '../../utils/thinking-levels'
 import { createDefaultModelFormData, applyModelFormData, buildModelCostForSave } from './model-form-state'
 
 const props = defineProps<{
@@ -25,7 +26,7 @@ const formData = reactive(createDefaultModelFormData())
 //   disabled → 存 null（不支持）
 // pi 对 xhigh/max 的“省略=不支持”在三态下无需特例：用户选 default 即省略（不支持），
 // 要启用 xhigh/max 就选 custom 并填值。序列化与反序列化完全对称。
-const THINKING_LEVELS: ThinkingLevelKey[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const THINKING_LEVELS: ThinkingLevelKey[] = [...ALL_THINKING_LEVELS]
 
 type ThinkingMode = 'default' | 'custom' | 'disabled'
 

@@ -16,11 +16,12 @@ test('agent group header shows a + button to start a new chat for that agent', (
         'group header label should stretch so the + button sits on the right',
     )
 
-    // 组头行右侧 + 按钮：仅非空组（有 agentId）显示，@click.stop 阻止触发展开/收起
+    // 组头行右侧 + 按钮：仅非空组（有 agentId）显示——群行按 agentId=hub 自然
+    // 归入 hub agent 组，其组头同样可 + 新建对话；@click.stop 阻止触发展开/收起
     assert.match(
         sidebarSource,
         /v-if="session\.groupKey"[\s\S]*?@click\.stop="createSessionForAgent\(session\.groupKey\)"/,
-        'group header should render a + button bound to createSessionForAgent for non-empty groups',
+        'agent group header should render a + button bound to createSessionForAgent for non-empty groups',
     )
 
     // 键盘事件不冒泡到组头（Enter/Space 只触发按钮自身，不会顺带展开/收起）；
@@ -50,4 +51,13 @@ test('createSessionForAgent navigates to the new-session route with ?agent=<id>'
 test('sidebar newChatForAgent i18n keys exist in zh and en locales', () => {
     assert.match(zhSource, /newChatForAgent: '为该智能体新建对话'/)
     assert.match(enSource, /newChatForAgent: 'New chat with this agent'/)
+})
+
+test('group rows fall into agent grouping naturally with no pseudo group', () => {
+    // 群行（agentId=hub）与普通会话同走 agent 分组管线：无「群聊」伪组、无
+    // unshift 置顶、无 isGroup 摘除特判；组内顺序随统一列表服务端排序
+    assert.doesNotMatch(sidebarSource, /TEAM_GROUPS_GROUP_KEY/)
+    assert.doesNotMatch(sidebarSource, /if \(session\.isGroup\) continue/)
+    assert.doesNotMatch(sidebarSource, /sorted\.unshift\(/)
+    assert.match(sidebarSource, /const idx = indexOf\.get\(session\.agentId\)/)
 })

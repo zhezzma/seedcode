@@ -92,7 +92,12 @@ watch(() => [agentsState.agentsList, route.query.agentId], ([agentsList, current
             selectedAgentId ? 'w-full flex lg:flex-1' : 'hidden lg:flex lg:flex-1'
         ]">
 
-            <AgentDetail v-if="selectedAgentId" :agent-id="selectedAgentId" @back="clearSelection"
+            <!-- v7.4：hub agent（team-chat-hub）去特殊化——同一 AgentDetail
+                 （+群 tab，见 AgentDetail tabs），模型/思考/工具/技能与普通
+                 agent 同面可改，bot 继承 hub 配置。:key=agentId 跨 agent 强
+                 remount（防 hub 的 groups activeTab 残留到普通 agent——
+                 WorkspacePanel 同策略） -->
+            <AgentDetail v-if="selectedAgentId" :key="selectedAgentId" :agent-id="selectedAgentId" @back="clearSelection"
                 class="flex-1 overflow-hidden" />
 
             <!-- Empty State for Desktop (if no selection) -->

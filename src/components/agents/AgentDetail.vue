@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useAgentsState } from '../../composables/useAgentsState'
 import { useI18n } from 'vue-i18n'
-import { PencilIcon, ArrowLeftIcon, Squares2X2Icon, WrenchIcon, PuzzlePieceIcon, UserGroupIcon, DocumentTextIcon } from '@heroicons/vue/24/outline'
+import { PencilIcon, ArrowLeftIcon, Squares2X2Icon, WrenchIcon, PuzzlePieceIcon, UserGroupIcon, DocumentTextIcon, ChatBubbleLeftRightIcon } from '@heroicons/vue/24/outline'
 import ViewHeader from '../ViewHeader.vue'
 
 // Tab components
@@ -13,6 +13,8 @@ import AgentSubagents from './tabs/AgentSubagents.vue'
 import AgentPrompts from './tabs/AgentPrompts.vue'
 import AgentFormModal from './AgentFormModal.vue'
 import AgentAvatar from './AgentAvatar.vue'
+import AgentTeamGroups from './AgentTeamGroups.vue'
+import { TEAM_CHAT_HUB_AGENT } from '../../composables/useSessionsState'
 
 const props = withDefaults(defineProps<{
     agentId: string
@@ -30,6 +32,9 @@ const emit = defineEmits<{
 
 const agentsState = useAgentsState()
 const { t } = useI18n()
+
+/** hub agent 判定（契约常量）：tabs 追加群 tab + 渲染门控双用 */
+const isHub = computed(() => props.agentId === TEAM_CHAT_HUB_AGENT)
 
 
 
@@ -62,6 +67,12 @@ const tabs = computed(() => [
     { id: 'skills', label: t('agent.tab.skills'), icon: PuzzlePieceIcon, component: AgentSkills },
     { id: 'subagents', label: t('agent.tab.subagents'), icon: UserGroupIcon, component: AgentSubagents },
     { id: 'prompts', label: t('agent.tab.prompts'), icon: DocumentTextIcon, component: AgentPrompts },
+    // hub agent（team-chat-hub）＝普通 agent 配置面 + 群 tab（v7.4 去特殊化：
+    // 模型/思考/工具/技能与普通 agent 同面可改，bot 继承这些配置；群 tab=
+    // 群列表形态，点群进管理弹窗）
+    ...(isHub.value
+        ? [{ id: 'groups', label: t('agent.tab.groups'), icon: ChatBubbleLeftRightIcon, component: AgentTeamGroups }]
+        : []),
 ])
 
 // Edit modal state
@@ -88,7 +99,11 @@ const handleAgentSaved = async () => {
                 </button>
             </template>
         </ViewHeader>
-        <div class="flex-1 min-h-0 overflow-y-auto">
+        <!-- scrollbar-gutter: stable：滚动条出现/消失不再挤压内容区宽度——
+             下方 tab 条的 @sm 容器查询断点恰在边缘时，切 tab（内容长短不同
+             →滚动条有无）会让整个 tab 条在「图标/图标+文字」形态间跳变；
+             gutter 恒定占位后容器宽度恒定，形态稳定 -->
+        <div class="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
             <div v-if="agent" class="min-h-full flex flex-col ">
                 <!-- Detail Header -->
                 <div class="px-2 lg:px-6 py-6 border-b border-base-300 sticky top-0 z-30  backdrop-blur-sm">
@@ -149,7 +164,14 @@ const handleAgentSaved = async () => {
                 <!-- Content Area -->
                 <div class="flex-1 bg-base-50/50 p-4 md:px-8 md:py-6">
                     <div class="w-full h-full max-w-6xl mx-auto">
-                        <keep-alive>
+                        <!-- 群 tab（hub 专用）：单独分支不进 keep-alive（列表组件，
+                             切走销毁无损失）；不透传 :agent（AgentTeamGroups 不消费，
+                             避免 fallthrough 污染根元素）。hub 门控双保险：tabs
+                             computed 只在 hub 追加 groups 项，这里再校验一次，
+                             防 activeTab 残留（跨 agent remount 靠挂载点 :key） -->
+                        <AgentTeamGroups v-if="activeTab === 'groups' && isHub" :show-header="false"
+                            :compact="compact" />
+                        <keep-alive v-else>
                             <component :is="tabs.find(t => t.id === activeTab)?.component" :agent="agent"
                                 :compact="compact" @deleted="$emit('back')" />
                         </keep-alive>

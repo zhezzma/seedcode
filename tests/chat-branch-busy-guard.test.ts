@@ -45,14 +45,15 @@ test('abortChat discards stale snapshot when a new run started (success path)', 
 
 test('branch navigation is hidden while busy (not rendered, not frozen)', () => {
     const bubble = readSrc('src/components/chat/MessageBubble.vue')
-    // 两侧导航块（user footer / assistant footer）都在 busy 时不渲染——而不是渲染后禁用
+    // 两侧导航块（user footer / assistant footer）都在 busy 时不渲染——而不是渲染后禁用；
+    // 群消息（isTeamMessage）同样不渲染（群回合无分支语义）
     assert.ok(
-        bubble.includes('v-if="!isBusy && isBranchTail && branchInfo && branchInfo.siblings.length > 1"'),
-        'user-footer nav should not render while busy',
+        bubble.includes('v-if="!isBusy && !isTeamMessage && isBranchTail && branchInfo && branchInfo.siblings.length > 1"'),
+        'user-footer nav should not render while busy (nor team messages)',
     )
     assert.ok(
-        bubble.includes('v-if="!isBusy && branchInfo && branchInfo.siblings.length > 1"'),
-        'assistant-footer nav should not render while busy',
+        bubble.includes('v-if="!isBusy && !isTeamMessage && branchInfo && branchInfo.siblings.length > 1"'),
+        'assistant-footer nav should not render while busy (nor team messages)',
     )
     // 不采用冻结方案：disabled 不应掺入 isBusy
     assert.ok(

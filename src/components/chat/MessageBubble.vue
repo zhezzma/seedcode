@@ -69,6 +69,11 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 
+// 群聊消息（team.user_message/team.bot_message 投影自带 speaker；undefined=非群）：
+// 群消息不可编辑/分支/重试（编辑重发会直接 prompt 壳会话而非走 team-chat 端点；
+// 分支/重试对后台 durable 回合无意义）——比接一层不可用 UI 更诚实，直接不渲染
+const isTeamMessage = computed(() => props.message.speaker !== undefined)
+
 // 后台子代理报告气泡 → 轨迹抽屉（与前台 ToolInvocation 卡同一 SubagentTraceDrawer）：
 // 按报告署名从注册表现查 conversationId（当前分支 doc；查不到则不显示按钮——
 // 历史分支的报告无当前分支寻址键，隐藏比错开更诚实）
@@ -526,12 +531,12 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     :title="$t('common.copy')">
                     <ClipboardIcon class="h-4 w-4" />
                 </button>
-                <button v-if="!isBusy && message.entryId" @click="startEdit"
+                <button v-if="!isBusy && message.entryId && !isTeamMessage" @click="startEdit"
                     class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-info hover:bg-info/10"
                     :title="$t('common.edit')">
                     <PencilSquareIcon class="h-4 w-4" />
                 </button>
-                <button v-if="!isLoading && message.entryId" @click="emit('fork', message)"
+                <button v-if="!isLoading && message.entryId && !isTeamMessage" @click="emit('fork', message)"
                     :disabled="chatState.isForkingEntry(message.lastEntryId ?? message.entryId)"
                     class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-secondary hover:bg-secondary/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     :title="$t('chat.fork')">
@@ -546,7 +551,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                         <path d="M12 12v3" />
                     </svg>
                 </button>
-                <button v-if="!isBusy && message.entryId" @click="emit('retry', message)"
+                <button v-if="!isBusy && message.entryId && !isTeamMessage" @click="emit('retry', message)"
                     class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-warning hover:bg-warning/10"
                     :title="$t('chat.retry')">
                     <ArrowPathIcon class="h-4 w-4" />
@@ -558,7 +563,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                      缺了这里，切到该分支（第一页）后无任何导航/操作，成为死胡同。
                      isBranchTail 门控避免与同回合 assistant 气泡的导航重复渲染同一个 n/n；
                      !isBusy 与 assistant 侧一致：run 期间两侧导航整体不渲染 -->
-                <div v-if="!isBusy && isBranchTail && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
+                <div v-if="!isBusy && !isTeamMessage && isBranchTail && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
                     <button @click="emit('navigate-branch', message, 'prev')"
                         class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                         <ChevronLeftIcon class="h-3.5 w-3.5" />
@@ -823,7 +828,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     <SpeakerWaveIcon class="h-4 w-4" />
                 </template>
             </button>
-            <button v-if="!isLoading && message.entryId" @click="emit('fork', message)"
+            <button v-if="!isLoading && message.entryId && !isTeamMessage" @click="emit('fork', message)"
                 :disabled="chatState.isForkingEntry(message.lastEntryId ?? message.entryId)"
                 class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-secondary hover:bg-secondary/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 :title="$t('chat.fork')">
@@ -838,7 +843,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
                     <path d="M12 12v3" />
                 </svg>
             </button>
-            <button v-if="!isBusy && message.entryId" @click="emit('retry', message)"
+            <button v-if="!isBusy && message.entryId && !isTeamMessage" @click="emit('retry', message)"
                 class="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-warning hover:bg-warning/10"
                 :title="$t('chat.retry')">
                 <ArrowPathIcon class="h-4 w-4" />
@@ -848,7 +853,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
             <!-- busy 期间整块不渲染：运行中切分支会把会话级流状态泄漏到目标分支视图，
                  且服务端会替换在途 agent 的内存上下文导致 run 失踪；隐藏比禁用更简单一致
                  （服务端 409 兑底非 UI 路径） -->
-            <div v-if="!isBusy && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
+            <div v-if="!isBusy && !isTeamMessage && branchInfo && branchInfo.siblings.length > 1" class="flex items-center gap-0.5 ml-1">
                 <button @click="emit('navigate-branch', message, 'prev')"
                     class="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-primary hover:bg-base-300">
                     <ChevronLeftIcon class="h-3.5 w-3.5" />

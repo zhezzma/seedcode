@@ -21,6 +21,7 @@ import ViewHeader from '../ViewHeader.vue'
 import SessionCompactionModal from './SessionCompactionModal.vue'
 import { NEW_SESSION_ROUTE_NAME } from '../../utils/route-helpers'
 import { useChatState } from '../../composables/useChatState'
+import { useSessionsState, isGroupSessionRow } from '../../composables/useSessionsState'
 import { apiPost } from '../../composables/api-client'
 import { onExtensionEvent } from '../../composables/extension-events'
 
@@ -50,6 +51,17 @@ const notifyLoading = ref(false)
 const compactionModalOpen = ref(false)
 
 const isSession = computed(() => Boolean(chatState.sessionKey))
+
+// 群会话判定（唯一权威面 isGroupSessionRow，非桶位置——归档群/回收站回填的
+// 群行同样命中）：群壳会话消息全是 custom entry，树投影无 preview，分支导航
+//（retry/edit）对群无场景——移动端会话树按钮隐藏（桌面 SessionTreeRail 不动）
+const sessionsState = useSessionsState()
+const isGroupSession = computed(() => {
+    const key = chatState.sessionKey
+    if (!key) return false
+    const row = sessionsState.findSessionLocal(key)
+    return isGroupSessionRow(row)
+})
 
 const buildNotifyAgentQuery = (agentId: string) => {
     return agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''
@@ -239,8 +251,9 @@ defineExpose({
                         <PhoneIcon class="h-5 w-5" />
                 </button> -->
 
-                <!-- Session tree（仅移动端：桌面端用左侧 SessionTreeRail） -->
-                <button v-if="isSession" @click="emit('open-session-tree')"
+                <!-- Session tree（仅移动端：桌面端用左侧 SessionTreeRail；群会话隐藏——
+                     树全是 [custom] 空行，分支导航对群无意义） -->
+                <button v-if="isSession && !isGroupSession" @click="emit('open-session-tree')"
                     class="btn btn-ghost btn-circle btn-xs lg:hidden" :title="$t('chat.openSessionTree')">
                     <QueueListIcon class="h-5 w-5" />
                 </button>

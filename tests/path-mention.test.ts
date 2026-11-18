@@ -37,6 +37,18 @@ test('parseMentionToken: 不触发——邮箱式粘连 foo@bar', () => {
     assert.equal(parseMentionToken('foo@bar.com', 11), null)
 })
 
+// ——— '#' 触发（文件补全；'@' 专属群成员，互不串台） ———
+
+test('parseMentionToken: # 触发符解析文件 token', () => {
+    assert.deepEqual(parseMentionToken('#src/comp', 9, '#'), { start: 0, end: 9, query: 'src/comp' })
+    assert.deepEqual(parseMentionToken('看下 #D:\\proj', 11, '#'), { start: 3, end: 11, query: 'D:/proj' })
+})
+
+test('parseMentionToken: 触发符不串台（@ token 不应被 # 解析 / 反之亦然）', () => {
+    assert.equal(parseMentionToken('@src', 4, '#'), null)
+    assert.equal(parseMentionToken('#Bob', 4, '@'), null)
+})
+
 test('parseMentionToken: 不触发——光标前是普通文本', () => {
     assert.equal(parseMentionToken('hello wor', 9), null)
 })

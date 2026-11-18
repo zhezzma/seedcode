@@ -13,7 +13,7 @@
  * `display:contents` 让 wrapper 不参与布局，splitter 与 aside 仍是父 flex 的 item。
  */
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, CommandLineIcon, UserCircleIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ArrowPathIcon, DocumentPlusIcon, FolderPlusIcon, ArrowUpOnSquareIcon, FolderIcon, CodeBracketIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, CommandLineIcon, UserCircleIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
 import { useContextMenu, type ContextMenuItem } from '../../composables/useContextMenu'
 import { useWorkspaceRefresh } from '../../composables/useWorkspaceRefresh'
@@ -28,13 +28,31 @@ import { useAgentFiles } from '../../composables/useAgentFiles'
 import WorkspaceTabFiles from './WorkspaceTabFiles.vue'
 import WorkspaceTabGit from './WorkspaceTabGit.vue'
 import AgentDetail from '../agents/AgentDetail.vue'
+import AgentTeamGroups from '../agents/AgentTeamGroups.vue'
+import { TEAM_CHAT_HUB_AGENT } from '../../composables/useSessionsState'
 
-const props = defineProps<{ agentId: string; mobile?: boolean }>()
+const props = defineProps<{ agentId: string; mobile?: boolean; groupSessionId?: string }>()
 
 const panel = useWorkspacePanel()
 const tree = useWorkspaceTree()
 const git = useWorkspaceGit()
 const agentFiles = useAgentFiles()
+
+// hub agent（team-chat-hub）：v7.4 去特殊化——与普通 agent 同面四 tab
+// （智能体/群/文件/git）：hub 的模型/思考/工具/技能配置可在此改（bot 继承），
+// 群 tab 保留（群聊会话带 sessionId 时直接管理该群，其余场景呈群列表）
+const isHubAgent = computed(() => props.agentId === TEAM_CHAT_HUB_AGENT)
+
+/**
+ * 本面板生效 tab（双层归一）：composable 层已把持久化值归一到四值域（useWorkspacePanel），
+ * 这里按 agent 身份收敛——hub 四值全合法（兜底分支实际不可达，防御 composable 放宽）；
+ * 普通 agent 的 groups 残留（跨 agent 污染）归位 agent。
+ */
+const panelTab = computed<'groups' | 'agent' | 'files' | 'git'>(() => {
+    const tab = panel.activeTab.value
+    if (isHubAgent.value) return tab === 'agent' || tab === 'files' || tab === 'git' ? tab : 'groups'
+    return tab === 'files' || tab === 'git' ? tab : 'agent'
+})
 
 // ─── Agent 切换隔离 ──────────────────────────────────────────────
 // 数据所有权显式化：三个 store 各自记录 currentAgentId，调用 ensureAgent(id) 在跨 agent 访问
@@ -130,7 +148,9 @@ const gitBulk = useGitBulkActions({
 function onPanelContextMenu(e: MouseEvent) {
     // Agent tab 是表单内容（原生 input/select）：右键交给浏览器原生菜单（复制/粘贴），
     // 自定义菜单里的刷新动作也与该 tab 无关。
-    if (props.mobile || e.defaultPrevented || panel.activeTab.value === 'agent') return
+    // 门控与渲染同源 panelTab（activeTab 原值在普通 agent 残留 groups 时与本面板
+    // 实际渲染的 tab 脱节，会让表单上的右键误弹自定义刷新菜单）
+    if (props.mobile || e.defaultPrevented || panelTab.value === 'agent') return
     e.preventDefault()
     const items: ContextMenuItem[] = [{
         label: t('common.refresh'),
@@ -216,22 +236,28 @@ function onPanelContextMenu(e: MouseEvent) {
             :class="mobile ? 'flex-1 w-full' : 'border-l border-base-300'"
             :style="mobile ? undefined : { width: effectiveWidth + 'px' }"
             @contextmenu="onPanelContextMenu">
-            <!-- header: tabs。桌面右侧留白给悬浮窗口键（deep 拖拽使头部空白可拖动窗口/双击最大化）；
+            <!-- header: tabs（hub 变体：群管理/文件/git；普通：智能体/文件/git）。
+                 桌面右侧留白给悬浮窗口键（deep 拖拽使头部空白可拖动窗口/双击最大化）；
                  移动端 drawer 保留刷新/关闭按钮 -->
             <div class="flex items-center justify-between border-b border-base-300 px-2 py-2 shrink-0"
                 :data-tauri-drag-region="isDesktopTauri ? 'deep' : undefined">
                 <div class="tabs tabs-sm">
-                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panel.activeTab.value === 'agent' }"
+                    <a v-if="isHubAgent" class="tab tab-bordered gap-1" :class="{ 'tab-active': panelTab === 'groups' }"
+                        @click="panel.setTab('groups')">
+                        <UserGroupIcon class="h-4 w-4" />
+                        <span>{{ $t('workspace.tabTeam') }}</span>
+                    </a>
+                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panelTab === 'agent' }"
                         @click="panel.setTab('agent')">
                         <UserCircleIcon class="h-4 w-4" />
                         <span>{{ $t('workspace.tabAgent') }}</span>
                     </a>
-                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panel.activeTab.value === 'files' }"
+                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panelTab === 'files' }"
                         @click="panel.setTab('files')">
                         <FolderIcon class="h-4 w-4" />
                         <span>{{ $t('workspace.tabFiles') }}</span>
                     </a>
-                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panel.activeTab.value === 'git' }"
+                    <a class="tab tab-bordered gap-1" :class="{ 'tab-active': panelTab === 'git' }"
                         @click="panel.setTab('git')">
                         <CodeBracketIcon class="h-4 w-4" />
                         <span>{{ $t('workspace.tabGit') }}</span>
@@ -255,9 +281,15 @@ function onPanelContextMenu(e: MouseEvent) {
                  滑动管控下放到 tab 内部：history / agent-files 等顶底区需要在 tab 内加 sticky，
                  所以外层不能走 overflow-y-auto。 -->
             <div class="flex-1 min-h-0 overflow-hidden">
-                <AgentDetail v-if="panel.activeTab.value === 'agent'" :key="'agent-' + agentId"
+                <!-- 外包 p-4：AgentTeamGroups 自身不带边距（AgentDetail tab 场景由
+                     内容区提供，双份会比工具 tab 多一圈）——右栏直挂由这里补 -->
+                <div v-if="isHubAgent && panelTab === 'groups'" :key="'groups-' + (groupSessionId ?? 'list')"
+                    class="flex-1 min-h-0 overflow-hidden p-4">
+                    <AgentTeamGroups :session-id="groupSessionId" :show-header="false" :compact="true" />
+                </div>
+                <AgentDetail v-else-if="panelTab === 'agent'" :key="'agent-' + agentId"
                     :agent-id="agentId" :show-header="false" :compact="true" @back="panel.setTab('files')" />
-                <WorkspaceTabFiles v-else-if="panel.activeTab.value === 'files'" :key="'files-' + agentId"
+                <WorkspaceTabFiles v-else-if="panelTab === 'files'" :key="'files-' + agentId"
                     :agent-id="agentId" />
                 <WorkspaceTabGit v-else :key="'git-' + agentId" :agent-id="agentId" />
             </div>

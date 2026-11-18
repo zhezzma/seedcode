@@ -1,14 +1,17 @@
 /**
- * 输入框 @ 路径补全的纯逻辑层：token 解析、绝对/相对判定、目录/前缀切分、条目过滤。
+ * 输入框路径补全的纯逻辑层：token 解析、绝对/相对判定、目录/前缀切分、条目过滤。
  *
  * 与 chat-input-key-routing.ts 同定位：不依赖 vue / store / 网络，可直接被 node:test
  * 单测；网络与键盘路由的接线在 useChatInput.ts，UI 在 ChatInput.vue。
  *
- * 语义约定（与主人约定的需求一致）：
- * - `@` 后跟相对路径 → 基于 agent 工作区（服务端 /:id/workspace/tree）；
- * - `@` 后跟绝对路径（`/` 开头或 `X:`/`X:/` 盘符）→ 真实文件系统绝对路径（/api/files/tree）；
+ * 语义约定（触发符恒 '#'；'@' 专属群成员补全，两者不冲突）：
+ * - '#' 后跟相对路径 → 基于 agent 工作区（服务端 /:id/workspace/tree）；
+ * - '#' 后跟绝对路径（`/` 开头或 `X:`/`X:/` 盘符）→ 真实文件系统绝对路径（/api/files/tree）；
  * - 反斜杠统一归一为 `/`（Windows 路径习惯），补全产物也一律用 `/` 分隔。
  */
+
+/** 触发符：'#' 文件补全；'@' 群成员补全（群会话） */
+export type MentionTrigger = '@' | '#'
 
 export interface MentionToken {
     /** '@' 在全文中的下标（替换区间起点） */
@@ -27,20 +30,20 @@ export function isAbsolutePathLike(s: string): boolean {
 }
 
 /**
- * 解析光标处的 @ token。
+ * 解析光标处的路径补全 token（trigger：群会话 '#'，非群会话 '#' 与 '@' 并存兼容）。
  *
  * 触发条件：从光标向前扫到首个空白为止得到「当前 token」，token 的首字符必须是
- * '@'（即 '@' 位于行首或空白之后）——`foo@bar`（邮箱式粘连）不触发；
- * 光标必须落在 token 内（含紧贴 token 尾部），光标在 '@' 之前不算。
- * 返回 null 表示当前没有可补全的 @ token。
+ * 触发符（即触发符位于行首或空白之后）——`foo@bar`（邮箱式粘连）不触发；
+ * 光标必须落在 token 内（含紧贴 token 尾部），光标在触发符之前不算。
+ * 返回 null 表示当前没有可补全的 token。
  */
-export function parseMentionToken(text: string, caret: number): MentionToken | null {
+export function parseMentionToken(text: string, caret: number, trigger: MentionTrigger = '@'): MentionToken | null {
     if (caret < 0 || caret > text.length) return null
     // 从光标向前找 token 起点：越过所有非空白字符
     let start = caret
     while (start > 0 && !/\s/.test(text[start - 1])) start--
-    // token 首字符必须是 '@'；光标恰在 '@' 前（start === caret）也不算
-    if (start >= caret || text[start] !== '@') return null
+    // token 首字符必须是触发符；光标恰在触发符前（start === caret）也不算
+    if (start >= caret || text[start] !== trigger) return null
     const query = text.slice(start + 1, caret).replace(/\\/g, '/')
     // 空白由扫描保证不出现；token 至少是 '@' + 空路径（刚敲下 '@'）
     return { start, end: caret, query }

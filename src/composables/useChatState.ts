@@ -1,6 +1,6 @@
 import { reactive, computed, type ComputedRef } from 'vue'
 
-import { SessionRow, useSessionsState } from './useSessionsState'
+import { SessionRow, useSessionsState, isGroupSessionRow, TEAM_REPORT_EVENT, TEAM_STATE_EVENT } from './useSessionsState'
 import { apiGet, apiPost, apiDelete } from './api-client'
 import { startChatSSE, attachSessionSSE, startRetrySSE, startEditSSE, type ChatPromptBody, type SSEConnection, type SSEEventHandler } from './sse-client'
 import { AgentInfo, useAgentsState } from './useAgentsState'
@@ -68,6 +68,15 @@ export interface SessionStatus {
     lines: string[]
 }
 
+/** 群回合队列条目（GET /groups/:id queue 白名单投影；taskId 不出 API 的说法不适用——
+ *  这里是服务端 team-chat 端点自己的投影，taskId/message/picks/enqueuedAt 全在场） */
+export interface GroupTurnQueueItem {
+    taskId: string
+    message: string
+    picks: string[]
+    enqueuedAt: number
+}
+
 export interface ChatSessionData {
     chatMessages: ChatMessage[]
     chatToolMessages: ChatMessage[]
@@ -96,6 +105,15 @@ export interface ChatSessionData {
     /** 上下文压缩进行中（compaction_start/end 事件驱动；手动 /compact、阈值自动压缩、
      * 扩展触发的在线压缩均适用）。瞬态：随 resetStreamState 兑底清零防断连残留 */
     compacting?: boolean
+    /** 群回合进行中（服务端 queue 非空；发送置位 / ext.team_state 终态广播清零 /
+     * 重开群会话时 GET /groups/:id queue 投影恢复）→ 消息区尾部等待态指示器 */
+    groupTurnBusy?: boolean
+    /** 群回合队列投影（服务端 queue 白名单投影：taskId/message/picks/enqueuedAt）。
+     * 到达线：发送成功本地 append / ext.team_state 回合边界拉新 / 开群恢复拉取。
+     * GroupTurnBar 的数据源（busy 条 + stop 按钮的排队明细） */
+    groupTurnQueue?: GroupTurnQueueItem[]
+    /** 群成员名册投影（key→显示名；queue picks 的名字渲染用，与 groupTurnQueue 同源拉取） */
+    groupMembers?: { key: string; name: string }[]
     sessionStatus: SessionStatus | null
 }
 
@@ -361,11 +379,13 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
     // 群会话不走 SSE/prompt：回合是 durable 任务（服务端 waiting 链串行），
     // 回复经 ext.team_report 广播触发 refreshSettledMessages 落位；
     // 乐观 user 气泡被重拉全量替换冲掉（与 !! 命令回执同款语义）。
-    // 群会话判定=群桶 membership（行 id=壳会话 sessionId；不依赖 agentId 真值——
-    // 回填行/桶行一致命中，v6 hub 形态两仓契约）
+    // 群会话判定=行的会话身份（sessionCategory/agentId），**不是桶位置**——
+    // 归档群/回收站回填的群行不在群桶，按桶判会错走普通 SSE 分支把消息发进
+    // hub 壳会话（消息黑洞）；群桶 membership 是其子集
     const sessionsStateForGroup = useSessionsState()
-    const groupRow = sessionsStateForGroup.groupSessionsResult?.sessions?.find(s => s.id === targetKey)
-    if (groupRow) {
+    const rowForGroup = sessionsStateForGroup.findSessionLocal(targetKey)
+    const isGroupSession = isGroupSessionRow(rowForGroup)
+    if (isGroupSession) {
         if (!text.trim()) return
         // 群消息暂不支持图片：附件被丢弃需明示（静默丢=用户以为发出去了，第 2 轮审核 P2-2）
         if (images.length > 0) {
@@ -378,22 +398,37 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
             id: generateUUID(),
         }]
         sessionData.chatSending = true
+        sessionData.groupTurnBusy = true
         try {
-            const result = await apiPost<{ dispatched: boolean; reason?: string }>(
+            const result = await apiPost<{ dispatched: boolean; reason?: string; taskId?: string; picks?: string[] }>(
                 `/api/extensions/team-chat/groups/${encodeURIComponent(targetKey)}/messages`,
                 { text, requestId: createRuntimeId() },
             )
             if (result && !result.dispatched) {
                 // skip 不回滚乐观气泡：服务端在 router 判定前已持久化 user_message
                 // （skip 也入群历史），回滚会「先消失、下次 team_report 全量刷新又
-                // 复活」自相矛盾（第 4 轮审核 P2-7）——toast 说明原因即可
+                // 复活」自相矛盾（第 4 轮审核 P2-7）——toast 说明原因即可；
+                // skip 无回合 → 等待态同步熄灭
+                sessionData.groupTurnBusy = false
                 useToast().info(result.reason ?? '无人应答', 3000)
+            } else if (result?.taskId) {
+                // 队列投影本地推进（GroupTurnBar 明细）：服务端已入队，回合边界
+                // 由 ext.team_state 拉新兑正；busy 重置位（POST 在途期间穿插的
+                // team_state 事件可能已把乐观置位清掉——HomeView 打点只读 busy）
+                sessionData.groupTurnBusy = true
+                sessionData.groupTurnQueue = [...(sessionData.groupTurnQueue ?? []), {
+                    taskId: result.taskId,
+                    message: text,
+                    picks: result.picks ?? [],
+                    enqueuedAt: Date.now(),
+                }]
             }
         } catch (error) {
             const msgs = sessionData.chatMessages
             if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user' && !(msgs[msgs.length - 1] as any).entryId) {
                 sessionData.chatMessages = msgs.slice(0, -1)
             }
+            sessionData.groupTurnBusy = false
             useToast().error((error as Error)?.message || '发送失败', 5000)
         } finally {
             sessionData.chatSending = false
@@ -571,12 +606,30 @@ const localizeCompactError = (raw: string): string => {
     if (/already compacted/i.test(raw)) return (i18n.global as any).t('chat.compactAlreadyDone')
     return raw
 }
+/** settled 刷新并发合流（trailing-edge，v7.4.3 评审 C-I1）：同一会话在飞时
+ *  后续触发（多成员逐条广播、SSE done 与 WS 通知同帧到达）置 dirty 标记、
+ *  在飞 job 结束后补拉一轮——各自独立拉取会「后发先至」旧快照抹新快照；而
+ *  纯丢弃（旧实现）则可能吞掉最后一条 report（ext.team_state 不触发消息重拉，
+ *  「等下一次触发」的下一次可能永不到来——群回复气泡丢展示直到下条消息）。 */
+const settledRefreshInFlight = new Map<string, Promise<void>>()
+const settledRefreshPending = new Set<string>()
+
 /** settled 刷新（SSE done 与 WS 报告通知共用收敛）：静默重拉 /messages 补齐
  *  entryId / 落盘终态（不设置 chatLoading，避免页面闪烁）；服务端发起的 run
  *  仍在进行（后台报告消化、goal 续跑）则附着 SSE 流——无流附着时续跑回复对
  *  客户端不可见，直到手动刷新。 */
 const refreshSettledMessages = (targetKey: string): void => {
-    apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`).then(result => {
+    if (settledRefreshInFlight.has(targetKey)) {
+        settledRefreshPending.add(targetKey) // 在飞期到达：trailing 补拉（job finally 消费）
+        return
+    }
+    const job = (async () => {
+        let result: { messages: ChatMessage[]; isStreaming?: boolean } | undefined
+        try {
+            result = await apiGet<{ messages: ChatMessage[]; isStreaming?: boolean }>(`/api/chat/${targetKey}/messages`)
+        } catch {
+            return // 静默失败不影响使用
+        }
         if (result?.messages) {
             const sd = getSessionData(targetKey)
             // 迟到回执防抹守卫（防御性）：服务端现已 done 前排空 run_end 收尾
@@ -608,7 +661,14 @@ const refreshSettledMessages = (targetKey: string): void => {
         if (result?.isStreaming) {
             attachToSessionIfNeeded(targetKey)
         }
-    }).catch(() => { /* 静默失败不影响使用 */ })
+    })()
+    settledRefreshInFlight.set(targetKey, job)
+    void job.finally(() => {
+        if (settledRefreshInFlight.get(targetKey) === job) settledRefreshInFlight.delete(targetKey)
+        // 在飞期有新事件到达 → 补拉一轮（幂等多拉，覆盖「最后一条 report 落在
+        // 在飞窗口内被跳过」的丢展示窗口）
+        if (settledRefreshPending.delete(targetKey)) refreshSettledMessages(targetKey)
+    }).catch(() => { /* 补拉自身静默 */ })
 }
 
 // 处理 SSE 事件，更新会话状态
@@ -1146,6 +1206,25 @@ const loadChatHistory = async (sessionKey?: string) => {
     }
 }
 
+/** 群回合状态拉新（queue 投影 + busy 兑正 + 成员名册）：到达线 = 开群恢复 /
+ *  ext.team_state 回合边界（接力建链/排队推进只在这些边界变化）。静默失败——
+ *  解散后 404 等边缘不点亮指示器 */
+function refreshGroupTurnState(sessionId: string): void {
+    apiGet<{ queue?: GroupTurnQueueItem[]; members?: { key: string; name: string }[] }>(
+        `/api/extensions/team-chat/groups/${encodeURIComponent(sessionId)}`,
+    ).then(result => {
+        const sd = state.sessionsMap.get(sessionId)
+        if (!sd || !result) return
+        if (Array.isArray(result.queue)) {
+            sd.groupTurnQueue = result.queue
+            sd.groupTurnBusy = result.queue.length > 0
+        }
+        if (Array.isArray(result.members)) {
+            sd.groupMembers = result.members.map(m => ({ key: m.key, name: m.name }))
+        }
+    }).catch(() => { /* 静默 */ })
+}
+
 /**
  * 切换到已有会话
  * 1. 设置 sessionKey
@@ -1177,6 +1256,13 @@ const setSessionKey = async (key: string) => {
     const session = await sessionsState.getSessionById(key)
     if (session?.agentId) {
         state.agentsSelectedId = session.agentId
+    }
+    // 群会话打开时恢复等待态（行级身份判定同发送分流）：busy 真相源=服务端 queue
+    // （durable 任务链）。页面刷新/切走期间终态广播可能已错过（WS 无会话面时
+    // 不更新），重开时 GET /groups/:id queue 投影兑底——否则指示器永久亮/永久火。
+    // 同源拉 queue 明细+成员名册（GroupTurnBar 的数据面）
+    if (isGroupSessionRow(session)) {
+        refreshGroupTurnState(key)
     }
 
     if (needsLoad) {
@@ -1880,10 +1966,22 @@ onServerMessage((msg: any) => {
         // ext.team_report）：群会话永无 SSE（发送分流到 team-chat 端点），
         // 恒走拉新让 team.bot_message 气泡落位；多成员/接力逐条广播逐次拉幂等
         if (
-            event === 'ext.team_report'
+            event === TEAM_REPORT_EVENT
             && state.sessionsMap.has(sessionId)
         ) {
             refreshSettledMessages(sessionId)
+        }
+        // 群回合终态（服务端 turn-task terminal commit 后广播，两仓契约 ext.team_state
+        // {busy}）：busy=queue 残留（接力/后续排队）→ 等待态持续；false 即本群全部
+        // 回合收尾，熄灭指示器。回合边界同步拉 queue 投影（接力建链/排队推进的
+        // 明细变化只在此边界发生）；重开群会话时同源拉取兑底恢复
+        if (
+            event === TEAM_STATE_EVENT
+            && state.sessionsMap.has(sessionId)
+        ) {
+            const sd = state.sessionsMap.get(sessionId)
+            if (sd) sd.groupTurnBusy = data?.busy === true
+            refreshGroupTurnState(sessionId)
         }
         if (!isExtensionEvent(event)) return
         emitExtensionEvent(event, data, sessionId)

@@ -8,6 +8,7 @@ import {
     TrashIcon,
     HashtagIcon,
     FolderOpenIcon,
+    UsersIcon,
     ArrowLeftStartOnRectangleIcon,
     ArrowRightStartOnRectangleIcon,
 } from '@heroicons/vue/24/outline'
@@ -24,13 +25,12 @@ import { useToast } from '../composables/useToast'
 import { NEW_SESSION_ROUTE_NAME } from '../utils/route-helpers'
 
 
-import { SessionRow, useSessionsState } from '../composables/useSessionsState'
+import { SessionRow, useSessionsState, TEAM_CHAT_HUB_AGENT, isGroupSessionRow } from '../composables/useSessionsState'
 import { useChatState } from '../composables/useChatState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useNavActive } from '../composables/useNavActive'
 import { useUiSettingsStore } from '../stores/setting'
 import { useI18n } from 'vue-i18n'
-import { truncateText } from '../utils/format'
 
 type SessionMenuItem = {
     key: string
@@ -38,25 +38,24 @@ type SessionMenuItem = {
     tone?: 'default' | 'danger'
 }
 
-// 侧栏会话列表 tab：对话 / 计划 / 群聊 / 归档 / 回收站
-export type SidebarSessionTab = 'chats' | 'plans' | 'groups' | 'archived' | 'trash'
+// 侧栏会话列表 tab：对话 / 计划 / 归档 / 回收站（群聊并入对话列表展示，无独立 tab）
+export type SidebarSessionTab = 'chats' | 'plans' | 'archived' | 'trash'
 
 const sessionTab = ref<SidebarSessionTab>('chats')
 
-// 胶囊分段控件的 tab 配置（纯文字：窄侧栏里四档加图标会被挤到截断，标签自解释）
+// 胶囊分段控件的 tab 配置（纯文字：窄侧栏里多档加图标会被挤到截断，标签自解释）
 const SESSION_TABS: Array<{ key: SidebarSessionTab, labelKey: string }> = [
     { key: 'chats', labelKey: 'sidebar.tabChats' },
     { key: 'plans', labelKey: 'sidebar.tabPlans' },
-    { key: 'groups', labelKey: 'sidebar.tabGroups' },
     { key: 'archived', labelKey: 'sidebar.tabArchived' },
     { key: 'trash', labelKey: 'sidebar.tabTrash' },
 ]
 
 // 需懒加载的 tab 与对应 loader（loader 失败返回 null，据此移除标记下次重试）；
 // chats 不在此列：数据由启动链 useAppInit.loadSessions 加载，无需懒加载
+// （统一列表含群行，刷新点=启动/置顶/建群/解散）
 const TAB_LOADERS: Partial<Record<SidebarSessionTab, () => Promise<unknown>>> = {
     plans: () => sessionsState.loadTaskSessions(),
-    groups: () => sessionsState.loadGroupSessions(),
     archived: () => sessionsState.loadArchivedSessions(),
     trash: () => sessionsState.loadDeletedSessions(),
 }
@@ -128,9 +127,7 @@ const activeSessionKey = computed(() => {
 // key 所属桶（桶间互斥由 moveSessionToRouteState 保证）；
 // 桶未加载或无此会话时返回 null，不盲切
 const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
-    // 群桶优先于对话桶：hub 壳会话经 GET /api/sessions 聚合同时出现在 chats 桶，
-    // tab 跟随应指「群聊」（v6 共享库形态的双桶呈现取舍）
-    if (sessionsState.groupSessionsResult?.sessions?.some(s => s.id === key)) return 'groups'
+    // chats 桶即统一列表（群行同住 sessionsResult），群会话 tab 跟随指「对话」
     if (sessionsState.sessionsResult?.sessions?.some(s => s.id === key)) return 'chats'
     if (sessionsState.taskSessionsResult?.sessions?.some(s => s.id === key)) return 'plans'
     if (sessionsState.archivedSessionsResult?.sessions?.some(s => s.id === key)) return 'archived'
@@ -140,9 +137,9 @@ const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
 
 // 每次会话跳转只跟随一次：之后用户手动切到其他 tab 浏览不被拉回。
 // 冷启动点通知时桶数据由 setSessionKey → getSessionById 单查回填，
-// 命中晚于路由跳转，因此同时监听三桶引用变化补切
+// 命中晚于路由跳转，因此同时监听四桶引用变化补切
 let followedKey: string | null = null
-watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.groupSessionsResult, () => sessionsState.archivedSessionsResult, () => sessionsState.deletedSessionsResult], () => {
+watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.archivedSessionsResult, () => sessionsState.deletedSessionsResult], () => {
     const key = activeSessionKey.value
     if (!key || followedKey === key) return
     const tab = sessionTabOfKey(key)
@@ -163,6 +160,8 @@ type DisplaySession = {
     agent: string
     /** 软删会话被活会话 fork 引用的次数（仅回收站桶，> 0 = 清空时保留） */
     referencedBy: number
+    /** team-chat 群行（isGroupSessionRow 判定）：行菜单/群聊 icon/分组归置用 */
+    isGroup: boolean
 }
 
 // agent 显示名：任务会话接口只带 agentId 不带 agentName，本地从 agent 列表解析。
@@ -173,18 +172,19 @@ const agentDisplayName = (s: SessionRow): string => {
     return agent?.name || s.agentId || ''
 }
 
-// 当前 tab 展示的会话列表（回收站行不显示置顶标记——置顶对软删会话无意义）
+// 当前 tab 展示的会话列表（回收站行不显示置顶标记——置顶对软删会话无意义）。
+// 四桶各自直出，无本地归并：chats 即 sessionsResult 统一列表（含群行，排序
+// 权威在服务端：置顶前置+modified 倒序）；归档/回收站桶群行按分类标记识别
+// （回收站分类服务端已透传；旧数据无分类时以 agentId=hub 兜底）
 const displaySessions = computed<DisplaySession[]>(() => {
-    const raw = sessionTab.value === 'chats'
-        ? sessionsState.sessionsResult?.sessions
-        : sessionTab.value === 'plans'
-            ? sessionsState.taskSessionsResult?.sessions
-            : sessionTab.value === 'groups'
-                ? sessionsState.groupSessionsResult?.sessions
-                : sessionTab.value === 'trash'
-                    ? sessionsState.deletedSessionsResult?.sessions
-                    : sessionsState.archivedSessionsResult?.sessions
-    return raw?.map((s: SessionRow) => ({
+    // 群行行级判定：chats 默认走 isGroupSessionRow 单判（sessionCategory='group'）；
+    // 非 chats tab 用桶级判定覆写——归档桶按分类标记（不用 agentId 兜底，手聊
+    // hub 的普通会话归档后会被误判成群）；回收站分类已透传、优先读分类，旧数据
+    // 无分类时以 agentId 兜底
+    const isArchivedGroupRow = (s: SessionRow): boolean => s.sessionCategory === 'group'
+    const isDeletedGroupRow = (s: SessionRow): boolean =>
+        s.sessionCategory === 'group' || s.agentId === TEAM_CHAT_HUB_AGENT
+    const toRow = (s: SessionRow, isGroup = isGroupSessionRow(s)): DisplaySession => ({
         key: s.id,
         label: s?.name || '新对话',
         pinned: sessionTab.value !== 'trash' && Boolean(s.pinned),
@@ -192,7 +192,18 @@ const displaySessions = computed<DisplaySession[]>(() => {
         agentId: s.agentId || '',
         agent: agentDisplayName(s),
         referencedBy: sessionTab.value === 'trash' ? (s.referencedBy ?? 0) : 0,
-    })) ?? []
+        isGroup,
+    })
+    if (sessionTab.value !== 'chats') {
+        const raw = sessionTab.value === 'plans'
+            ? sessionsState.taskSessionsResult?.sessions
+            : sessionTab.value === 'trash'
+                ? sessionsState.deletedSessionsResult?.sessions
+                : sessionsState.archivedSessionsResult?.sessions
+        const groupJudge = sessionTab.value === 'trash' ? isDeletedGroupRow : isArchivedGroupRow
+        return raw?.map((s: SessionRow) => toRow(s, groupJudge(s))) ?? []
+    }
+    return (sessionsState.sessionsResult?.sessions ?? []).map((s: SessionRow) => toRow(s))
 })
 
 // ---------- 按 agent 分组显示 ----------
@@ -209,7 +220,9 @@ const agentCreatedAtMs = (agentId: string): number => {
 }
 
 // 分组模型：按 agentId 分组（同名 agent 不合并）；
-// 组头显示 agent 显示名，无 agent 的会话归入「未分组」组
+// 组头显示 agent 显示名，无 agent 的会话归入「未分组」组；
+// 群行 agentId=hub，与普通会话同管线自然归入 hub agent 组（无伪组特判），
+// 组内顺序=displaySessions 序（服务端置顶前置+modified 倒序）
 const sessionGroups = computed(() => {
     const groups: Array<{ key: string, label: string, sessions: DisplaySession[] }> = []
     const indexOf = new Map<string, number>()
@@ -230,19 +243,20 @@ const sessionGroups = computed(() => {
     // 「未分组」组（key 为空）永远最后；同刻/缺失时退回显示名拼音（agentId 决胜）。
     // 若按首现顺序（时间倒序），任一 agent 有会话更新其组就会跳到最上面；
     // 组内会话仍保持时间倒序不变
-    return groups.sort((a, b) => {
+    const sorted = groups.sort((a, b) => {
         if (!a.key) return 1
         if (!b.key) return -1
         const byCreated = agentCreatedAtMs(a.key) - agentCreatedAtMs(b.key)
         if (byCreated !== 0) return byCreated
         return a.label.localeCompare(b.label, 'zh') || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
     })
+    return sorted
 })
 
 // 列表渲染模型：分组开 → 组头与行交错；关 → 纯行。
 // 组头/行共用一个 v-for，行模板无需按两种视图复制
 type SessionGroupItem = { kind: 'group', key: string, label: string, groupKey: string }
-type SessionRowItem = { kind: 'session', key: string, label: string, pinned: boolean, archived: boolean, referencedBy: number }
+type SessionRowItem = { kind: 'session', key: string, label: string, pinned: boolean, archived: boolean, referencedBy: number, isGroup: boolean }
 type SessionListItem = SessionGroupItem | SessionRowItem
 const toSessionItem = (session: DisplaySession): SessionRowItem => ({
     kind: 'session',
@@ -251,6 +265,7 @@ const toSessionItem = (session: DisplaySession): SessionRowItem => ({
     pinned: session.pinned,
     archived: session.archived,
     referencedBy: session.referencedBy,
+    isGroup: session.isGroup,
 })
 
 // 组的展开/收起状态：按 tab 独立记忆互不干扰（仅会话内记忆，不持久化）；
@@ -258,7 +273,6 @@ const toSessionItem = (session: DisplaySession): SessionRowItem => ({
 const collapsedGroups = ref<Record<SidebarSessionTab, Set<string>>>({
     chats: new Set(),
     plans: new Set(),
-    groups: new Set(),
     archived: new Set(),
     trash: new Set(),
 })
@@ -303,7 +317,7 @@ const selectSession = (key: string) => {
     closeSidebarDrawer()
 }
 
-// ── team-chat 建群向导（groups tab 入口）──
+// ── team-chat 建群向导（顶部「新群聊」按钮入口）──
 const groupWizardOpen = ref(false)
 
 const createNewSession = () => {
@@ -326,11 +340,15 @@ const handleDeleteSession = async (session: { key: string, label: string }) => {
     }
 }
 
-// 解散群（groups tab 专用动作）：走 team-chat 端点（在飞 abort+跨库软删+destroy）；
-// 若解散的是当前打开的群会话，回首页。带确认（不可恢复且动作面大）。
+// 解散群（群行菜单专用动作）：走 team-chat 端点（在飞 abort + 壳软删进回收站
+// + 壳软删）；若解散的是当前打开的群会话，回首页。带确认（软删可从回收站
+// 恢复；彻底清除=清空回收站）。
 const handleDissolveGroup = async (session: { key: string, label: string }) => {
-    // key=壳会话 sessionId（群寻址主键）；行必须还在群桶（已不在=已解散）
-    if (!sessionsState.groupSessionsResult?.sessions?.some(s => s.id === session.key)) return
+    // key=壳会话 sessionId（群寻址主键）；行必须还在对话桶或归档桶（活跃群现住
+    // sessionsResult 统一列表；回收站不查——进回收站=已解散）
+    const stillGroup = sessionsState.sessionsResult?.sessions?.some(s => s.id === session.key)
+        || sessionsState.archivedSessionsResult?.sessions?.some(s => s.id === session.key)
+    if (!stillGroup) return
     const confirmed = await confirm(`确定解散群「${session.label}」？群内所有记录将移入回收站（可恢复）。`)
     if (!confirmed) return
     try {
@@ -402,22 +420,35 @@ const handlePurgeDeleted = async () => {
 // - 对话：置顶/取消置顶仅普通会话有效（后端 pin 只作用于普通列表）
 // - 归档仅对话 tab 的普通会话可用：任务会话（计划 tab）不支持归档
 // - 已归档行（归档 tab 全部 + 计划 tab 中已归档项）显示取消归档
-// - 回收站行：恢复/重命名/信息（删除/归档/置顶对软删会话无意义）
-const getSessionMenuItems = (session: { pinned?: boolean, archived?: boolean }): SessionMenuItem[] => {
+// - 回收站行：恢复/重命名/信息（删除/归档/置顶对软删会话无意义）；群行例外
+//   不给重命名（改的是壳会话名，恢复后被群库名打回——改名走群 PATCH）
+const getSessionMenuItems = (session: { pinned?: boolean, archived?: boolean, isGroup?: boolean }): SessionMenuItem[] => {
     if (sessionTab.value === 'trash') {
-        return [
+        const items: SessionMenuItem[] = [
             { key: 'restore', label: t('sidebar.restore') },
-            { key: 'rename', label: t('sidebar.rename') },
-            { key: 'info', label: t('sidebar.viewInfo') },
         ]
+        if (!session.isGroup) {
+            items.push({ key: 'rename', label: t('sidebar.rename') })
+        }
+        items.push({ key: 'info', label: t('sidebar.viewInfo') })
+        return items
     }
 
-    // 群 tab：菜单收口为「解散群」——通用 delete 会走 /api/sessions/:id 软删壳会话
-    //（群打残：列表照回、回合照跑、消息黑洞），解散必须走 team-chat 端点
-    //（在飞 abort+跨库软删+destroy 编排）；rename/info 不适用群（改名走 PATCH）
-    if (sessionTab.value === 'groups') {
+    // 群行（行级判定，不限 tab）：菜单对齐普通会话生命周期——置顶/归档/取消
+    // 归档/恢复全部可用（服务端群壳已放行通用端点）；解散走 team-chat 端点
+    // （在飞 abort + 壳软删进回收站；成员子会话随服务端任务树连坐删）；rename/info 不适用群
+    // （改名走 PATCH）
+    if (session.isGroup) {
+        if (session.archived) {
+            return [
+                { key: 'unarchive', label: t('sidebar.unarchive') },
+                { key: 'dissolve', label: t('sidebar.groupLeave'), tone: 'danger' as const },
+            ]
+        }
         return [
-            { key: 'dissolve', label: t('sidebar.groupLeave'), tone: 'danger' },
+            { key: session.pinned ? 'unpin' : 'pin', label: session.pinned ? t('sidebar.unpin') : t('sidebar.pin') },
+            { key: 'archive', label: t('sidebar.archive') },
+            { key: 'dissolve', label: t('sidebar.groupLeave'), tone: 'danger' as const },
         ]
     }
 
@@ -598,21 +629,21 @@ const handleNavClick = (item: any) => {
             </div>
         </div>
 
-        <!-- New Chat / New Group Button（群聊 tab 显示建群入口） -->
-        <div class="shrink-0 px-4" >
-            <button v-if="sessionTab === 'groups'" @click="groupWizardOpen = true"
-            :class="isCollapsed && 'px-0'"
-                class="btn btn-primary btn-block btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl"
-                :title="$t('sidebar.newGroup')"  >
-                <PlusIcon class="h-5 w-5" />
-                <span class="font-medium" :class="isCollapsed && 'lg:hidden'">{{ $t('sidebar.newGroup') }}</span>
-            </button>
-            <button v-else @click="createNewSession"
-            :class="isCollapsed && 'px-0'"
-                class="btn btn-primary btn-block btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl"
-                :title="$t('sidebar.newChat')"  >
+        <!-- New Chat / New Group Buttons（常驻并排：新对话 + 新群聊） -->
+        <div class="shrink-0 px-4 flex gap-2">
+            <button @click="createNewSession"
+                :class="isCollapsed && 'px-0'"
+                class="btn btn-primary btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl flex-1"
+                :title="$t('sidebar.newChat')">
                 <PlusIcon class="h-5 w-5" />
                 <span class="font-medium" :class="isCollapsed && 'lg:hidden'">{{ $t('sidebar.newChat') }}</span>
+            </button>
+            <button @click="groupWizardOpen = true"
+                :class="isCollapsed && 'px-0'"
+                class="btn btn-primary btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl flex-1"
+                :title="$t('sidebar.newGroup')">
+                <UsersIcon class="h-5 w-5" />
+                <span class="font-medium" :class="isCollapsed && 'lg:hidden'">{{ $t('sidebar.newGroup') }}</span>
             </button>
         </div>
 
@@ -695,7 +726,7 @@ const handleNavClick = (item: any) => {
             <!-- Empty state -->
             <div v-else-if="!displaySessions || displaySessions.length === 0"
                 class="text-center py-4 text-base-content/50 text-sm">
-                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : sessionTab === 'groups' ? 'sidebar.noGroups' : sessionTab === 'trash' ? 'sidebar.noTrash' : 'sidebar.noArchived') }}
+                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : sessionTab === 'trash' ? 'sidebar.noTrash' : 'sidebar.noArchived') }}
             </div>
             <!-- Sessions list: 分组开时组头与行交错，否则纯行 -->
             <div v-else class="space-y-1">
@@ -710,8 +741,9 @@ const handleNavClick = (item: any) => {
                         <component :is="isGroupCollapsed(session.groupKey) ? FolderIcon : FolderOpenIcon"
                             class="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span class="truncate flex-1 font-semibold text-sm  hover:text-base-content " :class="isGroupCollapsed(session.groupKey) ? 'text-base-content/90' : 'text-base-content/50'">{{ session.label }}</span>
-                        <!-- 为该 agent 新建对话：未分组（无 agentId）不显示；
-                             click/keydown 阻止冒泡，避免顺带触发展开/收起 -->
+                        <!-- 组头 +：为该 agent 新建对话（未分组无 agentId 不显示，
+                             群行归 hub agent 组同样可建）；click/keydown 阻止冒泡，
+                             避免顺带触发展开/收起 -->
                         <button v-if="session.groupKey" type="button"
                             class="btn btn-ghost btn-circle btn-xs shrink-0 "
                             :title="$t('sidebar.newChatForAgent')" :aria-label="$t('sidebar.newChatForAgent')"
@@ -735,6 +767,9 @@ const handleNavClick = (item: any) => {
                             @keydown.enter.prevent="confirmRename" @keydown.esc.prevent="cancelRename"
                             @blur="confirmRename" />
                         <template v-else>
+                            <!-- 群行标识：群聊 icon 前置（平铺混排/伪组内一致） -->
+                            <UsersIcon v-if="session.isGroup" class="h-3.5 w-3.5 shrink-0 text-base-content/50"
+                                aria-hidden="true" />
                             <span class="text-sm truncate flex-1"
                                 :class="activeSessionKey === session.key ? 'font-semibold text-primary' : ''">{{
                                 session.label }}</span>
@@ -761,7 +796,7 @@ const handleNavClick = (item: any) => {
     <SessionInfoModal :open="infoModalOpen" :session="infoSession" :loading="infoLoading"
         @close="infoModalOpen = false" />
 
-    <!-- team-chat 建群向导（groups tab 入口） -->
+    <!-- team-chat 建群向导（顶部「新群聊」按钮入口） -->
     <TeamGroupWizard v-if="groupWizardOpen" @close="groupWizardOpen = false" />
 </template>
 

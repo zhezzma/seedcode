@@ -7,7 +7,10 @@ const root = path.resolve(import.meta.dirname, '..')
 const sidebarSource = readFileSync(path.join(root, 'src/components/AppSidebar.vue'), 'utf8')
 
 test('sidebar defines four session tabs with pill segmented-control styling', () => {
-    assert.match(sidebarSource, /export type SidebarSessionTab = 'chats' \| 'plans' \| 'groups' \| 'archived' \| 'trash'/)
+    // 群聊并入对话列表展示（统一列表平铺），无独立 groups tab
+    assert.match(sidebarSource, /export type SidebarSessionTab = 'chats' \| 'plans' \| 'archived' \| 'trash'/)
+    assert.doesNotMatch(sidebarSource, /key: 'groups'/)
+    assert.doesNotMatch(sidebarSource, /sessionTab === 'groups'/)
     // 四个 tab 由 SESSION_TABS 配置驱动（v-for 渲染），各有 label；
     // 纯文字档：窄侧栏四档加图标会被挤到截断，禁止图标配置残留
     assert.match(sidebarSource, /const SESSION_TABS: Array<\{ key: SidebarSessionTab, labelKey: string \}> = \[/)
@@ -50,9 +53,10 @@ test('sidebar group toggle renders sessions grouped by agent', () => {
     assert.match(sidebarSource, /const sessionGroups = computed\(\(\) => \{/)
     assert.match(sidebarSource, /label: session\.agent \|\| t\('sidebar\.ungrouped'\)/)
     // 组顺序固定不漂移：按 agent 创建时间从早到晚（未分组 key 为空永远最后），
-    // 同刻退回显示名拼音（agentId 决胜）；不随会话更新时间跳位，组内仍保持时间倒序
+    // 同刻退回显示名拼音（agentId 决胜）；不随会话更新时间跳位，组内仍保持时间倒序。
+    // 群行按 agentId=hub 自然归入 hub agent 组，同规则参与排序（无伪组特判）
     assert.match(sidebarSource, /const agentCreatedAtMs = \(agentId: string\): number => \{/)
-    assert.match(sidebarSource, /return groups\.sort\(\(a, b\) => \{\s*if \(!a\.key\) return 1\s*if \(!b\.key\) return -1\s*const byCreated = agentCreatedAtMs\(a\.key\) - agentCreatedAtMs\(b\.key\)\s*if \(byCreated !== 0\) return byCreated\s*return a\.label\.localeCompare\(b\.label, 'zh'\) \|\| \(a\.key < b\.key \? -1 : a\.key > b\.key \? 1 : 0\)/)
+    assert.match(sidebarSource, /const sorted = groups\.sort\(\(a, b\) => \{\s*if \(!a\.key\) return 1\s*if \(!b\.key\) return -1\s*const byCreated = agentCreatedAtMs\(a\.key\) - agentCreatedAtMs\(b\.key\)\s*if \(byCreated !== 0\) return byCreated\s*return a\.label\.localeCompare\(b\.label, 'zh'\) \|\| \(a\.key < b\.key \? -1 : a\.key > b\.key \? 1 : 0\)/)
     // 渲染模型单一 v-for：组头与行交错，行模板不按两种视图复制
     assert.match(sidebarSource, /v-for="session in sessionListItems"/)
     assert.match(sidebarSource, /v-if="session\.kind === 'group'"/)
@@ -88,6 +92,8 @@ test('sidebar tab switch lazily loads the matching data bucket and retries on fa
     assert.match(sidebarSource, /archived: \(\) => sessionsState\.loadArchivedSessions\(\)/)
     assert.match(sidebarSource, /trash: \(\) => sessionsState\.loadDeletedSessions\(\)/)
     assert.doesNotMatch(sidebarSource, /chats: \(\) => sessionsState\.loadSessions\(\)/)
+    // 群桶/loader 均不复活：群行随 /api/sessions 统一列表进 chats 桶
+    assert.doesNotMatch(sidebarSource, /groups: \(\) => sessionsState\.loadGroupSessions\(\)/)
     // 初始无标记，懒加载语义
     assert.match(sidebarSource, /const loadedTabs = new Set<SidebarSessionTab>\(\)/)
     // loader 失败返回 null 时移除标记，下次切到该 tab 会重试
@@ -107,14 +113,13 @@ test('sidebar tab loading state is per-tab, safe under concurrent tab switches',
 })
 
 test('sidebar current tab renders only its matching bucket', () => {
-    assert.match(sidebarSource, /sessionTab\.value === 'chats'\s*\n\s*\? sessionsState\.sessionsResult\?\.sessions/)
-    assert.match(sidebarSource, /sessionTab\.value === 'plans'\s*\n\s*\? sessionsState\.taskSessionsResult\?\.sessions/)
-    assert.match(sidebarSource, /: sessionsState\.archivedSessionsResult\?\.sessions/)
+    // 非 chats tab 各归各桶（plans/trash/archived）；chats 直出 sessionsResult 统一列表（含群行）
+    assert.match(sidebarSource, /const raw = sessionTab\.value === 'plans'\s*\n\s*\? sessionsState\.taskSessionsResult\?\.sessions\s*\n\s*: sessionTab\.value === 'trash'\s*\n\s*\? sessionsState\.deletedSessionsResult\?\.sessions\s*\n\s*: sessionsState\.archivedSessionsResult\?\.sessions/)
 })
 
 test('sidebar empty state per tab and loading indicator during first lazy load', () => {
-    // 空态按 tab 显示 noChats/noPlans/noGroups/noArchived/noTrash
-    assert.match(sidebarSource, /sessionTab === 'chats' \? 'sidebar\.noChats' : sessionTab === 'plans' \? 'sidebar\.noPlans' : sessionTab === 'groups' \? 'sidebar\.noGroups' : sessionTab === 'trash' \? 'sidebar\.noTrash' : 'sidebar\.noArchived'/)
+    // 空态按 tab 显示 noChats/noPlans/noArchived/noTrash（群聊无独立 tab/空态）
+    assert.match(sidebarSource, /sessionTab === 'chats' \? 'sidebar\.noChats' : sessionTab === 'plans' \? 'sidebar\.noPlans' : sessionTab === 'trash' \? 'sidebar\.noTrash' : 'sidebar\.noArchived'/)
     // 首次懒加载在途显示 loading 而非误导性空态
     assert.match(sidebarSource, /<div v-if="tabLoading"[\s\S]*?loading loading-spinner/)
     assert.match(sidebarSource, /<div v-else-if="!displaySessions \|\| displaySessions\.length === 0"/)
@@ -141,11 +146,13 @@ test('sidebar row menu is tab-aware', () => {
 
 test('sidebar tab follows the active session bucket after navigation', () => {
     // 通知点击/路由跳转 /chat/:id 后，tab 自动切到该会话所属桶：
-    // 三桶各自可命中，桶未加载/无此会话时返回 null（等待回填，不盲切）
-    // v6：群桶优先于对话桶（hub 壳会话双桶呈现，tab 跟随指群聊）
-    assert.match(sidebarSource, /const sessionTabOfKey = \(key: string\): SidebarSessionTab \| null => \{[\s\S]*?groupSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'groups'[\s\S]*?sessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'chats'[\s\S]*?taskSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'plans'[\s\S]*?archivedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'archived'[\s\S]*?deletedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'trash'[\s\S]*?return null/)
-    // 同时监听 activeSessionKey 与五桶引用（含 group）：冷启动点通知时桶由 getSessionById 单查回填，命中晚于跳转
-    assert.match(sidebarSource, /watch\(\[activeSessionKey, \(\) => sessionsState\.sessionsResult, \(\) => sessionsState\.taskSessionsResult, \(\) => sessionsState\.groupSessionsResult, \(\) => sessionsState\.archivedSessionsResult, \(\) => sessionsState\.deletedSessionsResult\]/)
+    // 四桶各自可命中（chats 统一列表含群行，群会话跟随指「对话」），
+    // 桶未加载/无此会话时返回 null（等待回填，不盲切）
+    assert.match(sidebarSource, /const sessionTabOfKey = \(key: string\): SidebarSessionTab \| null => \{[\s\S]*?sessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'chats'[\s\S]*?taskSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'plans'[\s\S]*?archivedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'archived'[\s\S]*?deletedSessionsResult\?\.sessions\?\.some\(s => s\.id === key\)\) return 'trash'[\s\S]*?return null/)
+    // 群桶符号删净：sessionTabOfKey/watch 不再引用 groupSessionsResult
+    assert.doesNotMatch(sidebarSource, /groupSessionsResult/)
+    // 同时监听 activeSessionKey 与四桶引用：冷启动点通知时桶由 getSessionById 单查回填，命中晚于跳转
+    assert.match(sidebarSource, /watch\(\[activeSessionKey, \(\) => sessionsState\.sessionsResult, \(\) => sessionsState\.taskSessionsResult, \(\) => sessionsState\.archivedSessionsResult, \(\) => sessionsState\.deletedSessionsResult\]/)
     // followedKey 一次性跟随：同一次跳转只切一次，之后用户手动切其他 tab 浏览不被拉回
     assert.match(sidebarSource, /if \(!key \|\| followedKey === key\) return/)
     assert.match(sidebarSource, /followedKey = key/)
@@ -153,4 +160,39 @@ test('sidebar tab follows the active session bucket after navigation', () => {
     assert.match(sidebarSource, /if \(!tab\) return/)
     // 命中且非当前 tab 时走 switchSessionTab（复用懒加载与重试语义）
     assert.match(sidebarSource, /if \(tab !== sessionTab\.value\) void switchSessionTab\(tab\)/)
+})
+
+test('sidebar renders team-chat group rows inline in the unified chats list', () => {
+    // chats tab 直出 sessionsResult 统一列表（服务端排序：置顶前置+modified 倒序），
+    // 无本地混排归并/双桶剔除/置顶群钉头特判
+    assert.match(sidebarSource, /return \(sessionsState\.sessionsResult\?\.sessions \?\? \[\]\)\.map\(\(s: SessionRow\) => toRow\(s\)\)/)
+    assert.doesNotMatch(sidebarSource, /groupIds|groupDisplays|pinnedGroup|unpinnedGroup|merged\.push/)
+    // 群行判定：chats 走 isGroupSessionRow 单判（sessionCategory='group'）；
+    // 回收站行经 isDeletedGroupRow 桶级覆写（agentId=hub 兜底，服务端回收站不带分类）
+    assert.match(sidebarSource, /const toRow = \(s: SessionRow, isGroup = isGroupSessionRow\(s\)\): DisplaySession => \(/)
+    // 分组模式：群行按 agentId=hub 自然归 agent 分组，无「群聊」伪组/unshift 置顶
+    assert.doesNotMatch(sidebarSource, /TEAM_GROUPS_GROUP_KEY/)
+    assert.doesNotMatch(sidebarSource, /if \(session\.isGroup\) continue/)
+    // 平铺模式：群行前置群聊 icon 标识
+    assert.match(sidebarSource, /<UsersIcon v-if="session\.isGroup" class="h-3\.5 w-3\.5 shrink-0/)
+})
+
+test('sidebar shows new-chat and new-group buttons side by side at all times', () => {
+    // 常驻并排（不再按 tab 互斥换位）；新群聊用 UsersIcon 与新对话区分
+    assert.match(sidebarSource, /<div class="shrink-0 px-4 flex gap-2">/)
+    assert.match(sidebarSource, /@click="createNewSession"/)
+    assert.match(sidebarSource, /@click="groupWizardOpen = true"/)
+    assert.match(sidebarSource, /<UsersIcon class="h-5 w-5" \/>/)
+    assert.doesNotMatch(sidebarSource, /v-if="sessionTab === 'groups'"/)
+})
+
+test('group row menu aligns with normal session lifecycle, dissolve stays row-level', () => {
+    // 群行菜单对齐普通会话生命周期：置顶/归档/取消归档 + 解散群（解散走
+    // team-chat 端点：在飞 abort + 待清理清单 + 壳软删进回收站）；行级 isGroup
+    // 判定（群行已并入对话列表，无群聊 tab）
+    assert.match(sidebarSource, /isGroup\?: boolean/)
+    assert.match(sidebarSource, /\{ key: session\.pinned \? 'unpin' : 'pin', label: session\.pinned \? t\('sidebar\.unpin'\) : t\('sidebar\.pin'\) \}/)
+    assert.match(sidebarSource, /\{ key: 'archive', label: t\('sidebar\.archive'\) \}/)
+    assert.match(sidebarSource, /\{ key: 'dissolve', label: t\('sidebar\.groupLeave'\), tone: 'danger' as const \}/)
+    assert.doesNotMatch(sidebarSource, /sessionTab\.value === 'groups'/)
 })

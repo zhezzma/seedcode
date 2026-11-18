@@ -51,6 +51,10 @@ const activeSubId = ref('')
 
 const activeResult = computed(() => tabs.value.find((r: any) => r.subagentSessionId === activeSubId.value))
 
+/** 轨迹源受管面：subagents 目标（缺省 true）才有运行配置端点；群成员等
+ *  自定义源（managedConfig: false）隐藏模型/思考下拉，只留状态徽标 */
+const managedConfig = computed(() => trace.current.value?.managedConfig !== false)
+
 // 活跃子代理（状态非终态）：正在直播的轨迹尾块思考走纯文本（is-loading 透传给
 // MessageBubble → ThinkingBlock），不做 markdown 全量重渲——抽屉 1.5s 轮询一次，
 // markdown 分支会随思考文本增长每次全量双渲染，是抽屉卡顿主因
@@ -139,11 +143,12 @@ async function saveRuntimeConfig(patch: { provider?: string; model?: string; thi
     }
 }
 
-/** 切 tab / 开关抽屉：清空重读（模型列表冷启动兜底同 AgentSubagents） */
+/** 切 tab / 开关抽屉：清空重读（模型列表冷启动兜底同 AgentSubagents）。
+ *  非受管配置目标（群成员等）不拉 config——本来就没有该端点 */
 watch(configKey, (key) => {
     runtimeConfig.value = null
     configError.value = ''
-    if (key) {
+    if (key && trace.current.value?.managedConfig !== false) {
         if (modelsState.providers.value.length === 0) {
             // 失败仅影响下拉内容（空列表），不静默 Promise 拒绝
             void modelsState.loadModels().catch(() => { })
@@ -288,10 +293,11 @@ async function poll() {
     // 发送时刻的游标快照：响应期间游标可能被推送推进，重叠切片依赖它
     const requestedOffset = traceOffset
     try {
-        const res = await apiGet<any>(
-            `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}?offset=${requestedOffset}`,
-            true // 静默：失败由内联 loadError 呈现，不弹全局 toast
-        )
+        // 轨迹源：自定义（群聊任务 tab）或 subagents 侧车路由缺省
+        const url = t.traceUrl !== undefined
+            ? t.traceUrl(subId, requestedOffset)
+            : `/api/extensions/subagents/sessions/${t.parentSessionId}/subagents/${subId}?offset=${requestedOffset}`
+        const res = await apiGet<any>(url, true) // 静默：失败由内联 loadError 呈现，不弹全局 toast
         // 代际已过（切 tab / 重开 / 关闭 / 卸载）：丢弃响应，新链由 reload 发起
         if (epoch !== pollEpoch || t !== trace.current.value || subId !== activeSubId.value) return
         loadError.value = ''
@@ -396,7 +402,11 @@ const converter = createContentConverter(renderedSurfaceIds)
 
 const displayMessages = computed<DisplayMessage[]>(() => {
     const out: DisplayMessage[] = []
-    for (const e of entries.value) {
+    // 服务端轨迹载荷（HTTP 行与推送增量同源）不含消息 id：用 tab 内条目索引合成
+    // 稳定 id（append-only，重拉时整体重置无妨）——否则 v-for :key 与 TTS 高亮
+    // （currentReadingMsgId 比对）全部 undefined 失效
+    for (let ei = 0; ei < entries.value.length; ei++) {
+        const e = entries.value[ei]
         const m = e.message
         if (!m) continue
 
@@ -432,7 +442,7 @@ const displayMessages = computed<DisplayMessage[]>(() => {
         if (m.errorMessage) blocks.push({ type: 'error', error: m.errorMessage })
         if (blocks.length > 0) {
             out.push({
-                id: e.id,
+                id: e.id ?? `trace-${ei}`,
                 role: m.role,
                 blocks,
                 timestamp: e.timestamp ? new Date(e.timestamp).getTime() : undefined,
@@ -528,9 +538,10 @@ function close() {
                             {{ r.agent }}
                         </button>
                     </div>
-                    <!-- 运行配置行：模型/思考档在前（有 subId 的 tab 恒显示），改动即时 PUT 下发；状态徽标 + Turn 随后 -->
+                    <!-- 运行配置行：模型/思考档在前（仅 subagents 受管目标——群成员等
+                         自定义轨迹源不经 config 端点），状态徽标 + Turn 恒显示 -->
                     <div v-if="activeResult" class="flex items-center gap-2 flex-wrap mt-2 text-xs">
-                        <div ref="modelMenuRef" class="dropdown dropdown-bottom"
+                        <div v-if="managedConfig" ref="modelMenuRef" class="dropdown dropdown-bottom"
                             :class="{ 'dropdown-open': modelMenuOpen }">
                             <button type="button" @click.stop="modelMenuOpen = !modelMenuOpen; thinkingMenuOpen = false"
                                 class="btn btn-ghost btn-xs gap-1 font-normal rounded-full border border-base-content/20 hover:border-base-content/40 hover:bg-base-300 transition-all"
@@ -548,7 +559,7 @@ function close() {
                                     :current-model="currentModelId" @select="onModelSelect" />
                             </div>
                         </div>
-                        <div ref="thinkingMenuRef" class="dropdown dropdown-bottom"
+                        <div v-if="managedConfig" ref="thinkingMenuRef" class="dropdown dropdown-bottom"
                             :class="{ 'dropdown-open': thinkingMenuOpen }">
                             <button type="button" @click.stop="thinkingMenuOpen = !thinkingMenuOpen; modelMenuOpen = false"
                                 class="btn btn-ghost btn-xs gap-1 font-normal rounded-full border border-primary/20 hover:bg-base-300 transition-all"
@@ -574,7 +585,7 @@ function close() {
                         </div>
                         <span class="badge badge-sm" :class="statusBadge(activeResult).cls">{{ statusBadge(activeResult).label }}</span>
                         <span v-if="Number(activeResult.usage?.turns) > 0" class="text-base-content/50">Turn {{ activeResult.usage.turns }}</span>
-                        <span v-if="configError" class="text-error truncate">{{ configError }}</span>
+                        <span v-if="configError && managedConfig" class="text-error truncate">{{ configError }}</span>
                     </div>
                 </div>
 
