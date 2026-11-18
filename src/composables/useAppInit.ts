@@ -43,6 +43,9 @@ export function useAppInit() {
         const results = await Promise.allSettled([
             agentsState.loadAgents(),
             sessionsState.loadSessions(),
+            // 群桶预载（team-chat）：群 tab 首屏数据 + sendMessage 群分流的
+            // 常驻判定源（失败不阻断——回填路径仍能归桶）
+            sessionsState.loadGroupSessions(),
             loadModels(),
         ])
         for (const r of results) {

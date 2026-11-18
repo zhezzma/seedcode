@@ -357,6 +357,50 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
     const sessionData = getSessionData(targetKey)
     const sessionId = targetKey
 
+    // ── 群会话分流（team-chat 扩展）──
+    // 群会话不走 SSE/prompt：回合是 durable 任务（服务端 waiting 链串行），
+    // 回复经 ext.team_report 广播触发 refreshSettledMessages 落位；
+    // 乐观 user 气泡被重拉全量替换冲掉（与 !! 命令回执同款语义）。
+    // 群会话判定=群桶 membership（行 id=壳会话 sessionId；不依赖 agentId 真值——
+    // 回填行/桶行一致命中，v6 hub 形态两仓契约）
+    const sessionsStateForGroup = useSessionsState()
+    const groupRow = sessionsStateForGroup.groupSessionsResult?.sessions?.find(s => s.id === targetKey)
+    if (groupRow) {
+        if (!text.trim()) return
+        // 群消息暂不支持图片：附件被丢弃需明示（静默丢=用户以为发出去了，第 2 轮审核 P2-2）
+        if (images.length > 0) {
+            useToast().info('群聊消息暂不支持图片附件（已忽略）', 3000)
+        }
+        sessionData.chatMessages = [...sessionData.chatMessages, {
+            role: 'user',
+            content: text,
+            timestamp: Date.now(),
+            id: generateUUID(),
+        }]
+        sessionData.chatSending = true
+        try {
+            const result = await apiPost<{ dispatched: boolean; reason?: string }>(
+                `/api/extensions/team-chat/groups/${encodeURIComponent(targetKey)}/messages`,
+                { text, requestId: createRuntimeId() },
+            )
+            if (result && !result.dispatched) {
+                // skip 不回滚乐观气泡：服务端在 router 判定前已持久化 user_message
+                // （skip 也入群历史），回滚会「先消失、下次 team_report 全量刷新又
+                // 复活」自相矛盾（第 4 轮审核 P2-7）——toast 说明原因即可
+                useToast().info(result.reason ?? '无人应答', 3000)
+            }
+        } catch (error) {
+            const msgs = sessionData.chatMessages
+            if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user' && !(msgs[msgs.length - 1] as any).entryId) {
+                sessionData.chatMessages = msgs.slice(0, -1)
+            }
+            useToast().error((error as Error)?.message || '发送失败', 5000)
+        } finally {
+            sessionData.chatSending = false
+        }
+        return
+    }
+
     // Prepare optimistic content (text + images)
     let optimisticContent: any = text
     if (images.length > 0) {
@@ -1829,6 +1873,15 @@ onServerMessage((msg: any) => {
             event === 'ext.video_report'
             && state.sessionsMap.has(sessionId)
             && !sseConnections.has(sessionId)
+        ) {
+            refreshSettledMessages(sessionId)
+        }
+        // 群聊回合回投（服务端 turn-task report 相 postCustomEntry 后广播，两仓契约
+        // ext.team_report）：群会话永无 SSE（发送分流到 team-chat 端点），
+        // 恒走拉新让 team.bot_message 气泡落位；多成员/接力逐条广播逐次拉幂等
+        if (
+            event === 'ext.team_report'
+            && state.sessionsMap.has(sessionId)
         ) {
             refreshSettledMessages(sessionId)
         }

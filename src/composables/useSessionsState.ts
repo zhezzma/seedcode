@@ -49,6 +49,10 @@ export interface SessionsState {
     sessionsResult: SessionsResult | null
     /** 计划会话（侧栏「计划」tab + cron 执行目标候选） */
     taskSessionsResult: SessionsResult | null
+    /** 群聊会话（侧栏「群聊」tab；行来自 team-chat 扩展 /groups 端点，
+     *  id=群壳会话 sessionId——消息拉取走通用 /messages（displayableKinds 白名单），
+     *  发送分流见 useChatState.sendMessage 的群分支） */
+    groupSessionsResult: SessionsResult | null
     /** 已归档会话（侧栏「归档」tab 数据源） */
     archivedSessionsResult: SessionsResult | null
     /** 回收站（侧栏「回收站」tab 数据源，软删会话） */
@@ -58,6 +62,7 @@ export interface SessionsState {
 const state = reactive<SessionsState>({
     sessionsResult: null,
     taskSessionsResult: null,
+    groupSessionsResult: null,
     archivedSessionsResult: null,
     deletedSessionsResult: null,
 })
@@ -71,13 +76,21 @@ const rebuildIndex = () => {
     sessionsIndex.clear()
     state.sessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
     state.taskSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
+    state.groupSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
     state.archivedSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
     state.deletedSessionsResult?.sessions?.forEach(s => sessionsIndex.set(s.id, s))
 }
 
 
 const upsertSessionByRouteState = (session: SessionRow, routeState?: SessionRouteState) => {
-    const normalized = normalizeSessionRouteState(routeState ?? session)
+    // 群会话回填强制归群桶：/info 不感知群 category，按 agentId=hub 常量识别
+    // （两仓契约，服务端 HUB_AGENT_ID 同值）——否则刷新后单查回填落对话桶，
+    // sendMessage 群分流失效
+    const isGroupSessionRow = session.agentId === TEAM_CHAT_HUB_AGENT
+        || routeState?.sessionCategory === 'group'
+    const normalized = normalizeSessionRouteState(
+        isGroupSessionRow ? { ...(routeState ?? session), sessionCategory: 'group' } : (routeState ?? session),
+    )
     const nextSession = {
         ...session,
         ...normalized,
@@ -94,11 +107,12 @@ const upsertSessionByRouteState = (session: SessionRow, routeState?: SessionRout
 const findSessionLocal = (id: string) =>
     state.sessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
     || state.taskSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
+    || state.groupSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
     || state.archivedSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
     || state.deletedSessionsResult?.sessions?.find((s: SessionRow) => s.id === id)
 
 // sessions 变更时自动重建索引（模块级全局 watcher）
-watch(() => [state.sessionsResult, state.taskSessionsResult, state.archivedSessionsResult, state.deletedSessionsResult], rebuildIndex, { immediate: true, deep: false })
+watch(() => [state.sessionsResult, state.taskSessionsResult, state.groupSessionsResult, state.archivedSessionsResult, state.deletedSessionsResult], rebuildIndex, { immediate: true, deep: false })
 
 const loadSessions = async (_opts?: any) => {
     const result = await apiGet<SessionsResult>('/api/sessions')
@@ -225,6 +239,7 @@ const archiveSession = async (id: string) => {
     } else {
         state.sessionsResult = removeSessionFromResult(state.sessionsResult, id)
         state.taskSessionsResult = removeSessionFromResult(state.taskSessionsResult, id)
+        state.groupSessionsResult = removeSessionFromResult(state.groupSessionsResult, id)
         state.archivedSessionsResult = removeSessionFromResult(state.archivedSessionsResult, id)
     }
 
@@ -248,6 +263,7 @@ const unarchiveSession = async (id: string) => {
     } else {
         state.sessionsResult = removeSessionFromResult(state.sessionsResult, id)
         state.taskSessionsResult = removeSessionFromResult(state.taskSessionsResult, id)
+        state.groupSessionsResult = removeSessionFromResult(state.groupSessionsResult, id)
         state.archivedSessionsResult = removeSessionFromResult(state.archivedSessionsResult, id)
     }
 
@@ -283,6 +299,7 @@ const deleteSession = async (key: string) => {
     } else {
         state.sessionsResult = removeSessionFromResult(state.sessionsResult, key)
         state.taskSessionsResult = removeSessionFromResult(state.taskSessionsResult, key)
+        state.groupSessionsResult = removeSessionFromResult(state.groupSessionsResult, key)
         state.archivedSessionsResult = removeSessionFromResult(state.archivedSessionsResult, key)
         state.deletedSessionsResult = removeSessionFromResult(state.deletedSessionsResult, key)
     }
@@ -370,9 +387,80 @@ const getSessionById = async (
     }
 }
 
+// ── team-chat 群聊桶（行来自扩展 /groups 端点；消息拉取/发送分流见 useChatState）──
+
+/** 群聊 hub agent 常量（两仓契约，服务端 HUB_AGENT_ID 同值）：归桶判定依据。 */
+const TEAM_CHAT_HUB_AGENT = 'team-chat-hub'
+
+interface TeamGroupApiRow {
+    shellSessionId: string
+    name: string
+    memberCount: number
+    updatedAt: string
+}
+
+let groupSessionsRequestId = 0
+
+const loadGroupSessions = async (page = 1, _pageSize = 50): Promise<SessionsResult | null> => {
+    const requestId = ++groupSessionsRequestId
+    try {
+        const groups = await apiGet<TeamGroupApiRow[]>('/api/extensions/team-chat/groups')
+        if (requestId !== groupSessionsRequestId) {
+            return { sessions: (groups || []).map(toGroupRow).filter((r): r is SessionRow => r !== null) }
+        }
+        const result: SessionsResult = {
+            sessions: (groups || []).slice((page - 1) * 50).map(toGroupRow).filter((r): r is SessionRow => r !== null),
+            total: (groups || []).length,
+            page,
+            pageSize: 50,
+        }
+        state.groupSessionsResult = result
+        return result
+    } catch (error) {
+        console.error('Failed to load team groups', error)
+        return null
+    }
+}
+
+/** 群行→SessionRow：id=壳会话 sessionId（消息/发送寻址键）；agentId=群 id。
+ *  shellSessionId 缺失的坏行直接跳过（捏造 id 只会让打开/分流/刷新门禁全链失效，
+ *  第 3 轮审核 P0-1：服务端已恒返回真值，缺失=群库异常，宁缺毋假）。 */
+const toGroupRow = (g: TeamGroupApiRow): SessionRow | null => {
+    if (!g.shellSessionId) return null
+    return {
+        id: g.shellSessionId,
+        agentId: TEAM_CHAT_HUB_AGENT,
+        agentName: `${g.name}（${g.memberCount} 成员）`,
+        name: g.name,
+        modified: g.updatedAt,
+        sessionCategory: 'group',
+    }
+}
+
+export interface TeamGroupMemberInput {
+    name: string
+    source: { type: 'agent'; agentId: string } | { type: 'inline'; systemPrompt: string }
+    memory: boolean
+}
+
+const createTeamGroup = async (input: { name: string; members: TeamGroupMemberInput[]; bulletin?: string }) => {
+    const result = await apiPost<{ shellSessionId: string }>('/api/extensions/team-chat/groups', input)
+    await loadGroupSessions()
+    return result
+}
+
+const deleteTeamGroup = async (shellSessionId: string) => {
+    await apiDelete(`/api/extensions/team-chat/groups/${encodeURIComponent(shellSessionId)}`)
+    // 群桶行 id=壳会话 sessionId（服务端软删，恢复可从回收站找回）
+    state.groupSessionsResult = removeSessionFromResult(state.groupSessionsResult, shellSessionId)
+}
+
 const _sessionsState = Object.assign(state, {
     loadSessions,
     loadTaskSessions,
+    loadGroupSessions,
+    createTeamGroup,
+    deleteTeamGroup,
     loadArchivedSessions,
     loadDeletedSessions,
     patchSession,

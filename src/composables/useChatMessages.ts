@@ -98,6 +98,8 @@ export interface DisplayMessage {
     timestamp?: number
     entryId?: string
     parentEntryId?: string | null
+    /** 群聊消息署名（team.user_message/team.bot_message 的 speaker；null=系统行 */
+    speaker?: string | null
     /** 合并气泡（assistantMsgMerge）下组内最后一条 entry 的 id；
      *  fork 等以「气泡末尾」为锚点的操作应优先用它，entryId 保持指向组内第一条
      *  （会话树跳转的反向定位依赖该语义，不可改动） */
@@ -546,6 +548,25 @@ export function useChatMessages(state: ChatStateShape) {
             // - 服务端 custom_message 条目（通道归位后 /messages 投影：type==='custom_message'）
             // - 旧引擎/迁移历史的 role==='custom' 消息（含 SSE live 追加的）
             if (msg.type === 'custom_message' || msg.role === 'custom') {
+                // 群聊消息（team-chat 扩展两仓契约）：独立成泡+署名——不并入
+                // assistant 气泡（它是群成员的独立发言，不是某条 AI 回复的内嵌附件），
+                // 也不走回执集合（它有独立的 speaker 面）。空/aborted 对账行照常渲染。
+                if (msg.customType === 'team.user_message' || msg.customType === 'team.bot_message') {
+                    const teamData = msg.content as { speaker?: string | null, text?: string, ts?: number } | null | undefined
+                    const teamText = typeof teamData?.text === 'string' ? teamData.text : ''
+                    if (teamText) {
+                        displayMessages.push({
+                            id: msg.id || `${state.sessionKey || 'temp'}-msg-${displayMessages.length}`,
+                            role: msg.customType === 'team.user_message' ? 'user' : 'assistant',
+                            blocks: convertToBlocks(teamText),
+                            timestamp: teamData?.ts ?? msg.timestamp,
+                            entryId: msg.entryId,
+                            parentEntryId: msg.parentEntryId,
+                            speaker: teamData?.speaker ?? null,
+                        })
+                    }
+                    continue
+                }
                 // deliverables：结构化载荷（{files, summary}），convertToBlocks 只认
                 // 文本/数组——预构造 deliverables 块后走下方面板并入语义（本轮产出物
                 // 是该条 AI 回复的内嵌附件）；文件数守门，脏载荷静默跳过

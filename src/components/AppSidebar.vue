@@ -16,6 +16,7 @@ import { SIDEBAR_ITEMS } from '../config/navigation'
 import { isDesktopTauri } from '../utils/environment'
 import SessionActionMenu from './chat/SessionActionMenu.vue'
 import SessionInfoModal from './chat/SessionInfoModal.vue'
+import TeamGroupWizard from './chat/TeamGroupWizard.vue'
 import GatewaySwitcher from './GatewaySwitcher.vue'
 
 import { useConfirm } from '../composables/useConfirm'
@@ -37,8 +38,8 @@ type SessionMenuItem = {
     tone?: 'default' | 'danger'
 }
 
-// 侧栏会话列表 tab：对话 / 计划 / 归档 / 回收站
-export type SidebarSessionTab = 'chats' | 'plans' | 'archived' | 'trash'
+// 侧栏会话列表 tab：对话 / 计划 / 群聊 / 归档 / 回收站
+export type SidebarSessionTab = 'chats' | 'plans' | 'groups' | 'archived' | 'trash'
 
 const sessionTab = ref<SidebarSessionTab>('chats')
 
@@ -46,6 +47,7 @@ const sessionTab = ref<SidebarSessionTab>('chats')
 const SESSION_TABS: Array<{ key: SidebarSessionTab, labelKey: string }> = [
     { key: 'chats', labelKey: 'sidebar.tabChats' },
     { key: 'plans', labelKey: 'sidebar.tabPlans' },
+    { key: 'groups', labelKey: 'sidebar.tabGroups' },
     { key: 'archived', labelKey: 'sidebar.tabArchived' },
     { key: 'trash', labelKey: 'sidebar.tabTrash' },
 ]
@@ -54,6 +56,7 @@ const SESSION_TABS: Array<{ key: SidebarSessionTab, labelKey: string }> = [
 // chats 不在此列：数据由启动链 useAppInit.loadSessions 加载，无需懒加载
 const TAB_LOADERS: Partial<Record<SidebarSessionTab, () => Promise<unknown>>> = {
     plans: () => sessionsState.loadTaskSessions(),
+    groups: () => sessionsState.loadGroupSessions(),
     archived: () => sessionsState.loadArchivedSessions(),
     trash: () => sessionsState.loadDeletedSessions(),
 }
@@ -125,6 +128,9 @@ const activeSessionKey = computed(() => {
 // key 所属桶（桶间互斥由 moveSessionToRouteState 保证）；
 // 桶未加载或无此会话时返回 null，不盲切
 const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
+    // 群桶优先于对话桶：hub 壳会话经 GET /api/sessions 聚合同时出现在 chats 桶，
+    // tab 跟随应指「群聊」（v6 共享库形态的双桶呈现取舍）
+    if (sessionsState.groupSessionsResult?.sessions?.some(s => s.id === key)) return 'groups'
     if (sessionsState.sessionsResult?.sessions?.some(s => s.id === key)) return 'chats'
     if (sessionsState.taskSessionsResult?.sessions?.some(s => s.id === key)) return 'plans'
     if (sessionsState.archivedSessionsResult?.sessions?.some(s => s.id === key)) return 'archived'
@@ -136,7 +142,7 @@ const sessionTabOfKey = (key: string): SidebarSessionTab | null => {
 // 冷启动点通知时桶数据由 setSessionKey → getSessionById 单查回填，
 // 命中晚于路由跳转，因此同时监听三桶引用变化补切
 let followedKey: string | null = null
-watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.archivedSessionsResult, () => sessionsState.deletedSessionsResult], () => {
+watch([activeSessionKey, () => sessionsState.sessionsResult, () => sessionsState.taskSessionsResult, () => sessionsState.groupSessionsResult, () => sessionsState.archivedSessionsResult, () => sessionsState.deletedSessionsResult], () => {
     const key = activeSessionKey.value
     if (!key || followedKey === key) return
     const tab = sessionTabOfKey(key)
@@ -173,9 +179,11 @@ const displaySessions = computed<DisplaySession[]>(() => {
         ? sessionsState.sessionsResult?.sessions
         : sessionTab.value === 'plans'
             ? sessionsState.taskSessionsResult?.sessions
-            : sessionTab.value === 'trash'
-                ? sessionsState.deletedSessionsResult?.sessions
-                : sessionsState.archivedSessionsResult?.sessions
+            : sessionTab.value === 'groups'
+                ? sessionsState.groupSessionsResult?.sessions
+                : sessionTab.value === 'trash'
+                    ? sessionsState.deletedSessionsResult?.sessions
+                    : sessionsState.archivedSessionsResult?.sessions
     return raw?.map((s: SessionRow) => ({
         key: s.id,
         label: s?.name || '新对话',
@@ -250,6 +258,7 @@ const toSessionItem = (session: DisplaySession): SessionRowItem => ({
 const collapsedGroups = ref<Record<SidebarSessionTab, Set<string>>>({
     chats: new Set(),
     plans: new Set(),
+    groups: new Set(),
     archived: new Set(),
     trash: new Set(),
 })
@@ -294,6 +303,9 @@ const selectSession = (key: string) => {
     closeSidebarDrawer()
 }
 
+// ── team-chat 建群向导（groups tab 入口）──
+const groupWizardOpen = ref(false)
+
 const createNewSession = () => {
     // Navigate to new-session route
     router.push({ name: NEW_SESSION_ROUTE_NAME })
@@ -311,6 +323,23 @@ const handleDeleteSession = async (session: { key: string, label: string }) => {
     const result = await sessionsState.deleteSession(session.key)
     if (result?.deleted && chatState.sessionKey === session.key) {
         router.push({ name: 'home' })
+    }
+}
+
+// 解散群（groups tab 专用动作）：走 team-chat 端点（在飞 abort+跨库软删+destroy）；
+// 若解散的是当前打开的群会话，回首页。带确认（不可恢复且动作面大）。
+const handleDissolveGroup = async (session: { key: string, label: string }) => {
+    // key=壳会话 sessionId（群寻址主键）；行必须还在群桶（已不在=已解散）
+    if (!sessionsState.groupSessionsResult?.sessions?.some(s => s.id === session.key)) return
+    const confirmed = await confirm(`确定解散群「${session.label}」？群内所有记录将移入回收站（可恢复）。`)
+    if (!confirmed) return
+    try {
+        await sessionsState.deleteTeamGroup(session.key)
+        if (chatState.sessionKey === session.key) {
+            router.push({ name: 'home' })
+        }
+    } catch (error) {
+        useToast().error((error as Error)?.message || '解散失败', 5000)
     }
 }
 
@@ -380,6 +409,15 @@ const getSessionMenuItems = (session: { pinned?: boolean, archived?: boolean }):
             { key: 'restore', label: t('sidebar.restore') },
             { key: 'rename', label: t('sidebar.rename') },
             { key: 'info', label: t('sidebar.viewInfo') },
+        ]
+    }
+
+    // 群 tab：菜单收口为「解散群」——通用 delete 会走 /api/sessions/:id 软删壳会话
+    //（群打残：列表照回、回合照跑、消息黑洞），解散必须走 team-chat 端点
+    //（在飞 abort+跨库软删+destroy 编排）；rename/info 不适用群（改名走 PATCH）
+    if (sessionTab.value === 'groups') {
+        return [
+            { key: 'dissolve', label: t('sidebar.groupLeave'), tone: 'danger' },
         ]
     }
 
@@ -481,6 +519,11 @@ const openSessionInfo = async (session: { key: string, label: string }) => {
 }
 
 const handleSessionMenuSelect = async (session: { key: string, label: string }, action: string) => {
+    if (action === 'dissolve') {
+        await handleDissolveGroup(session)
+        return
+    }
+
     if (action === 'rename') {
         await startRename(session)
         return
@@ -555,9 +598,16 @@ const handleNavClick = (item: any) => {
             </div>
         </div>
 
-        <!-- New Chat Button -->
+        <!-- New Chat / New Group Button（群聊 tab 显示建群入口） -->
         <div class="shrink-0 px-4" >
-            <button @click="createNewSession"
+            <button v-if="sessionTab === 'groups'" @click="groupWizardOpen = true"
+            :class="isCollapsed && 'px-0'"
+                class="btn btn-primary btn-block btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl"
+                :title="$t('sidebar.newGroup')"  >
+                <PlusIcon class="h-5 w-5" />
+                <span class="font-medium" :class="isCollapsed && 'lg:hidden'">{{ $t('sidebar.newGroup') }}</span>
+            </button>
+            <button v-else @click="createNewSession"
             :class="isCollapsed && 'px-0'"
                 class="btn btn-primary btn-block btn-sm gap-2 shadow-md hover:shadow-lg transition-shadow rounded-xl"
                 :title="$t('sidebar.newChat')"  >
@@ -645,7 +695,7 @@ const handleNavClick = (item: any) => {
             <!-- Empty state -->
             <div v-else-if="!displaySessions || displaySessions.length === 0"
                 class="text-center py-4 text-base-content/50 text-sm">
-                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : sessionTab === 'trash' ? 'sidebar.noTrash' : 'sidebar.noArchived') }}
+                {{ $t(sessionTab === 'chats' ? 'sidebar.noChats' : sessionTab === 'plans' ? 'sidebar.noPlans' : sessionTab === 'groups' ? 'sidebar.noGroups' : sessionTab === 'trash' ? 'sidebar.noTrash' : 'sidebar.noArchived') }}
             </div>
             <!-- Sessions list: 分组开时组头与行交错，否则纯行 -->
             <div v-else class="space-y-1">
@@ -710,6 +760,9 @@ const handleNavClick = (item: any) => {
 
     <SessionInfoModal :open="infoModalOpen" :session="infoSession" :loading="infoLoading"
         @close="infoModalOpen = false" />
+
+    <!-- team-chat 建群向导（groups tab 入口） -->
+    <TeamGroupWizard v-if="groupWizardOpen" @close="groupWizardOpen = false" />
 </template>
 
 <style scoped>
