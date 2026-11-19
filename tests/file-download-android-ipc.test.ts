@@ -9,6 +9,7 @@ const repoRoot = path.resolve(testDir, '..')
 
 const fileDownloadSource = readFileSync(path.join(repoRoot, 'src/utils/fileDownload.ts'), 'utf8')
 const fileActionsSource = readFileSync(path.join(repoRoot, 'src/composables/useFileActions.ts'), 'utf8')
+const viewerActionsSource = readFileSync(path.join(repoRoot, 'src/composables/useViewerActions.ts'), 'utf8')
 const libRs = readFileSync(path.join(repoRoot, 'src-tauri/src/lib.rs'), 'utf8')
 const capability = readFileSync(path.join(repoRoot, 'src-tauri/capabilities/default.json'), 'utf8')
 const enSource = readFileSync(path.join(repoRoot, 'src/i18n/en.ts'), 'utf8')
@@ -60,7 +61,7 @@ function setNavigator(userAgent: string): void {
 ;(globalThis as any).FileReader = FakeFileReader
 setNavigator(DESKTOP_UA)
 
-const { saveBlob } = await import(
+const { saveBlob, saveUrlToSystemFile } = await import(
     pathToFileURL(path.join(repoRoot, 'src/utils/fileDownload.ts')).href
 )
 
@@ -107,6 +108,92 @@ test('saveBlob（桌面 Tauri）：仍走 fs 插件 writeFile 原始字节通道
     assert.equal(savedPath, 'notes.txt')
 })
 
+// ─── 行为测试：saveUrlToSystemFile 的流式分块中转（大文件 OOM 修复） ───
+
+/** 构造按给定分片顺序吐字节的 Response（Node 18+ 原生 ReadableStream）。 */
+function streamingResponse(slices: Uint8Array[], status = 200): Response {
+    const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+            for (const slice of slices) controller.enqueue(slice)
+            controller.close()
+        },
+    })
+    return new Response(stream, { status })
+}
+
+test('saveUrlToSystemFile（Android Tauri）：按 4MB 分块中转，首块 append=false 后续 true', async () => {
+    // 根因回归：237MB debug APK 走「整块 blob → base64 → 一次 invoke」时 WebView
+    // 渲染进程堆峰值 ~3.7×文件大小，Android 直接 OOM 崩溃。修复后必须分块流式中转，
+    // 单块 IPC 载荷有上界（4MB 原始 → ~5.3MB base64），与文件总大小无关。
+    invokeCalls.length = 0
+    setNavigator(ANDROID_WV_UA)
+    const originalFetch = (globalThis as any).fetch
+    const fetchCalls: { url: string; headers: unknown }[] = []
+    ;(globalThis as any).fetch = async (url: string, init: any) => {
+        fetchCalls.push({ url, headers: init?.headers })
+        return streamingResponse([
+            new Uint8Array(4 * 1024 * 1024),
+            new Uint8Array(64 * 1024 + 1),
+        ])
+    }
+    try {
+        const savedPath = await saveUrlToSystemFile(
+            'http://gw:8080/api/agents/coder/download?path=dist-android%2Fapp-debug.apk',
+            { Authorization: 'Bearer t' },
+            'app-debug.apk',
+        )
+        // URL 与鉴权头原样透传给 fetch
+        assert.equal(fetchCalls[0].url, 'http://gw:8080/api/agents/coder/download?path=dist-android%2Fapp-debug.apk')
+        assert.deepEqual(fetchCalls[0].headers, { Authorization: 'Bearer t' })
+        // 两块：4MB 整块 + 64KB+1 尾块；append 语义首块 false、后续 true
+        assert.equal(invokeCalls.length, 2, `expected 2 chunk invokes, got ${invokeCalls.length}`)
+        assert.ok(invokeCalls.every(c => c.cmd === 'write_download_chunk'))
+        assert.equal(invokeCalls[0].args.append, false)
+        assert.equal(invokeCalls[0].args.fileName, 'app-debug.apk')
+        // 首块 base64 长度 = ceil(4MiB/3)*4（载荷有上界的直接证据）
+        assert.equal(invokeCalls[0].args.base64Data.length, Math.ceil((4 * 1024 * 1024) / 3) * 4)
+        assert.equal(invokeCalls[1].args.append, true)
+        assert.equal(invokeCalls[1].args.base64Data.length, Math.ceil((64 * 1024 + 1) / 3) * 4)
+        assert.equal(savedPath, '/storage/emulated/0/Download/mock.apk')
+    } finally {
+        ;(globalThis as any).fetch = originalFetch
+    }
+})
+
+test('saveUrlToSystemFile（Android Tauri）：空文件也建出空文件（单次 append=false 空块）', async () => {
+    invokeCalls.length = 0
+    setNavigator(ANDROID_WV_UA)
+    const originalFetch = (globalThis as any).fetch
+    ;(globalThis as any).fetch = async () => streamingResponse([])
+    try {
+        const savedPath = await saveUrlToSystemFile('http://gw/x', undefined, 'empty.bin')
+        assert.equal(invokeCalls.length, 1)
+        assert.equal(invokeCalls[0].cmd, 'write_download_chunk')
+        assert.equal(invokeCalls[0].args.append, false)
+        assert.equal(invokeCalls[0].args.base64Data, '')
+        assert.equal(savedPath, '/storage/emulated/0/Download/mock.apk')
+    } finally {
+        ;(globalThis as any).fetch = originalFetch
+    }
+})
+
+test('saveUrlToSystemFile（Android Tauri）：非 2xx 解析服务端 {error} 并抛出，不落盘', async () => {
+    invokeCalls.length = 0
+    setNavigator(ANDROID_WV_UA)
+    const originalFetch = (globalThis as any).fetch
+    ;(globalThis as any).fetch = async () =>
+        new Response(JSON.stringify({ error: 'file too large' }), { status: 413 })
+    try {
+        await assert.rejects(
+            saveUrlToSystemFile('http://gw/x', undefined, 'a.bin'),
+            /file too large/,
+        )
+        assert.equal(invokeCalls.length, 0)
+    } finally {
+        ;(globalThis as any).fetch = originalFetch
+    }
+})
+
 // ─── 结构 / 配置一致性 ───
 
 test('lib.rs：write_download_file 命令存在、已注册、base64 解码、安卓写公共下载目录', () => {
@@ -120,6 +207,16 @@ test('lib.rs：write_download_file 命令存在、已注册、base64 解码、�
     assert.match(libRs, /download_dir\(\)/)
 })
 
+test('lib.rs：write_download_chunk 命令存在、已注册、append/truncate 二选一、与整块共用目标路径', () => {
+    assert.match(libRs, /fn write_download_chunk/)
+    assert.match(libRs, /write_download_chunk,/, 'must be registered in generate_handler')
+    // append 与 truncate 互斥，不能同时置位（std 在部分平台报错）
+    assert.match(libRs, /if append \{\s*options\.append\(true\);\s*\} else \{\s*options\.truncate\(true\);/)
+    // 分块与整块共用目录/消毒逻辑，落点一致
+    assert.match(libRs, /fn download_target_path/)
+    assert.match(libRs, /download_target_path\(&app, &file_name\)/)
+})
+
 test('capabilities：安卓下载改道自家命令后，fs 插件不再需要 Home scope', () => {
     // fs:allow-write-file + $DOWNLOAD/* 仍保留给桌面原始字节通道；
     // $HOME/Download/* 只服务安卓 fs 写路径，安卓已改道即成死 scope——移除。
@@ -131,6 +228,17 @@ test('capabilities：安卓下载改道自家命令后，fs 插件不再需要 H
 test('useFileActions：下载期间常驻「正在下载」toast，完成/失败时移除', () => {
     assert.match(fileActionsSource, /toast\.info\(tr\('workspace\.menu\.downloading'\), 0\)/)
     assert.match(fileActionsSource, /toast\.remove\(downloadingId\)/)
+})
+
+test('useFileActions / useViewerActions：大文件下载改走流式 downloadToFile，不再整块 fetchDownload+saveBlob', () => {
+    // 崩溃根因：两处 UI 下载入口原先 fetchDownload（整块 blob）+ saveBlob（整块 base64
+    // 过 IPC），237MB debug APK 在 Android 渲染进程堆峰值 ~3.7× 直接 OOM。必须改走
+    // downloadToFile（流式分块），且源码里不再残留整块链路。
+    assert.match(fileActionsSource, /downloadToFile\(agentId, entry\.path, entry\.name, scope\)/)
+    assert.doesNotMatch(fileActionsSource, /fetchDownload/)
+    assert.doesNotMatch(fileActionsSource, /saveBlob/)
+    assert.match(viewerActionsSource, /downloadToFile\(agentId, path, name, scope\)/)
+    assert.doesNotMatch(viewerActionsSource, /fetchDownload/)
 })
 
 test('i18n：downloading 键双侧对齐', () => {

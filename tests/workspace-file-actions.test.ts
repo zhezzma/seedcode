@@ -29,10 +29,10 @@ test('useFileActions: 目录 entry 上禁用 file-only 操作', () => {
         `expected at least 3 'disabled: !isFile' (sendMention / sendContent / download), got ${disabledMatches?.length ?? 0}`)
 })
 
-test('useFileActions: download 动作走 fetchDownload + saveBlob，并通过 toast 上报错误', () => {
+test('useFileActions: download 动作走流式 downloadToFile，并通过 toast 上报错误', () => {
     assert.match(src, /workspace\.menu\.download/, 'menu must include download action')
-    assert.match(src, /fetchDownload\(agentId, entry\.path, scope\)/, 'download must call fetchDownload with scope')
-    assert.match(src, /saveBlob\(blob, entry\.name\)/, 'download must save blob via saveBlob using entry.name')
+    // 大文件（百 MB 级 APK）不能整块 blob+base64 过 IPC（Android OOM），必须走流式分块
+    assert.match(src, /downloadToFile\(agentId, entry\.path, entry\.name, scope\)/, 'download must stream via downloadToFile with scope')
     assert.match(
         src,
         /toast\.error\(`\$\{tr\('workspace\.menu\.download'\)\}: \$\{e\?\.message \|\| String\(e\)\}`\)/,

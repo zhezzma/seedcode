@@ -62,9 +62,9 @@ test('useViewerActions: /assets URL 隐藏本地打开三件套（不是真实�
 
 test('useViewerActions: 下载常驻——absolute 也渲染（服务端 /api/files/download 补齐后不再隐藏）', () => {
     assert.doesNotMatch(va, /scope !== 'absolute'/, 'absolute download gate must be removed')
-    assert.match(va, /fetchDownload\(/, 'download must reuse fetchDownload')
-    assert.match(va, /saveBlob\(/, 'download must save via saveBlob')
-    // downloadFlow 的 scope 类型收 absolute（/assets 分流在 fetchDownload 内部）
+    // 大文件（百 MB 级 APK）不能整块 blob+base64 过 IPC（Android OOM），必须走流式分块
+    assert.match(va, /downloadToFile\(agentId, path, name, scope\)/, 'download must stream via downloadToFile')
+    // downloadFlow 的 scope 类型收 absolute（/assets 分流在 downloadToFile 内部）
     assert.match(va, /'workspace' \| 'agent' \| 'absolute'/, 'downloadFlow scope must accept absolute')
 })
 

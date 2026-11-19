@@ -142,3 +142,70 @@ export async function saveBlob(blob: Blob, fileName: string): Promise<string> {
     downloadBlobInBrowser(blob, fileName)
     return fileName
 }
+
+/** 流式分块中转的单块大小：4MB 原始字节 → base64 后 ~5.3MB IPC 载荷。
+ *  块太小（网络分片级 64KB）237MB 文件要发 ~3800 次 invoke，往返开销吃掉吞吐；
+ *  块太大（整文件）就退回 OOM 老路。4MB ≈ 60 次 invoke，JS 堆峰值 ~13MB。 */
+const STREAM_CHUNK_BYTES = 4 * 1024 * 1024
+
+/** 流式下载 URL 到系统下载目录（Tauri 走分块中转，浏览器退回锚点），返回落盘路径。
+ *  替代「整文件 blob → base64 → 一次 invoke」的旧路：237MB debug APK 那种大文件
+ *  旧路在 WebView 渲染进程堆峰值 ~3.7×文件大小（blob + base64 串 + IPC 序列化
+ *  副本），Android 直接 OOM 崩溃；本路 fetch 流式读取、4MB 分块经
+ *  write_download_chunk 逐块落盘，内存峰值与文件大小无关。
+ *  非 2xx 时解析服务端 JSON 错误消息，行为对齐 workspace-api.fetchDownload。 */
+export async function saveUrlToSystemFile(
+    url: string,
+    headers: Record<string, string> | undefined,
+    fileName: string,
+): Promise<string> {
+    const response = await fetch(url, { method: 'GET', headers })
+    if (!response.ok) {
+        let msg = `HTTP ${response.status}`
+        try {
+            const body = await response.json()
+            if (body?.error) msg = body.error
+        } catch { /* 二进制响应不是 JSON，忽略 */ }
+        throw new Error(msg)
+    }
+    if (!isTauriApp()) {
+        // 浏览器：整块 + <a download> 锚点（浏览器自带下载管理器，无 WebView 的堆约束）
+        return saveBlob(await response.blob(), fileName)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) {
+        // 理论不可达（Chromium fetch 必有 body 流）；兑底退整块路径
+        return saveBlob(await response.blob(), fileName)
+    }
+    let append = false
+    let savedPath = ''
+    let pending: Uint8Array[] = []
+    let pendingBytes = 0
+    const flush = async () => {
+        const chunk = new Uint8Array(pendingBytes)
+        let offset = 0
+        for (const part of pending) {
+            chunk.set(part, offset)
+            offset += part.length
+        }
+        pending = []
+        pendingBytes = 0
+        savedPath = await invoke<string>('write_download_chunk', {
+            fileName,
+            base64Data: await blobToBase64(new Blob([chunk])),
+            append,
+        })
+        append = true
+    }
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!value || value.length === 0) continue
+        pending.push(value)
+        pendingBytes += value.length
+        if (pendingBytes >= STREAM_CHUNK_BYTES) await flush()
+    }
+    // 空文件也要建出来：一次 append=false 的空块调用即截断建文件
+    if (pendingBytes > 0 || !append) await flush()
+    return savedPath
+}

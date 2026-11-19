@@ -21,7 +21,7 @@
 import { useChatInput } from './useChatInput'
 import { useToast } from './useToast'
 import { writeClipboard } from '../utils/clipboard'
-import { fetchDownload } from './workspace-api'
+import { downloadToFile } from './workspace-api'
 import { saveBlob } from '../utils/fileDownload'
 import type { ContextMenuItem } from './useContextMenu'
 import { isTauri } from './notify-server-connection'
@@ -70,13 +70,13 @@ export interface ViewerMenuArgs {
 }
 
 /** 下载文件（workspace/agent/absolute scope）：常驻 info toast 提示进行中（同 useFileActions.download）。
- *  absolute 分流在 fetchDownload 内部：/assets URL 直连公开端点，真实路径走 /api/files/download。 */
+ *  absolute 分流在 downloadToFile 内部：/assets URL 直连公开端点，真实路径走 /api/files/download。
+ *  大文件必须走流式分块（downloadToFile）：整块 blob 路径在 Android 会 OOM（见其注释）。 */
 async function downloadFlow(agentId: string, path: string, scope: 'workspace' | 'agent' | 'absolute', name: string) {
     const toast = useToast()
     const downloadingId = toast.info(tr('workspace.menu.downloading'), 0)
     try {
-        const blob = await fetchDownload(agentId, path, scope)
-        const savedPath = await saveBlob(blob, name)
+        const savedPath = await downloadToFile(agentId, path, name, scope)
         toast.remove(downloadingId)
         toast.success(`${tr('workspace.menu.downloaded')}: ${savedPath}`)
     } catch (e: any) {

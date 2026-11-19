@@ -11,14 +11,14 @@ import { useToast } from './useToast'
 import { useConfirm } from './useConfirm'
 import { writeClipboard } from '../utils/clipboard'
 import {
-    fetchFile, fetchAgentFile, fetchDownload,
+    fetchFile, fetchAgentFile,
     createFile, createDir, deleteFile, deleteDir,
     createAgentFile, createAgentDir, deleteAgentFile, deleteAgentDir,
     renameEntry, renameAgentEntry,
+    downloadToFile,
     uploadFile,
     type TreeEntry,
 } from './workspace-api'
-import { saveBlob } from '../utils/fileDownload'
 import type { ContextMenuItem } from './useContextMenu'
 import { isTauri } from './notify-server-connection'
 import { effectiveGatewayMode } from './local-server'
@@ -413,8 +413,7 @@ export function buildFileMenuItems(args: BuildArgs): ContextMenuItem[] {
                 // 完成/失败时移除，避免点击后无反馈被误认为卡死。
                 const downloadingId = toast.info(tr('workspace.menu.downloading'), 0)
                 try {
-                    const blob = await fetchDownload(agentId, entry.path, scope)
-                    const savedPath = await saveBlob(blob, entry.name)
+                    const savedPath = await downloadToFile(agentId, entry.path, entry.name, scope)
                     toast.remove(downloadingId)
                     toast.success(`${tr('workspace.menu.downloaded')}: ${savedPath}`)
                 } catch (e: any) {

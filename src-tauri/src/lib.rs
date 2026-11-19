@@ -105,26 +105,15 @@ fn write_share_cache_file(
     Ok(path.to_string_lossy().to_string())
 }
 
-// 下载文件落盘：base64 解码后写进系统下载目录，返回绝对路径（供前端 toast）。
-// 为什么不走 fs 插件 writeFile：Android 上 wry 读不了自定义协议请求体，IPC 被迫走
-// postMessage JSON 数字数组——大文件（如 32MB APK）的 Uint8Array 被 Array.from +
-// JSON.stringify 展开成百 MB 字符串，同步冻结 WebView 主线程数十秒；base64 串过
-// IPC 体积仅 4/3、无逐元素序列化（与上方 write_share_cache_file 同款规避）。
-// 桌面 fs 插件仍走原始字节通道（octet-stream 无膨胀），前端只在本命令路由安卓。
-// 目标目录对齐前端旧 getTauriDownloadTarget：Android 的 home_dir 在 tauri 解析为
+// 下载落盘目标路径（write_download_file / write_download_chunk 共用）：
+// 文件名消毒兜底防路径穿越（join 不规范化 ..，JS 层已消毒这里再来一次）；
+// 目录对齐前端旧 getTauriDownloadTarget：Android 的 home_dir 在 tauri 解析为
 // 外置存储根 /storage/emulated/0，join("Download") 即公共下载目录；桌面 download_dir。
-#[tauri::command]
-fn write_download_file(
-    app: tauri::AppHandle,
-    file_name: String,
-    base64_data: String,
-) -> Result<String, String> {
-    use base64::Engine as _;
-    // JS 层已消毒，这里再兜底一次防路径穿越（join 不规范化 ..）
+fn download_target_path(
+    app: &tauri::AppHandle,
+    file_name: &str,
+) -> Result<std::path::PathBuf, String> {
     let safe_name: String = file_name.replace(['/', '\\'], "_");
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(base64_data)
-        .map_err(|err| err.to_string())?;
     let dir = if cfg!(target_os = "android") {
         app.path()
             .home_dir()
@@ -134,8 +123,60 @@ fn write_download_file(
         app.path().download_dir().map_err(|err| err.to_string())?
     };
     std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
-    let path = dir.join(safe_name);
+    Ok(dir.join(safe_name))
+}
+
+// 下载文件落盘（整块）：base64 解码后写进系统下载目录，返回绝对路径（供前端 toast）。
+// 为什么不走 fs 插件 writeFile：Android 上 wry 读不了自定义协议请求体，IPC 被迫走
+// postMessage JSON 数字数组——大文件（如 32MB APK）的 Uint8Array 被 Array.from +
+// JSON.stringify 展开成百 MB 字符串，同步冻结 WebView 主线程数十秒；base64 串过
+// IPC 体积仅 4/3、无逐元素序列化（与上方 write_share_cache_file 同款规避）。
+// 桌面 fs 插件仍走原始字节通道（octet-stream 无膨胀），前端只在本命令路由安卓。
+// 注意：本命令要求整块过 IPC，百 MB 级文件会 OOM（见下方 write_download_chunk），
+// 前端大文件下载已改走流式分块通道。
+#[tauri::command]
+fn write_download_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    base64_data: String,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|err| err.to_string())?;
+    let path = download_target_path(&app, &file_name)?;
     std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// 下载流式分块落盘：整块路径（write_download_file）要求 WebView 一次性持有
+// blob + 4/3 体积 base64 串再过 IPC，大文件（如 237MB debug APK）渲染进程堆峰值
+// ~3.7×文件大小，Android 直接 OOM 崩溃。前端改为 fetch 流式读取、4MB 分块中转，
+// 本命令按块语义写：append=false 首块建文件并截断（重名覆盖），true 追加；
+// 返回最终绝对路径（每块都返回，供 toast）。
+#[tauri::command]
+fn write_download_chunk(
+    app: tauri::AppHandle,
+    file_name: String,
+    base64_data: String,
+    append: bool,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|err| err.to_string())?;
+    let path = download_target_path(&app, &file_name)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).write(true);
+    // append 与 truncate 互斥（std 同时置位在部分平台报错），按块语义二选一
+    if append {
+        options.append(true);
+    } else {
+        options.truncate(true);
+    }
+    let mut file = options.open(&path).map_err(|err| err.to_string())?;
+    file.write_all(&bytes).map_err(|err| err.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -407,6 +448,7 @@ pub fn run() {
             write_clipboard_html,
             write_share_cache_file,
             write_download_file,
+            write_download_chunk,
             open_in_terminal,
             notify::notify_connect,
             notify::notify_disconnect,

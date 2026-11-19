@@ -9,6 +9,7 @@
  *   决定如何呈现（内联在 panel 区域中）。
  */
 import { useUiSettingsStore } from '../stores/setting.ts'
+import { saveUrlToSystemFile } from '../utils/fileDownload.ts'
 
 class WorkspaceApiError extends Error {
     code: number
@@ -313,39 +314,43 @@ function rejectIfTooLarge(response: Response, maxBytes: number | undefined): voi
     }
 }
 
+/** 下载端点 URL 与鉴权头构造（fetchDownload / downloadToFile 共用）：
+ *  absolute scope 下 /assets/ 前缀是公开静态端点 URL（image-gen 等 session
+ *  图片地址），直连无需 auth；真实文件系统绝对路径走 /api/files/download
+ *  （与 workspace/agent 的 download 端点不同，无沙箱）。 */
+function downloadRequestTarget(
+    agentId: string,
+    path: string,
+    scope: 'workspace' | 'agent' | 'absolute' = 'workspace',
+): { url: string; headers: Record<string, string> | undefined } {
+    if (scope === 'absolute') {
+        const isAssetUrl = path.startsWith('/assets/')
+        return {
+            url: isAssetUrl
+                ? `${baseUrl()}${path}`
+                : `${baseUrl()}/api/files/download?path=${encodeURIComponent(path)}`,
+            headers: isAssetUrl ? undefined : authHeaders(),
+        }
+    }
+    const endpoint = scope === 'agent' ? 'agent-download' : 'download'
+    return {
+        url: `${baseUrl()}${base(agentId)}/${endpoint}?path=${encodeURIComponent(path)}`,
+        headers: authHeaders(),
+    }
+}
+
 /** 下载任意文件的原始字节（attachment）。scope 决定走 workspace、agent 配置目录还是
  *  任意绝对路径。与 fetchRawFile 不同：不限扩展名、不设 5MB 上限，后端走流式返回。
- *  返回 Blob，调用方负责落盘 / 触发浏览器下载。 */
+ *  返回 Blob，调用方负责落盘 / 触发浏览器下载。
+ *  注意：整文件 Blob 会摊进 WebView 堆，百 MB 级大文件在 Android 会 OOM——
+ *  UI 下载入口请走 downloadToFile（流式分块）。 */
 export async function fetchDownload(
     agentId: string,
     path: string,
     scope: 'workspace' | 'agent' | 'absolute' = 'workspace',
 ): Promise<Blob> {
-    // absolute scope 分流与 fetchRawFile 同构：/assets/ 前缀是公开静态端点 URL
-    // （image-gen 等 session 图片地址），直连无需 auth；真实文件系统绝对路径走
-    // /api/files/download（与 workspace/agent 的 download 端点不同，无沙箱）。
-    if (scope === 'absolute') {
-        const isAssetUrl = path.startsWith('/assets/')
-        const url = isAssetUrl
-            ? `${baseUrl()}${path}`
-            : `${baseUrl()}/api/files/download?path=${encodeURIComponent(path)}`
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: isAssetUrl ? undefined : authHeaders(),
-        })
-        if (!response.ok) {
-            let msg = `HTTP ${response.status}`
-            try {
-                const body = await response.json()
-                if (body?.error) msg = body.error
-            } catch { /* 二进制响应不是 JSON，忽略 */ }
-            throw new WorkspaceApiError(msg, response.status)
-        }
-        return await response.blob()
-    }
-    const endpoint = scope === 'agent' ? 'agent-download' : 'download'
-    const url = `${baseUrl()}${base(agentId)}/${endpoint}?path=${encodeURIComponent(path)}`
-    const response = await fetch(url, { method: 'GET', headers: authHeaders() })
+    const { url, headers } = downloadRequestTarget(agentId, path, scope)
+    const response = await fetch(url, { method: 'GET', headers })
     if (!response.ok) {
         let msg = `HTTP ${response.status}`
         try {
@@ -355,6 +360,21 @@ export async function fetchDownload(
         throw new WorkspaceApiError(msg, response.status)
     }
     return await response.blob()
+}
+
+/** 流式下载文件到系统下载目录，返回落盘路径（供 toast）。大文件（百 MB 级，
+ *  如打包产物 APK）必须走这条通道：fetchDownload + saveBlob 的整块路径会把
+ *  整个文件摊进 WebView 堆（blob + base64 + IPC 副本 ~3.7×），Android 渲染
+ *  进程直接 OOM 崩溃；本通道 fetch 流式读取、4MB 分块中转 Rust 落盘，
+ *  内存峰值与文件大小无关（见 fileDownload.saveUrlToSystemFile）。 */
+export async function downloadToFile(
+    agentId: string,
+    path: string,
+    fileName: string,
+    scope: 'workspace' | 'agent' | 'absolute' = 'workspace',
+): Promise<string> {
+    const { url, headers } = downloadRequestTarget(agentId, path, scope)
+    return saveUrlToSystemFile(url, headers, fileName)
 }
 
 /** 上传单个文件到 workspace 下指定父目录（multipart `file` 字段）。
