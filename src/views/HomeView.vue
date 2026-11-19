@@ -1041,13 +1041,8 @@ async function applyDefaultSessionBehavior() {
 
                 <!-- 新会话欢迎页：居中问候语 + agent 下拉 + 输入框 -->
                 <div v-else-if="isNewSessionPage || isCreatingSession"
-                    class="relative flex-1 flex flex-col items-center  px-4 py-6 overflow-y-auto">
-                    <!-- 背景氛围光晕（纯装饰，不响应交互） -->
-                    <div class="welcome-aurora" aria-hidden="true">
-                        <div class="welcome-blob welcome-blob-a"></div>
-                        <div class="welcome-blob welcome-blob-b"></div>
-                        <div class="welcome-blob welcome-blob-c"></div>
-                    </div>
+                    class="welcome-scene relative flex-1 flex flex-col items-center  px-4 py-6 overflow-y-auto">
+                    <!-- 氛围光晕改为容器背景绘制（.welcome-scene，见 main.css），不再用独立装饰层 -->
                     <!-- 内层撑满高度（flex-1）：让下面的空隙按“高度”参与布局，
                          输入框才能像会话页那样锚定底边、向上扩展（见两处空隙注释） -->
                     <div class="relative w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl flex-1 flex flex-col">

@@ -83,16 +83,7 @@
     transform: translateY(8px);
 }
 
-/* 新会话欢迎页：背景氛围光晕 + 流光问候语（仅装饰，不响应交互） */
-@keyframes welcome-drift {
-    0%,
-    100% {
-        transform: translate3d(0, 0, 0) scale(1);
-    }
-    50% {
-        transform: translate3d(5%, -7%, 0) scale(1.1);
-    }
-}
+/* 新会话欢迎页：氛围光晕（静态绘制进容器背景）+ 流光问候语（仅装饰，不响应交互） */
 
 @keyframes welcome-shimmer {
     to {
@@ -136,25 +127,24 @@
     animation-delay: 0.12s;
 }
 
-.welcome-aurora {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    /* 顶/侧/底渐隐：光晕到达容器边缘时溶解掉，避免被导航条等边界硬切成横条 */
-    mask-image:
-        linear-gradient(to bottom, transparent, #000 10rem, #000 calc(100% - 8rem), transparent),
-        linear-gradient(to right, transparent, #000 6rem, #000 calc(100% - 6rem), transparent);
-    mask-composite: intersect;
-}
-
-.welcome-blob {
-    position: absolute;
-    border-radius: 9999px;
-    filter: blur(72px);
-    opacity: 0.5;
-    will-change: transform;
-    animation: welcome-drift 18s ease-in-out infinite;
+/* 氛围光晕改为直接绘制在欢迎页滚动容器的背景上（多重 radial-gradient）。
+   旧方案（.welcome-aurora 绝对定位层 + .welcome-blob blur(72px)/mask/will-change 漂移动画）
+   实测只要弹窗背后存在这层独立装饰层，弹窗入场动画就会掉帧抖动（逐项二分验证）；
+   画进容器背景后与普通内容同层绘制、不产生额外合成层，从根上避开。
+   三处光斑位置沿旧布局：顶部中央、右上、左下；background-attachment 默认 scroll，
+   光斑相对容器框固定、不随内容滚动 */
+.welcome-scene {
+    background-image:
+        /* 四边渐隐（复刻旧 aurora 的 mask 溶解，改为底色渐变叠层，不产生合成层）：
+           顶部 10rem 避免光晕被导航条硬切，左右 6rem / 底部 8rem 避免贴边亮条 */
+        linear-gradient(to bottom, var(--color-base-100), transparent 10rem),
+        linear-gradient(to top, var(--color-base-100), transparent 8rem),
+        linear-gradient(to right, var(--color-base-100), transparent 6rem),
+        linear-gradient(to left, var(--color-base-100), transparent 6rem),
+        radial-gradient(circle 20rem at 50% 9rem, color-mix(in oklab, var(--welcome-glow-a) 25%, transparent), transparent 70%),
+        radial-gradient(circle 16rem at calc(100% - 3rem) calc(4% + 13rem), color-mix(in oklab, var(--welcome-glow-b) 22%, transparent), transparent 70%),
+        radial-gradient(circle 18rem at 5rem calc(100% - 3rem), color-mix(in oklab, var(--welcome-glow-c) 18%, transparent), transparent 70%);
+    background-repeat: no-repeat;
 }
 
 /* 新会话页氛围光/流光专用色：界面骨架灰白化后 primary/secondary/accent 已是灰阶，
@@ -169,41 +159,6 @@
     --welcome-glow-a: oklch(72% 0.16 285);
     --welcome-glow-b: oklch(72% 0.14 350);
     --welcome-glow-c: oklch(78% 0.1 182);
-}
-
-/* 用 radial-gradient 渐隐边缘，主题切换时颜色跟随 daisyUI 变量 */
-.welcome-blob-a {
-    width: 34rem;
-    height: 34rem;
-    top: -8rem;
-    left: 50%;
-    margin-left: -17rem;
-    background: radial-gradient(circle, color-mix(in oklab, var(--welcome-glow-a) 40%, transparent), transparent 70%);
-}
-
-.welcome-blob-b {
-    width: 26rem;
-    height: 26rem;
-    top: 4%;
-    right: -10rem;
-    background: radial-gradient(circle, color-mix(in oklab, var(--welcome-glow-b) 38%, transparent), transparent 70%);
-    animation-duration: 24s;
-    animation-direction: reverse;
-}
-
-.welcome-blob-c {
-    width: 30rem;
-    height: 30rem;
-    bottom: -12rem;
-    left: -10rem;
-    background: radial-gradient(circle, color-mix(in oklab, var(--welcome-glow-c) 32%, transparent), transparent 70%);
-    animation-duration: 30s;
-}
-
-[data-theme="dark"] .welcome-blob-a,
-[data-theme="dark"] .welcome-blob-b,
-[data-theme="dark"] .welcome-blob-c {
-    opacity: 0.55;
 }
 
 /* 问候语：流光渐变文字 + 上浮入场叠加。
@@ -225,9 +180,23 @@
    亮色主题用深描边，暗色主题反色为浅描边。
    单独一套 fade 动画而不是复用 .welcome-fade：后者 forwards 停在 opacity:1，
    会覆盖这里的静态半透明目标值 */
+@keyframes welcome-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-6px);
+    }
+}
+
+/* 图标入场淡入后轻微悬浮：小元素 transform 动画，img 无 fixed 后代，
+   不违反上方 welcome-rise 注释的包含块约束 */
 .welcome-s-icon {
     opacity: 0;
-    animation: welcome-fade-s 0.6s ease-out forwards;
+    animation:
+        welcome-fade-s 0.6s ease-out forwards,
+        welcome-float 5s ease-in-out 0.6s infinite;
 }
 
 @keyframes welcome-fade-s {
@@ -241,7 +210,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .welcome-blob,
     .welcome-fade,
     .welcome-s-icon,
     .welcome-title {
@@ -260,6 +228,13 @@
     .welcome-s-icon {
         opacity: 0.8;
     }
+}
+
+/* 弹窗打开期间冻结欢迎页的持续装饰动画（流光/悬浮）：
+   animation-play-state 不继承，必须逐元素命中，确保弹窗入场动画独占合成资源 */
+body:has(.modal.modal-open) .welcome-title,
+body:has(.modal.modal-open) .welcome-s-icon {
+    animation-play-state: paused;
 }
 
 html, body {
