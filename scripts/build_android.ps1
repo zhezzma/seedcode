@@ -1,4 +1,10 @@
-﻿# 设置控制台编码为 UTF-8 以支持 emoji
+﻿param(
+    # 只构建 Debug APK 并归档到 dist-android\app-debug.apk：
+    # 跳过发布签名（Gradle 自动用 debug 密钥签名），方便测试快速出包
+    [switch]$Debug
+)
+
+# 设置控制台编码为 UTF-8 以支持 emoji
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -20,27 +26,33 @@ if (Test-Path $envFile) {
 $keystore = "$projectRoot\release.keystore"
 $alias = "seedcode"
 
-# 签名口令必须显式提供：默认口令回退等价于公开签名私钥，
-# 且 Android 签名密钥不可轮换（代码审核 #3）
-$keystorePass = $env:ANDROID_KEYSTORE_PASS
-if ([string]::IsNullOrWhiteSpace($keystorePass)) {
-    Write-Error "ANDROID_KEYSTORE_PASS not set - refusing to sign with a fallback password"
-    exit 1
+if ($Debug) {
+    # Debug 构建无需发布签名：build.gradle.kts 仅对 release buildType 接入签名配置，
+    # debug 变体由 Gradle 用自带 debug 密钥自动签名，因此跳过口令检查与签名环境变量
+    Write-Host "🧪 Debug 模式：跳过发布签名配置 (Gradle 使用 debug 签名)" -ForegroundColor Cyan
+} else {
+    # 签名口令必须显式提供：默认口令回退等价于公开签名私钥，
+    # 且 Android 签名密钥不可轮换（代码审核 #3）
+    $keystorePass = $env:ANDROID_KEYSTORE_PASS
+    if ([string]::IsNullOrWhiteSpace($keystorePass)) {
+        Write-Error "ANDROID_KEYSTORE_PASS not set - refusing to sign with a fallback password"
+        exit 1
+    }
+
+    $keyPass = $env:ANDROID_KEY_PASS
+    if ([string]::IsNullOrWhiteSpace($keyPass)) {
+        # 未单独提供时沿用 keystore 口令（同一口令是常见做法，但必须显式给出第一个）
+        $keyPass = $keystorePass
+    }
+
+    # 设置 Gradle 所需的环境变量 (供 build.gradle.kts 使用)
+    [Environment]::SetEnvironmentVariable("ANDROID_KEYSTORE_PATH", $keystore, "Process")
+    [Environment]::SetEnvironmentVariable("ANDROID_KEYSTORE_PASSWORD", $keystorePass, "Process")
+    [Environment]::SetEnvironmentVariable("ANDROID_KEY_ALIAS", $alias, "Process")
+    [Environment]::SetEnvironmentVariable("ANDROID_KEY_PASSWORD", $keyPass, "Process")
+
+    Write-Host "ANDROID_KEYSTORE_PATH: $env:ANDROID_KEYSTORE_PATH"
 }
-
-$keyPass = $env:ANDROID_KEY_PASS
-if ([string]::IsNullOrWhiteSpace($keyPass)) {
-    # 未单独提供时沿用 keystore 口令（同一口令是常见做法，但必须显式给出第一个）
-    $keyPass = $keystorePass
-}
-
-# 设置 Gradle 所需的环境变量 (供 build.gradle.kts 使用)
-[Environment]::SetEnvironmentVariable("ANDROID_KEYSTORE_PATH", $keystore, "Process")
-[Environment]::SetEnvironmentVariable("ANDROID_KEYSTORE_PASSWORD", $keystorePass, "Process")
-[Environment]::SetEnvironmentVariable("ANDROID_KEY_ALIAS", $alias, "Process")
-[Environment]::SetEnvironmentVariable("ANDROID_KEY_PASSWORD", $keyPass, "Process")
-
-Write-Host "ANDROID_KEYSTORE_PATH: $env:ANDROID_KEYSTORE_PATH"
 
 # 设置 Android SDK 路径 (硬编码以避免重装系统后需要重新配置环境变量)
 # 若已设置系统环境变量 ANDROID_HOME 则优先使用它，否则回退到下方固定路径
@@ -201,17 +213,41 @@ settingsEvaluated { settings ->
     Write-Host "✅ Gradle 全局镜像已配置：$initGradleFile" -ForegroundColor DarkGray
 }
 
-# 1. 构建 Release APK (此时可能已由 Gradle 签名，也可能未签名)
+# 1. 构建 APK (Debug 模式由 Gradle 用 debug 密钥自动签名；Release 可能已签名也可能未签名)
 # Android 版不含内置服务端：内置服务端的 resources 只在
 # tauri.bundled.conf.json / tauri.server.conf.json overlay 中，基础配置不含
 # resources，因此 package-desktop.ps1 的 Windows 装配残留不会被打进 APK
-Write-Host "`n🚀 正在构建 Release APK..."
+Write-Host "`n🚀 正在构建 APK..."
 cd $projectRoot
-npx tauri android build --target aarch64
+if ($Debug) {
+    Write-Host "🧪 Debug 模式：构建 Debug APK"
+    npx tauri android build --target aarch64 --debug
+} else {
+    Write-Host "🚀 构建 Release APK"
+    npx tauri android build --target aarch64
+}
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`n❌ 构建失败！" -ForegroundColor Red
     Pause
+    exit
+}
+
+# 1.5 Debug 分支：Gradle 已用 debug 密钥自动签名，直接归档退出，无后续签名步骤
+if ($Debug) {
+    $debugApk = "$projectRoot\src-tauri\gen\android\app\build\outputs\apk\universal\debug\app-universal-debug.apk"
+    if (-not (Test-Path $debugApk)) {
+        Write-Host "`n❌ 未找到 Debug APK：$debugApk" -ForegroundColor Red
+        Pause
+        exit
+    }
+    # 归档到根目录 dist-android（.gitignore 已忽略）：固定出口，免每次翻 gen 目录找包
+    $distDir = "$projectRoot\dist-android"
+    New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    Copy-Item $debugApk "$distDir\app-debug.apk" -Force
+    Write-Host "`n✅ Debug APK 构建成功！" -ForegroundColor Green
+    Write-Host "   已归档到：$distDir\app-debug.apk"
+    explorer $distDir
     exit
 }
 
