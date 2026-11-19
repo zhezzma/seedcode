@@ -25,7 +25,7 @@ import { useToast } from '../composables/useToast'
 import { NEW_SESSION_ROUTE_NAME } from '../utils/route-helpers'
 
 
-import { SessionRow, useSessionsState, TEAM_CHAT_HUB_AGENT, isGroupSessionRow } from '../composables/useSessionsState'
+import { SessionRow, useSessionsState, isGroupSessionRow } from '../composables/useSessionsState'
 import { useChatState } from '../composables/useChatState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useNavActive } from '../composables/useNavActive'
@@ -174,16 +174,13 @@ const agentDisplayName = (s: SessionRow): string => {
 
 // 当前 tab 展示的会话列表（回收站行不显示置顶标记——置顶对软删会话无意义）。
 // 四桶各自直出，无本地归并：chats 即 sessionsResult 统一列表（含群行，排序
-// 权威在服务端：置顶前置+modified 倒序）；归档/回收站桶群行按分类标记识别
-// （回收站分类服务端已透传；旧数据无分类时以 agentId=hub 兜底）
+// 权威在服务端：置顶前置+modified 倒序）；归档/回收站桶群行同走分类标记
+// （服务端已透传 category；旧数据无分类时退化为普通会话行=预期，零 fallback）
 const displaySessions = computed<DisplaySession[]>(() => {
-    // 群行行级判定：chats 默认走 isGroupSessionRow 单判（sessionCategory='group'）；
-    // 非 chats tab 用桶级判定覆写——归档桶按分类标记（不用 agentId 兜底，手聊
-    // hub 的普通会话归档后会被误判成群）；回收站分类已透传、优先读分类，旧数据
-    // 无分类时以 agentId 兜底
-    const isArchivedGroupRow = (s: SessionRow): boolean => s.sessionCategory === 'group'
-    const isDeletedGroupRow = (s: SessionRow): boolean =>
-        s.sessionCategory === 'group' || s.agentId === TEAM_CHAT_HUB_AGENT
+    // 群行行级判定：三桶一律 isGroupSessionRow 单判（sessionCategory='group'，
+    // chats 桶 toRow 默认参数即它；归档/回收站桶服务端已透传分类，旧数据无分类
+    // 时退化为普通会话行=预期，spec 9.11 零 fallback 约束——不用 agentId 兜底，
+    // 手聊 hub 的普通会话删/归档后会被误判成群）
     const toRow = (s: SessionRow, isGroup = isGroupSessionRow(s)): DisplaySession => ({
         key: s.id,
         label: s?.name || '新对话',
@@ -200,8 +197,7 @@ const displaySessions = computed<DisplaySession[]>(() => {
             : sessionTab.value === 'trash'
                 ? sessionsState.deletedSessionsResult?.sessions
                 : sessionsState.archivedSessionsResult?.sessions
-        const groupJudge = sessionTab.value === 'trash' ? isDeletedGroupRow : isArchivedGroupRow
-        return raw?.map((s: SessionRow) => toRow(s, groupJudge(s))) ?? []
+        return raw?.map((s: SessionRow) => toRow(s)) ?? []
     }
     return (sessionsState.sessionsResult?.sessions ?? []).map((s: SessionRow) => toRow(s))
 })
@@ -349,7 +345,7 @@ const handleDissolveGroup = async (session: { key: string, label: string }) => {
     const stillGroup = sessionsState.sessionsResult?.sessions?.some(s => s.id === session.key)
         || sessionsState.archivedSessionsResult?.sessions?.some(s => s.id === session.key)
     if (!stillGroup) return
-    const confirmed = await confirm(`确定解散群「${session.label}」？群内所有记录将移入回收站（可恢复）。`)
+    const confirmed = await confirm(t('sidebar.dissolveGroupConfirm', { name: session.label }))
     if (!confirmed) return
     try {
         await sessionsState.deleteTeamGroup(session.key)
@@ -357,7 +353,7 @@ const handleDissolveGroup = async (session: { key: string, label: string }) => {
             router.push({ name: 'home' })
         }
     } catch (error) {
-        useToast().error((error as Error)?.message || '解散失败', 5000)
+        toast.error((error as Error)?.message || t('sidebar.dissolveGroupFailed'), 5000)
     }
 }
 

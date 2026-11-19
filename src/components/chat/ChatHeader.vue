@@ -270,8 +270,10 @@ defineExpose({
                      PC/移动端统一，顶栏不再放按钮 -->
 
                 <!-- Session compaction settings：会话级压缩覆盖（跟随/覆盖 agent 默认）。
-                     PC/移动共用；移动端顶栏为此隐藏了会话名（见上方 title 区）。 -->
-                <button v-if="isSession" @click="compactionModalOpen = true"
+                     PC/移动共用；移动端顶栏为此隐藏了会话名（见上方 title 区）。
+                     群会话隐藏（spec 9.12）：群壳是 display-only 消息总线，无 LLM
+                     上下文可压，入口无意义。 -->
+                <button v-if="isSession && !isGroupSession" @click="compactionModalOpen = true"
                     class="btn btn-ghost btn-circle btn-xs" :title="$t('chat.compaction.title')">
                     <ArrowsPointingInIcon class="h-5 w-5" />
                 </button>

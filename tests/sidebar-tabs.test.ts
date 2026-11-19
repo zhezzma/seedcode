@@ -167,9 +167,11 @@ test('sidebar renders team-chat group rows inline in the unified chats list', ()
     // 无本地混排归并/双桶剔除/置顶群钉头特判
     assert.match(sidebarSource, /return \(sessionsState\.sessionsResult\?\.sessions \?\? \[\]\)\.map\(\(s: SessionRow\) => toRow\(s\)\)/)
     assert.doesNotMatch(sidebarSource, /groupIds|groupDisplays|pinnedGroup|unpinnedGroup|merged\.push/)
-    // 群行判定：chats 走 isGroupSessionRow 单判（sessionCategory='group'）；
-    // 回收站行经 isDeletedGroupRow 桶级覆写（agentId=hub 兜底，服务端回收站不带分类）
+    // 群行判定：三桶一律 isGroupSessionRow 单判（sessionCategory='group'，
+    // toRow 默认参数）；归档/回收站桶不再另设桶级别名/覆写（服务端已透传
+    // category；旧数据退化普通行=预期，零 fallback）
     assert.match(sidebarSource, /const toRow = \(s: SessionRow, isGroup = isGroupSessionRow\(s\)\): DisplaySession => \(/)
+    assert.doesNotMatch(sidebarSource, /isDeletedGroupRow|isArchivedGroupRow|groupJudge/)
     // 分组模式：群行按 agentId=hub 自然归 agent 分组，无「群聊」伪组/unshift 置顶
     assert.doesNotMatch(sidebarSource, /TEAM_GROUPS_GROUP_KEY/)
     assert.doesNotMatch(sidebarSource, /if \(session\.isGroup\) continue/)

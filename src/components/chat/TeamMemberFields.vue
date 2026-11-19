@@ -29,13 +29,12 @@ export type { TeamMemberRow } from '../../utils/team-member'
  * 共享）；提交投影 buildInlineSource / 校验 memberValid 由组件静态导出，
  * 三处共用同一语义。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import type { Ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronDownIcon, CpuChipIcon, LightBulbIcon, CheckIcon } from '@heroicons/vue/24/outline'
 
 import { useAgentsState } from '../../composables/useAgentsState'
-import { computeFloatingMenuStyle } from '../../utils/floating-menu'
+import { useFloatingMenu, useFloatingMenuGroup } from '../../composables/useFloatingMenu'
 import { useModelsState } from '../../composables/useModelsState'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
 import FilterModeSection from './FilterModeSection.vue'
@@ -72,31 +71,28 @@ const allExtensionsSelected = computed(() =>
 // ── 模型/思考下拉（复用 ModelSelectMenuContent + 思考菜单；浮层定位照
 //    AgentSubagents：Teleport+fixed——成员行在弹窗（overflow 裁剪）内，纯
 //    dropdown 会被容器裁剪）──
-const modelMenuOpen = ref(false)
-const modelTriggerRef = ref<HTMLElement | null>(null)
-const modelPanelRef = ref<HTMLElement | null>(null)
-const modelMenuStyle = ref<Record<string, string>>({})
-const thinkingMenuOpen = ref(false)
-const thinkingTriggerRef = ref<HTMLElement | null>(null)
-const thinkingPanelRef = ref<HTMLElement | null>(null)
-const thinkingMenuStyle = ref<Record<string, string>>({})
+// 浮层菜单（模型+思考互斥）：开合/定位/外点关闭/视口跟随统一在
+// useFloatingMenu（组合式收敛）；解构 ref 名与模板绑定一致
+const modelMenu = useFloatingMenu()
+const thinkingMenu = useFloatingMenu()
+const {
+    open: modelMenuOpen, triggerRef: modelTriggerRef,
+    panelRef: modelPanelRef, menuStyle: modelMenuStyle,
+} = modelMenu
+const {
+    open: thinkingMenuOpen, triggerRef: thinkingTriggerRef,
+    panelRef: thinkingPanelRef, menuStyle: thinkingMenuStyle,
+} = thinkingMenu
+useFloatingMenuGroup([modelMenu, thinkingMenu])
 
-/** 浮层定位（公共 computeFloatingMenuStyle：上下自适应 + 视口内 maxHeight；
- *  AgentSubagents 同源） */
-const updateMenuPosition = (trigger: HTMLElement | null, style: Ref<Record<string, string>>) => {
-    style.value = computeFloatingMenuStyle(trigger)
-}
-
+// 互斥开合（开 A 关 B）
 const toggleModelMenu = () => {
-    modelMenuOpen.value = !modelMenuOpen.value
-    thinkingMenuOpen.value = false
-    if (modelMenuOpen.value) nextTick(() => updateMenuPosition(modelTriggerRef.value, modelMenuStyle))
+    modelMenu.toggle()
+    if (modelMenuOpen.value) thinkingMenu.close()
 }
-
 const toggleThinkingMenu = () => {
-    thinkingMenuOpen.value = !thinkingMenuOpen.value
-    modelMenuOpen.value = false
-    if (thinkingMenuOpen.value) nextTick(() => updateMenuPosition(thinkingTriggerRef.value, thinkingMenuStyle))
+    thinkingMenu.toggle()
+    if (thinkingMenuOpen.value) modelMenu.close()
 }
 
 /** 触发按钮标签：与 ModelSelectMenuContent.currentModelLabel 同规则（未知模型回退原值）；空=跟随群当前模型 */
@@ -111,41 +107,19 @@ const currentModelLabel = computed(() => {
 })
 
 const onModelSelect = (modelId: string) => {
-    modelMenuOpen.value = false
+    modelMenu.close()
     props.member.model = modelId
 }
 
 const onThinkingSelect = (level: string) => {
-    thinkingMenuOpen.value = false
+    thinkingMenu.close()
     props.member.thinkingLevel = level
 }
 
-const handleMenuDocClick = (event: MouseEvent) => {
-    const target = event.target as Node | null
-    if (!target) return
-    if (modelMenuOpen.value
-        && !modelTriggerRef.value?.contains(target) && !modelPanelRef.value?.contains(target)) modelMenuOpen.value = false
-    if (thinkingMenuOpen.value
-        && !thinkingTriggerRef.value?.contains(target) && !thinkingPanelRef.value?.contains(target)) thinkingMenuOpen.value = false
-}
-
-const handleMenuViewportChange = () => {
-    if (modelMenuOpen.value) updateMenuPosition(modelTriggerRef.value, modelMenuStyle)
-    if (thinkingMenuOpen.value) updateMenuPosition(thinkingTriggerRef.value, thinkingMenuStyle)
-}
-
-onUnmounted(() => {
-    document.removeEventListener('click', handleMenuDocClick)
-    window.removeEventListener('resize', handleMenuViewportChange)
-    window.removeEventListener('scroll', handleMenuViewportChange, true)
-})
 
 const agentsList = computed(() => agentsState.agentsList ?? [])
 
 onMounted(() => {
-    document.addEventListener('click', handleMenuDocClick)
-    window.addEventListener('resize', handleMenuViewportChange)
-    window.addEventListener('scroll', handleMenuViewportChange, true)
     if (modelsState.providers.value && Object.keys(modelsState.providers.value).length === 0) {
         modelsState.loadModels()
     }

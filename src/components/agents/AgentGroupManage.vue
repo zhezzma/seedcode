@@ -21,6 +21,7 @@ import { TrashIcon, PlusIcon, StarIcon, ArrowPathIcon, PencilIcon, XMarkIcon, Ch
 
 import { apiGet, apiPatch } from '../../composables/api-client'
 import { useSessionsState, type TeamGroupMemberInput } from '../../composables/useSessionsState'
+import { useChatState } from '../../composables/useChatState'
 import { useToast } from '../../composables/useToast'
 import TeamMemberFields, {
     newTeamMemberRow, teamMemberValid, memberDocToRow,
@@ -63,6 +64,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const toast = useToast()
 const sessionsState = useSessionsState()
+const chatState = useChatState()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -102,13 +104,15 @@ const responderValue = computed({
         return responder.kind
     },
     set(value: string) {
+        // keepDrafts：切默认应答不动群信息弹窗里未保存的草稿（name/bulletin/icon
+        // 与本字段无关；回读重置会把用户正编到一半的内容抹回库值）
         patchGroup({ defaultResponder: value === 'owner'
             ? { kind: 'member', memberKey: ownerKey.value ?? '' }
-            : { kind: value } })
+            : { kind: value } }, { keepDrafts: true })
     },
 })
 
-const load = async () => {
+const load = async (opts?: { keepDrafts?: boolean }) => {
     if (!props.sessionId) return
     // 代际防护：切群触发的 B 载与 A 在途载并发时，A 晚到响应不得回填
     //（sessionId 已换，doc/名册会错群，评审 C-I3）
@@ -118,9 +122,13 @@ const load = async () => {
         const result = await apiGet<GroupDoc>(`/api/extensions/team-chat/groups/${encodeURIComponent(sid)}`)
         if (props.sessionId !== sid) return
         doc.value = result
-        bulletinDraft.value = result.bulletin ?? ''
-        nameDraft.value = result.name ?? ''
-        iconDraft.value = result.icon ?? null
+        // keepDrafts=true：仅回读兑正服务端真相，不覆写未保存的草稿（切应答/
+        // 改成员等不碰草稿字段的 patch 后回读）；首载/切群/保存基本信息后仍全量重置
+        if (!opts?.keepDrafts) {
+            bulletinDraft.value = result.bulletin ?? ''
+            nameDraft.value = result.name ?? ''
+            iconDraft.value = result.icon ?? null
+        }
     } catch (error) {
         toast.error((error as Error)?.message || t('sidebar.groupLoadError'))
     } finally {
@@ -143,25 +151,38 @@ watch(() => props.sessionId, () => {
 const membersInput = (list: MemberDoc[]): TeamGroupMemberInput[] =>
     list.map(m => ({ key: m.key, name: m.name, source: m.source as TeamGroupMemberInput['source'], memory: m.memory }))
 
-const patchGroup = async (body: Record<string, unknown>) => {
-    if (!doc.value || saving.value) return
+const patchGroup = async (body: Record<string, unknown>, opts?: { keepDrafts?: boolean }): Promise<boolean> => {
+    if (!doc.value) return false
+    if (saving.value) {
+        // 守卫不再静默（此前静默 return 会让 saveBasics 无反馈关弹窗像已保存）
+        toast.error(t('sidebar.groupSaveBusy'))
+        return false
+    }
     saving.value = true
     try {
         await apiPatch(`/api/extensions/team-chat/groups/${encodeURIComponent(props.sessionId)}`, body)
         // 详情回读与侧栏/群列表同步无依赖，并行（toggleMemory 连点体感）
-        await Promise.all([load(), sessionsState.loadSessions()])
+        await Promise.all([load(opts), sessionsState.loadSessions()])
+        // 群管理面 PATCH 成员/应答后，已打开的本群聊天视图名册与 queue 投影同步
+        // 刷新（名册到达线=开群/回合边界，管理面变更不在其中——不刷则 @ 补全
+        // 名单陈旧至下回合边界）
+        chatState.refreshGroupTurnState(props.sessionId)
+        return true
     } catch (error) {
         toast.error((error as Error)?.message || String(error))
+        return false
     } finally {
         saving.value = false
     }
 }
 
-const saveBasics = () => {
+const saveBasics = async () => {
     if (!doc.value) return
-    // icon 草稿随保存落库（null=清除；string=canvas 压缩后的 dataURL）
-    patchGroup({ name: nameDraft.value.trim() || doc.value.name, bulletin: bulletinDraft.value, icon: iconDraft.value })
-    showInfo.value = false
+    // icon 草稿随保存落库（null=清除；string=canvas 压缩后的 dataURL）；仅在
+    // 保存成功（含 saving 守卫未命中）时关弹窗——守卫静默跳过时关弹窗会让
+    // 用户误以为已保存
+    const ok = await patchGroup({ name: nameDraft.value.trim() || doc.value.name, bulletin: bulletinDraft.value, icon: iconDraft.value })
+    if (ok) showInfo.value = false
 }
 
 const triggerIconPick = () => {
@@ -175,17 +196,26 @@ const handleIconFileChange = (event: Event) => {
     const input = event.target as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
+    // 无论成败都复位 input（失败重选同一文件也得触发 change）
+    input.value = ''
+    const fail = () => toast.error(t('sidebar.groupIconReadFailed'))
     const reader = new FileReader()
+    reader.onerror = () => fail()
     reader.onload = (e) => {
         const img = new Image()
+        img.onerror = () => fail()
         img.onload = () => {
             const scale = Math.min(1, 256 / Math.max(img.width, img.height))
             const canvas = document.createElement('canvas')
             canvas.width = Math.max(1, Math.round(img.width * scale))
             canvas.height = Math.max(1, Math.round(img.height * scale))
-            canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return fail()
+            // 铺白底：PNG 透明区域直接压 JPEG 会变黑（无 alpha 通道填 0）
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
             iconDraft.value = canvas.toDataURL('image/jpeg', 0.85)
-            input.value = ''
         }
         img.src = e.target?.result as string
     }
@@ -197,7 +227,7 @@ const makeOwner = (member: MemberDoc) => {
     if (!doc.value || member.key === ownerKey.value) return
     const rest = doc.value.members.filter(m => m.key !== member.key)
     const next = [member, ...rest]
-    patchGroup({ members: membersInput(next), defaultResponder: { kind: 'member', memberKey: member.key } })
+    patchGroup({ members: membersInput(next), defaultResponder: { kind: 'member', memberKey: member.key } }, { keepDrafts: true })
 }
 
 const removeMember = (member: MemberDoc) => {
@@ -213,12 +243,12 @@ const removeMember = (member: MemberDoc) => {
             members: membersInput(next),
             defaultResponder: { kind: 'member', memberKey: next[0].key },
         }
-        : { members: membersInput(next) })
+        : { members: membersInput(next) }, { keepDrafts: true })
 }
 
 const toggleMemory = (member: MemberDoc) => {
     if (!doc.value) return
-    patchGroup({ members: membersInput(doc.value.members.map(m => m.key === member.key ? { ...m, memory: !m.memory } : m)) })
+    patchGroup({ members: membersInput(doc.value.members.map(m => m.key === member.key ? { ...m, memory: !m.memory } : m)) }, { keepDrafts: true })
 }
 
 // ── 成员表单弹窗（添加/编辑共用一套：内嵌 TeamMemberFields，编辑全字段可改）──
@@ -245,7 +275,7 @@ const closeForm = () => {
     memberFormMode.value = 'add'
 }
 
-const submitForm = () => {
+const submitForm = async () => {
     if (!doc.value || !formValid.value) return
     const f = memberForm.value
     // 兜底按类型分派（v7.4.3 评审 M4）：ref 缺席（理论不可达）时 agent 型降级
@@ -257,7 +287,8 @@ const submitForm = () => {
     if (memberFormMode.value === 'add') {
         // 新成员 key 传空串（缺省语义）：服务端按身份重算（inline=name 哈希）
         const next = [...doc.value.members, { key: '', name: f.name.trim(), memory: f.memory, source }]
-        patchGroup({ members: membersInput(next) })
+        // 失败保持表单打开（saveBasics 同款）：失败关表单=丢用户填的人格/五件套
+        await patchGroup({ members: membersInput(next) }, { keepDrafts: true }) || closeForm()
     } else {
         // 编辑：key 原样回传——改名后 key 稳定 → memory 登记连续（服务端
         // normalizeMembers 沿用传入 key）；新配置经 turn-task 复用会话全量回刷
@@ -266,12 +297,10 @@ const submitForm = () => {
         const next = doc.value.members.map(m => m.key === memberFormKey.value
             ? { ...m, name: f.name.trim(), memory: f.memory, source }
             : m)
-        patchGroup({ members: membersInput(next) })
+        await patchGroup({ members: membersInput(next) }, { keepDrafts: true }) || closeForm()
     }
-    closeForm()
 }
 
-defineExpose({ refresh: load })
 </script>
 
 <template>
@@ -327,7 +356,7 @@ defineExpose({ refresh: load })
                     </div>
                     <div class="flex items-center gap-1">
                         <button class="btn btn-ghost btn-xs btn-square" :disabled="loading" :title="t('common.refresh')"
-                            @click="load">
+                            @click="load({ keepDrafts: true })">
                             <ArrowPathIcon class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
                         </button>
                         <button class="btn btn-primary btn-xs gap-1" @click="openAdd">

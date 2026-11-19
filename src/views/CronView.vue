@@ -16,7 +16,7 @@ import { useToast } from '../composables/useToast'
 import { useCronState, type CronFormState, type CronRunLogEntry, type TaskJob } from '../composables/useCronState'
 import { useAgentsState } from '../composables/useAgentsState'
 import { useConfirm } from '../composables/useConfirm'
-import { useSessionsState } from '../composables/useSessionsState'
+import { useSessionsState, isGroupSessionRow } from '../composables/useSessionsState'
 import { defaultCronDeliveryTargets, summarizeDeliveryTargets } from '../utils/delivery-targets'
 import { summarizeExecutionTarget } from '../utils/cron-execution-target'
 import { mergeExecutionTargetCandidates } from '../utils/cron-session-search'
@@ -78,13 +78,16 @@ const cachedSessionCandidates = computed(() => {
         ...(sessionsState.sessionsResult?.sessions || []),
         ...(sessionsState.taskSessionsResult?.sessions || []),
     ]
-        // 群会话不是 cron 执行目标（TaskExecutionTarget 只支持 default/task）
-        .filter(session => session.sessionCategory !== 'group')
+        // 群会话不是 cron 执行目标（TaskExecutionTarget 只支持 default/task）——
+        // 行级群判定走唯一权威面 isGroupSessionRow（非内联字面量，spec 9.7 裁决）
+        .filter(session => !isGroupSessionRow(session))
         .map(session => ({
         id: session.id,
         name: session.name,
         agentId: session.agentId,
         agentName: session.agentName,
+        // 字面量比较仅作类型窄化（filter 后无群行，此分支不可达；判定面在上方
+        // filter 的 isGroupSessionRow，非此处）
         sessionCategory: session.sessionCategory === 'group' ? undefined : session.sessionCategory,
         modified: typeof session.modified === 'string' ? session.modified : undefined,
     }))

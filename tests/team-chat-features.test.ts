@@ -66,6 +66,14 @@ test('TeamMemberFields: 成员字段全量面（名字/类型/引用或人格/�
     assert.match(fms, /allSelected\(\) \? t\('common\.deselectAll'\) : t\('common\.selectAll'\)/, '单按钮二态文案（FilterModeSection）')
 })
 
+test('team-member 共享加载器：失败不缓存（网络抖动不沉淀为永久空清单）', () => {
+    // catch 分支清 in-flight：下次调用重拉。若失败结果被缓存，一次网络抖动会让
+    // 工具/技能全集在会话期内永久为空（表单差集投影漂移成全放行）
+    const facade = read('../src/utils/team-member.ts')
+    assert.match(facade, /catch\(\(\) => \{[\s\S]*?inflightTools\.promise = null[\s\S]*?\}\)/, 'hub 工具加载失败清 in-flight')
+    assert.match(facade, /catch\(\(\) => \{[\s\S]*?inflightSkills\.promise = null/, 'hub 技能加载失败清 in-flight')
+})
+
 test('TeamMemberFields: buildInlineSource 投影（纯函数核在 utils，行为测试见 team-member.test.ts）', () => {
     // v7.4.3：投影本体从 SFC 静态导出面抽到 utils/team-member-core.ts（零运行时
     // 依赖，node:test 直接 import 行为级断言往返/差集/切分——本锚只钉结构）：
@@ -153,7 +161,7 @@ test('TeamGroupWizard: 首建 hub 默认模型/思考（hubMissing 才显 + hubD
     assert.doesNotMatch(wizard, /hubModel\.value\.lastIndexOf\('/, '不用 lastIndexOf 拆分')
     // 菜单形态复用：ModelSelectMenuContent + Teleport 浮层 + computeFloatingMenuStyle
     assert.match(wizard, /<ModelSelectMenuContent :available-models="availableModels"/, '模型菜单复用 ModelSelectMenuContent')
-    assert.match(wizard, /computeFloatingMenuStyle/, '浮层定位公共 helper')
+    assert.match(wizard, /useFloatingMenu\(\)/, '浮层菜单组合式接线（定位实现唯一在 useFloatingMenu）')
     // payload 类型透传（useSessionsState createTeamGroup 入参含 hubDefaults）
     assert.match(sessionsState, /hubDefaults\?: TeamHubDefaults/, 'createTeamGroup 入参类型含 hubDefaults')
 })
@@ -224,6 +232,34 @@ test('AgentGroupManage: 群管理动作面（设群主/移除/记忆/加成员/P
     // C-I4：移除的是群主/responder 指向成员 → defaultResponder 同步指新群主（防悬空）
     assert.match(agentGroupManage, /defaultResponder: \{ kind: 'member', memberKey: next\[0\]\.key \}/, '移除群主同步 responder 指向')
     assert.match(agentGroupManage, /const membersInput = /, 'MemberDoc→GroupMemberInput 投影')
+    // keepDrafts 机制：改成员类动作不覆写群信息弹窗未保存草稿（removeMember
+    // 同口径，漏了会在移除成员时把用户编到一半的 name/bulletin/icon 抹回库值）
+    assert.match(agentGroupManage, /, \{ keepDrafts: true \}\)/, '改成员类 patch 带 keepDrafts')
+    const rmBlock = agentGroupManage.slice(agentGroupManage.indexOf('const removeMember'), agentGroupManage.indexOf('const toggleMemory'))
+    assert.match(rmBlock, /keepDrafts: true/, 'removeMember 同口径带 keepDrafts')
+    // saveBasics 仅在保存成功（含 saving 守卫未命中）时关弹窗——守卫静默跳过时
+    // 关弹窗会让用户误以为已保存
+    assert.match(agentGroupManage, /const ok = await patchGroup\(/, 'saveBasics 消费 patchGroup 结果')
+    assert.match(agentGroupManage, /if \(ok\) showInfo\.value = false/, '仅成功才关弹窗')
+    // 群管理面 PATCH 成功后同步刷新已开群聊的名册/queue 投影（名册到达线不含
+    // 管理面变更——不刷则 @ 补全名单陈旧至下回合边界）
+    assert.match(agentGroupManage, /chatState\.refreshGroupTurnState\(props\.sessionId\)/, 'PATCH 成功刷新当前群名册')
+})
+
+test('AgentGroupManage: 群头像压缩链（FileReader→canvas 最长边 256/jpeg 0.85→dataURL 草稿；保存随 PATCH 落库；同文件重选可再触发）', () => {
+    // 服务端 700k 上限约束下的确定性压缩契约——若退化为直接 readAsDataURL 不压缩，
+    // 大图 dataURL 必超限被拒（本锚钉住链路不被无声拆断）
+    const agentGroupManage = read('../src/components/agents/AgentGroupManage.vue')
+    assert.match(agentGroupManage, /const scale = Math\.min\(1, 256 \/ Math\.max\(img\.width, img\.height\)\)/, '最长边 256 等比缩放（不放大）')
+    assert.match(agentGroupManage, /canvas\.toDataURL\('image\/jpeg', 0\.85\)/, 'jpeg 0.85 压缩输出')
+    // 透明底铺白（PNG→JPEG 无 alpha 通道填 0 会变黑）+ 两级解码失败反馈：
+    // 删掉 fillRect 即透明图头变黑回归，锚拦
+    assert.match(agentGroupManage, /ctx\.fillStyle = '#ffffff'[\s\S]*?ctx\.fillRect\(0, 0, canvas\.width, canvas\.height\)/, '透明底铺白（PNG→JPEG 不变黑）')
+    assert.match(agentGroupManage, /reader\.onerror = \(\) => fail\(\)/, 'FileReader 失败反馈')
+    assert.match(agentGroupManage, /img\.onerror = \(\) => fail\(\)/, 'Image 解码失败反馈')
+    assert.match(agentGroupManage, /iconDraft\.value = canvas\.toDataURL/, '压缩产物入草稿（非原图 dataURL）')
+    assert.match(agentGroupManage, /patchGroup\(\{ name: nameDraft\.value\.trim\(\) \|\| doc\.value\.name, bulletin: bulletinDraft\.value, icon: iconDraft\.value \}\)/, '保存随 PATCH 全量落库（icon null=清除）')
+    assert.match(agentGroupManage, /input\.value = ''/, '读后置空 input（同文件重选再触发）')
 })
 
 test('群管理面风格统一（同 CronView/PromptEditorModal 形态，不再自拟样式）', () => {
@@ -377,10 +413,11 @@ test('AppSidebar: 群行菜单生命周期对齐（置顶/归档/取消归档/�
     assert.match(sidebar, /\{ key: session\.pinned \? 'unpin' : 'pin'[^}]+\},\s*\{ key: 'archive', label: t\('sidebar\.archive'\) \},\s*\{ key: 'dissolve'/, '活跃群菜单')
     // 解散守卫放宽到归档桶（归档群可解散）
     assert.match(sidebar, /archivedSessionsResult\?\.sessions\?\.some\(s => s\.id === session\.key\)/, '归档桶守卫')
-    // 归档桶群行识别只按分类（不误伤手聊 hub 的普通归档会话）；回收站行无分类按
-    // agentId 兜底
-    assert.match(sidebar, /const isArchivedGroupRow = \(s: SessionRow\): boolean => s\.sessionCategory === 'group'/, '归档桶分类判定')
-    assert.match(sidebar, /const isDeletedGroupRow = \(s: SessionRow\): boolean =>\s*s\.sessionCategory === 'group' \|\| s\.agentId === TEAM_CHAT_HUB/, '回收站 agentId 兜底')
+    // 归档/回收站桶群行识别均只按分类单判（不误伤手聊 hub 的普通删/归档会话；
+    // 服务端 /deleted 已透传分类，旧数据退化普通行=预期——spec 9.11 零 fallback）；
+    // 三桶统一走 toRow 默认参数 isGroupSessionRow，无桶级别名/覆写残留
+    assert.match(sidebar, /const toRow = \(s: SessionRow, isGroup = isGroupSessionRow\(s\)\): DisplaySession => \(/, '三桶统一单判入口')
+    assert.doesNotMatch(sidebar, /isDeletedGroupRow|isArchivedGroupRow|groupJudge/, '无桶级别名/覆写残留')
 })
 
 test('AppSidebar: 群行天然在统一列表（无本地归并），排序权威在服务端', () => {
@@ -532,8 +569,9 @@ test('useChatState: 群回合等待态生命周期（发送置位→ext.team_sta
     assert.match(cs, /groupTurnBusy\?: boolean/, '会话数据字段')
     // 发送置位：POST 前（dispatched 前即亮——用户消息刚发出就该有反馈）
     assert.match(cs, /sessionData\.groupTurnBusy = true/, '发送置位')
-    // skip / 失败路径熄灭
-    assert.match(cs, /groupTurnBusy = false/, 'skip 无回合/发送失败→熄灭')
+    // skip / 失败路径熄灭（条件熄灭：排队残留时保持等待态——本地 queue 仍是
+    // 真相源，清 busy 会让 GroupTurnBar 提前消失；零排队才熄灭）
+    assert.match(cs, /if \(!\(sessionData\.groupTurnQueue\?\.length\)\) sessionData\.groupTurnBusy = false/, 'skip/失败仅零排队才熄灭（排队残留保持等待态）')
     // WS 终态广播消费（v7.5 起消费契约常量，与 AgentGroupTasks 同源不再内联字面量）
     assert.match(cs, /event === TEAM_STATE_EVENT/, 'WS 事件接线（契约常量）')
     assert.match(cs, /sd\.groupTurnBusy = data\?\.busy === true/, 'busy 投影赋值')
@@ -542,6 +580,16 @@ test('useChatState: 群回合等待态生命周期（发送置位→ext.team_sta
     assert.match(cs, /refreshGroupTurnState\(key\)/, '开群拉群详情')
     assert.match(cs, /refreshGroupTurnState\(sessionId\)/, 'ext.team_state 回合边界拉新')
     assert.match(cs, /groupTurnBusy = result\.queue\.length > 0/, 'queue 投影恢复')
+    // 同群并发拉新序号守卫（晚到的旧 GET 不得覆盖新状态）+ POST 成功即触发新序号
+    // 拉新（防在途旧 GET 取数早于入队、返回时抹掉乐观项的取数竞态）
+    assert.match(cs, /groupTurnRefreshSeq\.get\(sessionId\) !== seq/, 'seq 守卫丢弃过期响应')
+    assert.match(cs, /refreshGroupTurnState\(targetKey\)\n/, 'POST 成功即拉新（新序号作废在途旧 GET）')
+    // 失败回滚按乐观泡 id 精确删（位置切片在并发连发下会误删他人乐观泡）
+    assert.match(cs, /filter\(m => \(m as any\)\.id !== optimisticId\)/, '失败回滚按 id 精确删')
+    // 图片丢弃提示先于空文本守卫（图片-only 发送也要有反馈）
+    const sendOrder = cs.indexOf("t('chat.groupImageUnsupported')")
+    const guardOrder = cs.indexOf('if (!text.trim()) return')
+    assert.ok(sendOrder > -1 && guardOrder > -1 && sendOrder < guardOrder, '图片 toast 先于空文本守卫')
 })
 
 test('HomeView: 群回合等待态指示器（loading-dots 挂消息区尾部）', () => {
@@ -601,9 +649,11 @@ test('AgentTeamGroups: 双形态（带 sessionId=直管 / 缺省=群列表格子
     assert.match(agentTeamGroups, /sessionId\?: string/, 'sessionId 可选')
     assert.match(agentTeamGroups, /<ViewHeader v-if="showHeader" :title="headerTitle" wc-pad>/, '顶栏复用 ViewHeader（同 AgentDetail，不手搓）')
     // v7.4.3 A-4.1：群列表单真相——群行随 /api/sessions 统一投影进对话桶，
-    // 过滤 sessionCategory==='group' 即得（与侧栏同一数据源）；刷新走
-    // loadSessions——不再组件自管 fetch（多真相漂移：侧栏解散不消行/向导建群不出现）
-    assert.match(agentTeamGroups, /sessionsState\.sessionsResult\?\.sessions \?\? \[\]\)\.filter\(s => s\.sessionCategory === 'group'\)/, '列表数据源=对话桶过滤群行（单真相）')
+    // 过滤走 isGroupSessionRow 权威面（9.7 规则 1：行级群判定唯一权威面，
+    // 不内联重写 sessionCategory 判定）；刷新走 loadSessions——不再组件自管
+    // fetch（多真相漂移：侧栏解散不消行/向导建群不出现）
+    assert.match(agentTeamGroups, /sessionsState\.sessionsResult\?\.sessions \?\? \[\]\)\.filter\(isGroupSessionRow\)/, '列表数据源=对话桶过滤群行（单真相，权威面判定）')
+    assert.match(agentTeamGroups, /import \{ TEAM_CHAT_HUB_AGENT, useSessionsState, isGroupSessionRow \}/, 'isGroupSessionRow 从 useSessionsState 导入')
     assert.match(agentTeamGroups, /await sessionsState\.loadSessions\(\)/, '刷新走同源 loader（loadSessions）')
     assert.doesNotMatch(agentTeamGroups, /apiGet<GroupListRow/, '不再自管 fetch')
     assert.match(agentTeamGroups, /managingGroupId\.value = id/, '点格进入管理弹窗')
@@ -718,11 +768,18 @@ test('复用收拢: 群判定/hub 常量/浮层定位/思考档位统一同源�
     assert.match(sessionsState, /export const TEAM_CHAT_HUB_AGENT = 'team-chat-hub'/, '常量导出')
     assert.doesNotMatch(read('../src/components/AppSidebar.vue'), /const TEAM_CHAT_HUB = /, 'AppSidebar 不再本地常量')
     assert.doesNotMatch(read('../src/components/chat/TeamMemberFields.vue'), /= 'team-chat-hub'/, 'TeamMemberFields 不再字面量定义')
-    // 3) 浮层定位唯一实现：utils/floating-menu，两处菜单组件调用
+    // 3) 浮层定位唯一实现：utils/floating-menu；接线唯一实现：useFloatingMenu
+    //    组合式（单元+组：开合/外点关闭/视口跟随/生命周期挂卸）——三个消费组件
+    //    （TeamMemberFields/TeamGroupWizard/AgentSubagents）全部经组合式，不再各持
     const floating = read('../src/utils/floating-menu.ts')
     assert.match(floating, /export function computeFloatingMenuStyle/, '公共函数')
-    for (const file of ['../src/components/agents/tabs/AgentSubagents.vue', '../src/components/chat/TeamMemberFields.vue']) {
-        assert.match(read(file), /computeFloatingMenuStyle\(/, `${file} 调公共定位`)
+    assert.match(read('../src/composables/useFloatingMenu.ts'), /computeFloatingMenuStyle\(/, '组合式单元调公共定位')
+    assert.match(read('../src/composables/useFloatingMenu.ts'), /export function useFloatingMenuGroup/, '菜单组导出（外点关/视口跟随/生命周期）')
+    for (const file of ['../src/components/chat/TeamMemberFields.vue', '../src/components/chat/TeamGroupWizard.vue', '../src/components/agents/tabs/AgentSubagents.vue']) {
+        assert.match(read(file), /useFloatingMenuGroup\(\[/, `${file} 浮层菜单组接线`)
+    }
+    for (const file of ['../src/components/chat/TeamMemberFields.vue', '../src/components/chat/TeamGroupWizard.vue', '../src/components/agents/tabs/AgentSubagents.vue']) {
+        assert.doesNotMatch(read(file), /document\.addEventListener\('click', handle\w*\)/, `${file} 不再自管外点监听`)
     }
     // 4) 思考档位唯一权威：utils/thinking-levels（ChatInput/TeamMemberFields/ModelFormModal 三处 import）
     assert.match(read('../src/utils/thinking-levels.ts'), /export const THINKING_LEVELS/, '档位表导出')

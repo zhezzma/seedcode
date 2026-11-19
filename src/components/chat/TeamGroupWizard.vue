@@ -13,8 +13,7 @@
  * 透传 hubDefaults 由服务端惰性建 hub 时写为其 AgentConfig 默认三件——inline
  * 成员「跟随群默认」的真实来源；hub 已存在则不显示不传值。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import type { Ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { CheckIcon, ChevronDownIcon, CpuChipIcon, LightBulbIcon, PlusIcon, TrashIcon, XMarkIcon, UsersIcon } from '@heroicons/vue/24/outline'
@@ -23,7 +22,7 @@ import { useSessionsState, type TeamGroupMemberInput, type TeamHubDefaults } fro
 import { useToast } from '../../composables/useToast'
 import { useAgentsState } from '../../composables/useAgentsState'
 import { useModelsState } from '../../composables/useModelsState'
-import { computeFloatingMenuStyle } from '../../utils/floating-menu'
+import { useFloatingMenu, useFloatingMenuGroup } from '../../composables/useFloatingMenu'
 import ModelSelectMenuContent from '../models/ModelSelectMenuContent.vue'
 import TeamMemberFields, {
     newTeamMemberRow, teamMemberValid,
@@ -56,30 +55,29 @@ const hubMissing = computed(() => !agentsState.agentsList.some(a => a.id === HUB
 const hubModel = ref('')
 const hubThinkingLevel = ref('')
 
-const hubModelMenuOpen = ref(false)
-const hubModelTriggerRef = ref<HTMLElement | null>(null)
-const hubModelPanelRef = ref<HTMLElement | null>(null)
-const hubModelMenuStyle = ref<Record<string, string>>({})
-const hubThinkingMenuOpen = ref(false)
-const hubThinkingTriggerRef = ref<HTMLElement | null>(null)
-const hubThinkingPanelRef = ref<HTMLElement | null>(null)
-const hubThinkingMenuStyle = ref<Record<string, string>>({})
+// 浮层菜单（模型+思考互斥）：开合/定位/外点关闭/视口跟随统一在
+// useFloatingMenu（组合式收敛，两组件不再各持一份同构接线）；解构出的
+// ref 名与模板绑定保持一致（open/triggerRef/panelRef/menuStyle）
+const hubModelMenu = useFloatingMenu()
+const hubThinkingMenu = useFloatingMenu()
+const {
+    open: hubModelMenuOpen, triggerRef: hubModelTriggerRef,
+    panelRef: hubModelPanelRef, menuStyle: hubModelMenuStyle,
+} = hubModelMenu
+const {
+    open: hubThinkingMenuOpen, triggerRef: hubThinkingTriggerRef,
+    panelRef: hubThinkingPanelRef, menuStyle: hubThinkingMenuStyle,
+} = hubThinkingMenu
+useFloatingMenuGroup([hubModelMenu, hubThinkingMenu])
 
-/** 浮层定位（公共 computeFloatingMenuStyle：上下自适应 + 视口内 maxHeight） */
-const updateMenuPosition = (trigger: HTMLElement | null, style: Ref<Record<string, string>>) => {
-    style.value = computeFloatingMenuStyle(trigger)
-}
-
+// 互斥开合（开 A 关 B）
 const toggleHubModelMenu = () => {
-    hubModelMenuOpen.value = !hubModelMenuOpen.value
-    hubThinkingMenuOpen.value = false
-    if (hubModelMenuOpen.value) nextTick(() => updateMenuPosition(hubModelTriggerRef.value, hubModelMenuStyle))
+    hubModelMenu.toggle()
+    if (hubModelMenuOpen.value) hubThinkingMenu.close()
 }
-
 const toggleHubThinkingMenu = () => {
-    hubThinkingMenuOpen.value = !hubThinkingMenuOpen.value
-    hubModelMenuOpen.value = false
-    if (hubThinkingMenuOpen.value) nextTick(() => updateMenuPosition(hubThinkingTriggerRef.value, hubThinkingMenuStyle))
+    hubThinkingMenu.toggle()
+    if (hubThinkingMenuOpen.value) hubModelMenu.close()
 }
 
 /** 触发按钮标签：与 ModelSelectMenuContent.currentModelLabel 同规则（未知模型回退
@@ -95,44 +93,21 @@ const hubModelLabel = computed(() => {
 })
 
 const onHubModelSelect = (modelId: string) => {
-    hubModelMenuOpen.value = false
+    hubModelMenu.close()
     hubModel.value = modelId
 }
 
 const onHubThinkingSelect = (level: string) => {
-    hubThinkingMenuOpen.value = false
+    hubThinkingMenu.close()
     hubThinkingLevel.value = level
 }
 
-const handleMenuDocClick = (event: MouseEvent) => {
-    const target = event.target as Node | null
-    if (!target) return
-    if (hubModelMenuOpen.value
-        && !hubModelTriggerRef.value?.contains(target) && !hubModelPanelRef.value?.contains(target)) hubModelMenuOpen.value = false
-    if (hubThinkingMenuOpen.value
-        && !hubThinkingTriggerRef.value?.contains(target) && !hubThinkingPanelRef.value?.contains(target)) hubThinkingMenuOpen.value = false
-}
-
-const handleMenuViewportChange = () => {
-    if (hubModelMenuOpen.value) updateMenuPosition(hubModelTriggerRef.value, hubModelMenuStyle)
-    if (hubThinkingMenuOpen.value) updateMenuPosition(hubThinkingTriggerRef.value, hubThinkingMenuStyle)
-}
-
 onMounted(() => {
-    document.addEventListener('click', handleMenuDocClick)
-    window.addEventListener('resize', handleMenuViewportChange)
-    window.addEventListener('scroll', handleMenuViewportChange, true)
     // hubMissing 判定依赖 agentsList：未载时先拉一次（TeamMemberFields 同款守卫）
     if (!agentsState.agentsList?.length) agentsState.loadAgents?.()
     if (modelsState.providers.value && Object.keys(modelsState.providers.value).length === 0) {
         modelsState.loadModels()
     }
-})
-
-onUnmounted(() => {
-    document.removeEventListener('click', handleMenuDocClick)
-    window.removeEventListener('resize', handleMenuViewportChange)
-    window.removeEventListener('scroll', handleMenuViewportChange, true)
 })
 
 const addMember = () => {
@@ -161,7 +136,11 @@ const createGroup = async () => {
             members: members.value.map((m, index) => ({
                 name: m.name.trim(),
                 source: memberRefs[index]?.projectSource()
-                    ?? { type: 'inline', systemPrompt: m.systemPrompt },
+                    // 兜底同型分派（与 AgentGroupManage 评审 M4 同款）：agent 型降
+                    // 级 inline 会静默丢引用与全部高级配置
+                    ?? (m.type === 'agent'
+                        ? { type: 'agent' as const, agentId: m.agentId }
+                        : { type: 'inline' as const, systemPrompt: m.systemPrompt }),
                 memory: m.memory,
             })),
         }
@@ -186,7 +165,7 @@ const createGroup = async () => {
             router.push({ name: 'chat', params: { sessionkey: result.shellSessionId } })
         }
     } catch (error) {
-        toast.error((error as Error)?.message || t('sidebar.createGroup'), 5000)
+        toast.error((error as Error)?.message || t('sidebar.createGroupFailed'), 5000)
     } finally {
         creating.value = false
     }

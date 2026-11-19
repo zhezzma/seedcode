@@ -116,7 +116,10 @@ test('useChatInput: 群成员 @ 补全状态机（本地过滤/确认插入/清�
 
 test('ChatInput: 群会话成员清单注入（@ 补全数据源）', () => {
     assert.match(componentSource, /updateMemberMention\(el\.selectionStart\)/, '输入事件应同步驱动成员补全解析')
-    assert.match(componentSource, /watch\(currentGroupSessionKey[\s\S]{0,600}setGroupMembers\(detail\?\.members \?\? \[\]\)/, '群会话切换时拉群详情注入成员清单')
+    // v7.6 名册数据源：复用 chatState.sessionData.groupMembers（useChatState 开群/
+    // 回合边界同源维护），不再自管 GET（开群与 refreshGroupTurnState 并发双请求、
+    // 群管理增删成员后 @ 补全名册陈旧）
+    assert.match(componentSource, /watch\(\(\) => \{[\s\S]{0,400}groupMembers \?\? \[\][\s\S]{0,80}\}, \(members\) => setGroupMembers\(members \?\? \[\]\), \{ immediate: true \}\)/, '群名册随 sessionData.groupMembers 注入（单一数据源）')
     assert.match(
         componentSource,
         /v-if="memberMentionVisible"[\s]{0,200}class="[^"]*\bmember-mention-panel\b/,

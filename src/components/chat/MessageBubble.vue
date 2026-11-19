@@ -398,7 +398,7 @@ const assistantBlockKeys = computed(() => computeBlockKeys(assistantParsedBlocks
         <!-- Header：群聊消息显示 speaker 署名（team-chat 契约），非群消息维持原语义；
              speaker=null 是系统对账行（中止/失败），显示「群」而非「You」 -->
         <div class="chat-header opacity-70 text-xs mb-1">
-            {{ message.speaker !== undefined ? (message.speaker === null ? $t('sidebar.tabGroups') : message.speaker) : (message.role === 'user' ? $t('chat.you') : assistantName) }}
+            {{ message.speaker !== undefined ? (message.speaker === null ? $t('chat.groupSystem') : message.speaker) : (message.role === 'user' ? $t('chat.you') : assistantName) }}
             <!-- steer / follow-up 排队中徽标：回显命中后随气泡转正一起消失 -->
             <span v-if="message.pending"
                 class="badge badge-ghost badge-xs ml-1 py-2 font-normal text-base-content/60 border-dashed border-base-content/20">

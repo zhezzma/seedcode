@@ -18,7 +18,7 @@ import { ArrowPathIcon, XMarkIcon, ArrowLeftIcon, ChatBubbleLeftRightIcon } from
 
 import { useToast } from '../../composables/useToast'
 import { useAgentsState, } from '../../composables/useAgentsState'
-import { TEAM_CHAT_HUB_AGENT, useSessionsState } from '../../composables/useSessionsState'
+import { TEAM_CHAT_HUB_AGENT, useSessionsState, isGroupSessionRow } from '../../composables/useSessionsState'
 import ViewHeader from '../ViewHeader.vue'
 import AgentGroupManage from './AgentGroupManage.vue'
 
@@ -41,7 +41,7 @@ const toast = useToast()
 // 单一真相：群行随 /api/sessions 统一投影进对话桶，过滤 sessionCategory==='group'
 // 即得（与侧栏同一数据源；?? [] 仅初始未载的空态渲染兜底，非数据兜底）
 const sessionsState = useSessionsState()
-const groupList = computed(() => (sessionsState.sessionsResult?.sessions ?? []).filter(s => s.sessionCategory === 'group'))
+const groupList = computed(() => (sessionsState.sessionsResult?.sessions ?? []).filter(isGroupSessionRow))
 const listLoading = ref(false)
 /** 列表形态下弹窗管理的群 id；有 sessionId prop 时恒为 undefined */
 const managingGroupId = ref<string | undefined>(undefined)

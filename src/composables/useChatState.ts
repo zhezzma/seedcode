@@ -379,26 +379,35 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
     // 群会话不走 SSE/prompt：回合是 durable 任务（服务端 waiting 链串行），
     // 回复经 ext.team_report 广播触发 refreshSettledMessages 落位；
     // 乐观 user 气泡被重拉全量替换冲掉（与 !! 命令回执同款语义）。
-    // 群会话判定=行的会话身份（sessionCategory/agentId），**不是桶位置**——
-    // 归档群/回收站回填的群行不在群桶，按桶判会错走普通 SSE 分支把消息发进
-    // hub 壳会话（消息黑洞）；群桶 membership 是其子集
+    // 群会话判定=行的会话身份（sessionCategory='group' 单判，isGroupSessionRow
+    // 权威面），**不是列表位置**——归档桶/回收站里的群行按位置判会错走普通 SSE
+    // 分支把消息发进 hub 壳会话（消息黑洞）
     const sessionsStateForGroup = useSessionsState()
     const rowForGroup = sessionsStateForGroup.findSessionLocal(targetKey)
     const isGroupSession = isGroupSessionRow(rowForGroup)
     if (isGroupSession) {
-        if (!text.trim()) return
-        // 群消息暂不支持图片：附件被丢弃需明示（静默丢=用户以为发出去了，第 2 轮审核 P2-2）
+        // 群消息暂不支持图片：附件被丢弃需明示（静默丢=用户以为发出去了）；
+        // toast 先于空文本守卫——图片-only（无文字）发送同样要有丢弃反馈，
+        // 否则附件已被 HomeView 清空却零提示
         if (images.length > 0) {
-            useToast().info('群聊消息暂不支持图片附件（已忽略）', 3000)
+            useToast().info((i18n.global as any).t('chat.groupImageUnsupported'), 3000)
         }
+        if (!text.trim()) return
+        // 乐观泡 id 预生成：失败回滚按 id 精确删（并发连发时末条可能是他人已
+        // 入队的乐观泡，位置切片会误删）
+        const optimisticId = generateUUID()
         sessionData.chatMessages = [...sessionData.chatMessages, {
             role: 'user',
             content: text,
             timestamp: Date.now(),
-            id: generateUUID(),
+            id: optimisticId,
         }]
         sessionData.chatSending = true
         sessionData.groupTurnBusy = true
+        // 作废在途拉新：POST 在途窗口内 team_state 触发的旧 GET（seq 未变）晚归
+        // 会把刚置的 busy 抹掉、GroupTurnBar 闪灭（seq 守卫只防 GET-vs-GET）
+        // ——bump 序号使其过期丢弃；POST 成功后的 refreshGroupTurnState 兑正
+        nextGroupTurnRefreshSeq(targetKey)
         try {
             const result = await apiPost<{ dispatched: boolean; reason?: string; taskId?: string; picks?: string[] }>(
                 `/api/extensions/team-chat/groups/${encodeURIComponent(targetKey)}/messages`,
@@ -408,9 +417,10 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
                 // skip 不回滚乐观气泡：服务端在 router 判定前已持久化 user_message
                 // （skip 也入群历史），回滚会「先消失、下次 team_report 全量刷新又
                 // 复活」自相矛盾（第 4 轮审核 P2-7）——toast 说明原因即可；
-                // skip 无回合 → 等待态同步熄灭
-                sessionData.groupTurnBusy = false
-                useToast().info(result.reason ?? '无人应答', 3000)
+                // 排队残留时保持等待态（本地 queue 仍是真相源；清 busy 会让
+                // GroupTurnBar 提前消失）——零排队才熄灭
+                if (!(sessionData.groupTurnQueue?.length)) sessionData.groupTurnBusy = false
+                useToast().info(result.reason ?? (i18n.global as any).t('chat.groupNoResponder'), 3000)
             } else if (result?.taskId) {
                 // 队列投影本地推进（GroupTurnBar 明细）：服务端已入队，回合边界
                 // 由 ext.team_state 拉新兑正；busy 重置位（POST 在途期间穿插的
@@ -422,14 +432,18 @@ const sendMessage = async (message?: string, attachments?: ChatAttachment[], ses
                     picks: result.picks ?? [],
                     enqueuedAt: Date.now(),
                 }]
+                // 立即触发带新序号的拉新：在途旧 GET 的取数可能早于本次入队 commit
+                //（返回时会把刚入队的任务从本地投影抹掉，seq 守卫只防 GET-vs-GET
+                // 防不了这个取数竞态）——新序号使旧响应作废，新快照含本任务兑正
+                refreshGroupTurnState(targetKey)
             }
         } catch (error) {
-            const msgs = sessionData.chatMessages
-            if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user' && !(msgs[msgs.length - 1] as any).entryId) {
-                sessionData.chatMessages = msgs.slice(0, -1)
-            }
-            sessionData.groupTurnBusy = false
-            useToast().error((error as Error)?.message || '发送失败', 5000)
+            // 失败回滚仅删本条乐观泡（按 id 精确匹配；落位消息带 entryId 不受影响）
+            sessionData.chatMessages = sessionData.chatMessages.filter(m => (m as any).id !== optimisticId)
+            // 发送失败时若仍有排队中的回合，保持等待态（与 skip 分支同口径；
+            // 零排队才熄灭）
+            if (!(sessionData.groupTurnQueue?.length)) sessionData.groupTurnBusy = false
+            useToast().error((error as Error)?.message || (i18n.global as any).t('chat.groupSendFailed'), 5000)
         } finally {
             sessionData.chatSending = false
         }
@@ -1208,11 +1222,22 @@ const loadChatHistory = async (sessionKey?: string) => {
 
 /** 群回合状态拉新（queue 投影 + busy 兑正 + 成员名册）：到达线 = 开群恢复 /
  *  ext.team_state 回合边界（接力建链/排队推进只在这些边界变化）。静默失败——
- *  解散后 404 等边缘不点亮指示器 */
+ *  解散后 404 等边缘不点亮指示器。同群并发拉新用会话级序号守卫：晚到的旧
+ *  响应不得覆盖新状态（与 loadTaskSessions 同款形态，按 session 分键） */
+const groupTurnRefreshSeq = new Map<string, number>()
+/** 序号 bump 单点：refreshGroupTurnState（随后发 GET）与乐观置 busy（只作废
+ *  在途 GET，不发）共用。 */
+function nextGroupTurnRefreshSeq(sessionId: string): number {
+    const seq = (groupTurnRefreshSeq.get(sessionId) ?? 0) + 1
+    groupTurnRefreshSeq.set(sessionId, seq)
+    return seq
+}
 function refreshGroupTurnState(sessionId: string): void {
+    const seq = nextGroupTurnRefreshSeq(sessionId)
     apiGet<{ queue?: GroupTurnQueueItem[]; members?: { key: string; name: string }[] }>(
         `/api/extensions/team-chat/groups/${encodeURIComponent(sessionId)}`,
     ).then(result => {
+        if (groupTurnRefreshSeq.get(sessionId) !== seq) return // 过期响应丢弃
         const sd = state.sessionsMap.get(sessionId)
         if (!sd || !result) return
         if (Array.isArray(result.queue)) {
@@ -1898,6 +1923,7 @@ const _methods = {
     retryMessage, editMessage, fetchSessionTree, navigateBranch, forkFromEntry,
     isForkingEntry,
     isCompacting,
+    refreshGroupTurnState,
 }
 const _chatState = Object.assign(state, _methods) as unknown as typeof state & UnwrapComputed<typeof _methods>
 

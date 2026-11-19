@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useSubAgents, SubagentConfig, SubagentThinkingLevel, SubagentSaveInput } from '@/composables/useSubAgents'
 import { useAgentsState } from '@/composables/useAgentsState'
 import { useModelsState } from '@/composables/useModelsState'
@@ -9,7 +9,7 @@ import { useI18n } from 'vue-i18n'
 import { PlusIcon, PencilIcon, TrashIcon, UserGroupIcon, CommandLineIcon, CpuChipIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 import ModelSelectMenuContent from '@/components/models/ModelSelectMenuContent.vue'
 import { apiGet } from '@/composables/api-client'
-import { computeFloatingMenuStyle } from '@/utils/floating-menu'
+import { useFloatingMenu, useFloatingMenuGroup } from '@/composables/useFloatingMenu'
 
 const props = defineProps<{
     agent: any
@@ -68,22 +68,14 @@ const selectedModelValue = computed({
     }
 })
 
-const modelDropdownOpen = ref(false)
-const modelTriggerRef = ref<HTMLElement | null>(null)
-const modelPanelRef = ref<HTMLElement | null>(null)
-const modelDropdownStyle = ref<Record<string, string>>({})
-
-const updateModelDropdownPosition = () => {
-    // 公共浮层定位（与 TeamMemberFields 同源；rect 缺失返回 {} 即清位）
-    modelDropdownStyle.value = computeFloatingMenuStyle(modelTriggerRef.value)
-}
-
-const toggleModelDropdown = () => {
-    modelDropdownOpen.value = !modelDropdownOpen.value
-    if (modelDropdownOpen.value) {
-        nextTick(updateModelDropdownPosition)
-    }
-}
+// 模型下拉浮层（useFloatingMenu 组合式：开合/定位/外点关闭/视口跟随/生命周期
+// 同源收敛——与 TeamMemberFields/TeamGroupWizard 同款接线，不再自持单份）
+const modelMenu = useFloatingMenu()
+const {
+    open: modelDropdownOpen, triggerRef: modelTriggerRef, panelRef: modelPanelRef,
+    menuStyle: modelDropdownStyle, toggle: toggleModelDropdown,
+} = modelMenu
+useFloatingMenuGroup([modelMenu])
 
 const isCurrentModelAvailable = computed(() => {
     const val = selectedModelValue.value
@@ -113,32 +105,6 @@ const clearModelSelection = () => {
     selectedModelValue.value = ''
     modelDropdownOpen.value = false
 }
-
-const handleModelDocumentClick = (event: MouseEvent) => {
-    const target = event.target as Node | null
-    if (!modelDropdownOpen.value || !target) return
-    if (modelTriggerRef.value?.contains(target)) return
-    if (modelPanelRef.value?.contains(target)) return
-    modelDropdownOpen.value = false
-}
-
-const handleModelViewportChange = () => {
-    if (modelDropdownOpen.value) {
-        updateModelDropdownPosition()
-    }
-}
-
-onMounted(() => {
-    document.addEventListener('click', handleModelDocumentClick)
-    window.addEventListener('resize', handleModelViewportChange)
-    window.addEventListener('scroll', handleModelViewportChange, true)
-})
-
-onBeforeUnmount(() => {
-    document.removeEventListener('click', handleModelDocumentClick)
-    window.removeEventListener('resize', handleModelViewportChange)
-    window.removeEventListener('scroll', handleModelViewportChange, true)
-})
 
 // Form Data
 // 表单层用 '' 表示 "继承父 agent"（令 <select> 选中占位 option）；保存时转为服务端的 null/undefined。

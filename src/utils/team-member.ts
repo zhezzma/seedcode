@@ -30,26 +30,33 @@ const inflightTools = { promise: null as Promise<HubLoadResult<string>> | null }
 const inflightSkills = { promise: null as Promise<HubLoadResult<string>> | null }
 const inflightExtensions = { promise: null as Promise<Array<{ id: string, name: string }>> | null }
 
-/** hub 工具全集（名字清单）。失败/空 → ok=false（调用方保留 _pending，C-I3）。 */
+/** hub 工具全集（名字清单）。失败/空 → ok=false（调用方保留 _pending，C-I3）；
+ *  失败不缓存——下次调用重拉（瞬时网络抖动不沉淀为永久空清单） */
 export const loadHubToolsOnce = (): Promise<HubLoadResult<string>> => {
     if (!inflightTools.promise) {
         const agentsState = useAgentsState()
         inflightTools.promise = agentsState.loadAgentTools(HUB_AGENT_ID).then(() => {
             const tools = agentsState.agentTools[HUB_AGENT_ID] ?? []
             return { ok: tools.length > 0, items: tools.map((t: { name: string }) => t.name) }
-        }).catch(() => ({ ok: false, items: [] as string[] }))
+        }).catch(() => {
+            inflightTools.promise = null
+            return { ok: false, items: [] as string[] }
+        })
     }
     return inflightTools.promise
 }
 
-/** hub 技能全集（id 清单）。 */
+/** hub 技能全集（id 清单）。失败不缓存（同 loadHubToolsOnce）。 */
 export const loadHubSkillsOnce = (): Promise<HubLoadResult<string>> => {
     if (!inflightSkills.promise) {
         const skillsState = useSkillsState()
         inflightSkills.promise = skillsState.loadAgentSkills(HUB_AGENT_ID).then((skills: Array<{ id: string, name?: string }>) => {
             const items = skills.map((s) => s.id)
             return { ok: items.length > 0, items }
-        }).catch(() => ({ ok: false, items: [] as string[] }))
+        }).catch(() => {
+            inflightSkills.promise = null
+            return { ok: false, items: [] as string[] }
+        })
     }
     return inflightSkills.promise
 }

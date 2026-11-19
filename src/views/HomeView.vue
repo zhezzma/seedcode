@@ -466,6 +466,25 @@ const handleSend = async (mode?: BusySendBehavior) => {
         chatInputRef.value.attachments = []
     }
 
+    // 群会话不走普通会话的 busy 双通道（M4）：steer/follow 控制端点打向 hub 壳
+    // 会话（消息黑洞），群空文本 abort 也无本地语义（停止走 GroupTurnBar 的 stop
+    // 端点）——POST 在途/排队等待期的再发由群分支自己排队（服务端 waiting 链
+    // 承载）。附件处理与 Case 3 同构：图片交群分支 toast 丢弃，文件内容 append
+    // 进文本；空文本空附件时群分支静默 return（与非 busy 路径行为一致）
+    if (currentGroupSessionId.value) {
+        let groupText = inputText
+        const groupImages: ChatAttachment[] = []
+        for (const att of rawAttachments) {
+            if (att.mimeType?.startsWith('image/')) groupImages.push(att)
+            else if (att.content) groupText += `\n=== File Content: ${att.name || 'attachment'} ===\n${att.content}\n==============================\n`
+        }
+        await chatState.sendMessage(groupText, [...groupImages])
+        // 与普通发送同款强制回底（messages watcher 只在非上翻态兑底，上翻中
+        // 发送也要跟到最新消息）
+        scrollToBottom(true)
+        return
+    }
+
     // Case 1: Busy + no text → abort
     if (isBusy.value && !inputText && !hasAttachments) {
         await chatState.abortChat()
