@@ -12,29 +12,7 @@
 // 整体 JSON 序列化渲染（read 读图曾把整 MB base64 塞进 <pre> 巨块）。
 
 import { resolveMediaUrl } from './media-url.ts'
-import { isAbsolutePath, isAssetUrl, isWebUrl } from './tool-file-paths.ts'
-
-/**
- * image 块 url → 磁盘路径形态：file:// 剥 scheme+host 前缀后归一——
- * file:///home/u/x.png → /home/u/x.png（第 3 个斜杠是路径根，保留）；
- * file:///D:/x.png → D:/x.png（盘符前的 URL 根斜杠去掉）；其余原样。
- * 服务端 view_image 不产 file:// image 块（其路径校验拒绝该形态），此处是对
- * 历史/异常数据的防御：宁可走 raw 端点失败不显示，不进 <img> 裂图。 */
-function toDiskPathForm(url: string): string {
-    if (!/^file:\/\//i.test(url)) return url
-    return url.replace(/^file:\/\//i, '')
-        .replace(/^\/(?=[A-Za-z]:[\\/])/, '')
-}
-
-/**
- * image 块的 url 是否为服务端磁盘绝对路径（盘符/UNC/Unix 根；排除 /assets
- * 与远程 URL）：指向服务端文件系统，客户端 webview 无法直接当 URL 渲染
- * （Windows 盘符会被 scheme 正则误判、Unix 根路径被拼上 apiBaseUrl 后 404），
- * 需走 /api/files/raw 拉字节后渲染。file:// 剥前缀后判定（见 toDiskPathForm）。 */
-function isServerSideAbsolutePath(url: string): boolean {
-    const p = toDiskPathForm(url)
-    return !isWebUrl(p) && !isAssetUrl(p) && isAbsolutePath(p)
-}
+import { isServerSideAbsolutePath, toDiskPathForm } from './tool-file-paths.ts'
 
 /**
  * image 块 → 可直接渲染 src 列表。

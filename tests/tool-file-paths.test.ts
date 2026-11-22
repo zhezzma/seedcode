@@ -8,13 +8,35 @@ import {
     findRepoFor,
     isAbsolutePath,
     isAssetUrl,
+    isServerSideAbsolutePath,
     isWebUrl,
     joinPath,
     pickDiffMode,
+    toDiskPathForm,
     toRepoRelative,
     toSlash,
     toWorkspaceRelative,
 } from '../src/utils/tool-file-paths.ts'
+
+// ─── toDiskPathForm / isServerSideAbsolutePath：服务端磁盘绝对路径判定 ─────
+
+test('toDiskPathForm: file:// 剥前缀归一为磁盘路径，其余原样', () => {
+    assert.equal(toDiskPathForm('file:///home/u/x.png'), '/home/u/x.png', '第 3 个斜杠是路径根，保留')
+    assert.equal(toDiskPathForm('file:///D:/x.png'), 'D:/x.png', '盘符前的 URL 根斜杠去掉')
+    assert.equal(toDiskPathForm('D:\\x\\y.png'), 'D:\\x\\y.png')
+    assert.equal(toDiskPathForm('/home/x.png'), '/home/x.png')
+})
+
+test('isServerSideAbsolutePath: 盘符/UNC/Unix 根为真；/assets、远程 URL、相对路径为假', () => {
+    assert.equal(isServerSideAbsolutePath('D:\\pics\\img.png'), true)
+    assert.equal(isServerSideAbsolutePath('D:/pics/img.png'), true)
+    assert.equal(isServerSideAbsolutePath('/home/user/img.png'), true)
+    assert.equal(isServerSideAbsolutePath('\\\\server\\share\\img.png'), true)
+    assert.equal(isServerSideAbsolutePath('file:///home/u/x.png'), true, 'file:// 剥前缀后判定')
+    assert.equal(isServerSideAbsolutePath('/assets/a.png'), false, '/assets 是公开静态端点，直渲染')
+    assert.equal(isServerSideAbsolutePath('https://cdn.example.com/b.png'), false)
+    assert.equal(isServerSideAbsolutePath('sessions/sid/x.png'), false, 'data 目录相对路径，拼 apiBaseUrl 直渲染')
+})
 
 // ─── extractArgsPaths：按参数键名提取 ─────────────────────────
 

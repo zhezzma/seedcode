@@ -1,3 +1,5 @@
+import { isServerSideAbsolutePath, toDiskPathForm } from './tool-file-paths.ts'
+
 // AI 偶发把服务端相对路径 /assets/... 补全成绝对 URL，且补上的 origin 是幻觉：
 //  - https://assets/...           host 连同 /assets 前缀被吞成 assets
 //  - http://localhost/assets/...  origin 幻觉成客户端自身的环回地址（无端口）
@@ -31,6 +33,24 @@ export function resolveMediaUrl(url: string | undefined, apiBaseUrl: string): st
   return `${baseUrl}/${url.replace(/^\/+/, '')}`
 }
 
+/**
+ * markdown-it 对链接目标做百分号编码（\ → %5C、空格 → %20、CJK → UTF-8 序列）；
+ * 磁盘路径判定与 data-absolute-src 存储都需要真实路径，先解码。畸形序列
+ * （路径里裸写的 % 不构成合法编码）decodeURIComponent 会抛——回退原样。
+ */
+function decodeUriLoose(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
+/** 1x1 透明 GIF：绝对路径 <img> 的占位 src（真图由 raw 端点拉字节后替换）。
+ *  避免浏览器直接加载磁盘路径（盘符被当协议、根路径被拼 origin 后 404）
+ *  造成的裂图闪现与无效请求。 */
+const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 /** Apply the shared media URL policy to image sources and links emitted by MarkdownIt. */
 export function resolveMarkdownResourceUrls(html: string, apiBaseUrl: string): string {
   if (!apiBaseUrl.trim() || (!html.includes('<img') && !html.includes('<a'))) return html
@@ -45,6 +65,22 @@ export function resolveMarkdownResourceUrls(html: string, apiBaseUrl: string): s
 
         const quote = doubleValue === undefined ? "'" : '"'
         const url = doubleValue ?? singleValue ?? ''
+
+        // 磁盘绝对路径（盘符/UNC/Unix 根，markdown-it 百分号编码后形态）：webview
+        // 无法直接渲染（盘符被当协议、根路径被拼 apiBaseUrl 后 404）——src 换透明
+        // 占位防裂图闪现，剥编码后的磁盘路径存 data-absolute-src，由
+        // MarkdownRenderer 走 /api/files/raw 带 auth 拉字节转 objectURL 替换
+        // （与 ToolInvocation 的 view_image 绝对路径同链路；拉不到静默移除）。
+        // 存储值仅再转义裸引号：markdown-it 已把 &<> 转成实体，浏览器解析属性时
+        // 自会还原，双重转义反而出错。
+        if (resourceAttribute === 'src') {
+          const decoded = decodeUriLoose(url)
+          if (isServerSideAbsolutePath(decoded)) {
+            const diskPath = toDiskPathForm(decoded).replace(/"/g, '&quot;')
+            return `${whitespace}src${equals}"${TRANSPARENT_PIXEL}" data-absolute-src="${diskPath}"`
+          }
+        }
+
         return `${whitespace}${name}${equals}${quote}${resolveMediaUrl(url, apiBaseUrl) ?? ''}${quote}`
       },
     )

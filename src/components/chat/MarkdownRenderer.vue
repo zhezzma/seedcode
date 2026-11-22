@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import md from '../../utils/markdown/markdown'
 import { resolveMarkdownResourceUrls } from '../../utils/media-url'
 import { useUiSettingsStore } from '../../stores/setting'
 import { useMediaPreview } from '../../composables/useMediaPreview'
-import { mediaKindFromPath } from '../../composables/workspace-api'
+import { fetchRawFile, mediaKindFromPath } from '../../composables/workspace-api'
 import { reservedImageStyle, recordImageElementDimensions } from '../../utils/imageDimensions'
 import { pauseOtherChatMedia } from '../../utils/chat-media'
 
@@ -191,6 +191,65 @@ const setRenderedHtml = async (html: string) => {
     enhanceRenderedImages()
     enhanceRenderedMedia()
     transplantMediaWrappers(detached)
+    // 绝对路径图片拉字节替换（异步不阻塞渲染；占位 1x1 先行，拉到后替换）
+    void hydrateAbsoluteImages()
+}
+
+/** 绝对路径 markdown 图片（resolveMarkdownResourceUrls 打的 data-absolute-src
+ *  标，src 为透明占位）→ fetchRawFile absolute scope（/api/files/raw?path=…
+ *  带 auth，与 ToolInvocation 的 view_image 绝对路径同链路）拉 blob →
+ *  objectURL 替换。拉不到（文件不存在/超限）连 hover wrapper 一起静默移除，
+ *  不出裂图。objectURL 按 path 缓存：流式重渲染 v-html 重建 DOM，同路径不
+ *  重拉；卸载统一 revoke。AbortController 只作废在途拉取（缓存值不受影响）。 */
+const absoluteImageObjectUrls = new Map<string, string>()
+let absoluteImageAbort: AbortController | null = null
+
+const hydrateAbsoluteImages = async () => {
+    const container = contentElement.value
+    if (!container) return
+    const targets = Array.from(container.querySelectorAll<HTMLImageElement>('img[data-absolute-src]'))
+    if (targets.length === 0) return
+    absoluteImageAbort?.abort()
+    const abort = new AbortController()
+    absoluteImageAbort = abort
+    for (const image of targets) {
+        // 属性值已由 resolveMarkdownResourceUrls 剥百分号编码（浏览器解析时还原
+        // 实体），此处拿到的就是 raw 端点直接可查的磁盘路径
+        const diskPath = image.getAttribute('data-absolute-src')
+        if (!diskPath) continue
+        let url = absoluteImageObjectUrls.get(diskPath)
+        if (!url) {
+            try {
+                // 预览大小硬顶与 ToolInvocation / WorkspaceFileView 媒体分支一致；
+                // 超限/不存在抛错 → catch → 静默移除
+                const blob = await fetchRawFile('', diskPath, 'absolute', abort.signal, {
+                    maxBytes: 64 * 1024 * 1024,
+                })
+                if (abort.signal.aborted) return
+                url = URL.createObjectURL(blob)
+                absoluteImageObjectUrls.set(diskPath, url)
+            } catch {
+                // 中止≠拉取失败：新一轮渲染已接管（挂载期 watch immediate 与
+                // onMounted 双发 renderContent，v-html 同值不重建 DOM，旧轮 fetch
+                // 以 AbortError 拒绝但元素仍存活）——退出不动 DOM，由新轮接管
+                if (abort.signal.aborted) return
+                // 拉不到就不显示（不能显示就不显示）：已包装的连 wrapper 一起移除
+                const wrapper = image.closest('.markdown-image-preview')
+                if (wrapper) wrapper.remove()
+                else image.remove()
+                continue
+            }
+        }
+        if (abort.signal.aborted) return
+        image.src = url
+        // 占位 1x1 已被 enhance 记过尺寸；真图加载后重记并修正 aspect-ratio
+        // （同 enhanceRenderedImages 的 load 监听逻辑）
+        image.addEventListener('load', () => {
+            recordImageElementDimensions(image)
+            const fresh = reservedImageStyle(image.currentSrc || image.src)
+            image.style.aspectRatio = fresh ? fresh.aspectRatio : ''
+        }, { once: true })
+    }
 }
 
 const handleContentClick = (event: MouseEvent) => {
@@ -264,12 +323,26 @@ const renderContent = async (text: string) => {
     }
 }
 
-watch([() => props.content, () => settings.apiBaseUrl], ([newContent]) => {
+watch([() => props.content, () => settings.apiBaseUrl], ([newContent, newBase], [, oldBase]) => {
+    // 服务器切换：缓存 blob 来自旧 origin，全部作废重拉（否则命中旧图）；
+    // 在途旧请求一并中止——否则完成后把旧 origin 的 objectURL 写回缓存，
+    // 新渲染命中旧图直到下次作废
+    if (oldBase !== undefined && oldBase !== newBase) {
+        absoluteImageAbort?.abort()
+        for (const u of absoluteImageObjectUrls.values()) URL.revokeObjectURL(u)
+        absoluteImageObjectUrls.clear()
+    }
     renderContent(newContent)
 }, { immediate: true })
 
 onMounted(() => {
     renderContent(props.content)
+})
+
+onUnmounted(() => {
+    absoluteImageAbort?.abort()
+    for (const u of absoluteImageObjectUrls.values()) URL.revokeObjectURL(u)
+    absoluteImageObjectUrls.clear()
 })
 </script>
 

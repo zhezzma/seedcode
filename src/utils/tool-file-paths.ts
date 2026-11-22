@@ -26,6 +26,34 @@ export function toSlash(p: string): string {
     return p.replace(/\\/g, '/')
 }
 
+/**
+ * url → 磁盘路径形态：file:// 剥 scheme+host 前缀后归一——
+ * file:///home/u/x.png → /home/u/x.png（第 3 个斜杠是路径根，保留）；
+ * file:///D:/x.png → D:/x.png（盘符前的 URL 根斜杠去掉）；其余原样。
+ * 服务端 view_image 不产 file:// image 块（其路径校验拒绝该形态），此处是对
+ * 历史/异常数据的防御：宁可走 raw 端点失败不显示，不进 <img> 裂图。 */
+export function toDiskPathForm(url: string): string {
+    if (!/^file:\/\//i.test(url)) return url
+    return url.replace(/^file:\/\//i, '')
+        .replace(/^\/(?=[A-Za-z]:[\\/])/, '')
+}
+
+/**
+ * 是否服务端磁盘绝对路径（盘符/UNC/Unix 根；排除 /assets 与远程 URL）：指向
+ * 服务端文件系统，客户端 webview 无法直接当 URL 渲染（Windows 盘符会被
+ * scheme 正则误判、Unix 根路径被拼上 apiBaseUrl 后 404），需走
+ * /api/files/raw 拉字节后渲染。file:// 剥前缀后判定（见 toDiskPathForm）。 */
+export function isServerSideAbsolutePath(url: string): boolean {
+    const p = toDiskPathForm(url)
+    // 协议相对 URL（//cdn.example.com/x.png）按 Unix 根前缀会误命中——它是可
+    // 直渲染的 scheme 相对引用，不是磁盘路径；与 resolveMediaUrl 的既有策略
+    // 对齐（startsWith('//') 原样返回当 URL）。取舍：正斜杠 UNC（//server/share，
+    // 极罕见，Windows 侧工具输出通常是反斜杠形态）不再走 raw 端点，当作 URL
+    // 处理（webview 解析为协议相对 → 死链不显示，不会误删真图）
+    if (p.startsWith('//')) return false
+    return !isWebUrl(p) && !isAssetUrl(p) && isAbsolutePath(p)
+}
+
 /** root + rel 拼绝对路径；分隔符归一为 /。 */
 export function joinPath(root: string, rel: string): string {
     const r = toSlash(root).replace(/\/+$/, '')

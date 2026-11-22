@@ -56,9 +56,11 @@ test('绝对路径 url 块不进直渲染列表（webview 解析不了，交由 
         { type: 'image', data: '', url: 'file:///home/user/img.png', mimeType: 'image/png' },
         // UNC：
         { type: 'image', data: '', url: '\\\\server\\\\share\\\\img.png', mimeType: 'image/png' },
-        // /assets 与远程 URL 不受影响（仍可直渲染）
+        // /assets 与远程 URL 不受影响（仍可直渲染）；协议相对 URL 同样直渲染
+        // （isServerSideAbsolutePath 的 // 排除回归锁：按 Unix 根前缀会误命中）
         { type: 'image', data: '', url: '/assets/a.png', mimeType: 'image/png' },
         { type: 'image', data: '', url: 'https://cdn.example.com/b.png', mimeType: 'image/png' },
+        { type: 'image', data: '', url: '//cdn.example.com/c.png', mimeType: 'image/png' },
         // data 目录相对路径（非 / 开头）仍走拼接直渲染
         { type: 'image', data: '', url: 'sessions/sid/x.png', mimeType: 'image/png' },
         // inline base64 不受影响
@@ -67,6 +69,7 @@ test('绝对路径 url 块不进直渲染列表（webview 解析不了，交由 
     assert.deepEqual(extractToolResultImages(result, 'https://api.example.com'), [
         'https://api.example.com/assets/a.png',
         'https://cdn.example.com/b.png',
+        '//cdn.example.com/c.png',
         'https://api.example.com/sessions/sid/x.png',
         'data:image/png;base64,QUJD',
     ])
@@ -84,6 +87,7 @@ test('extractAbsoluteToolResultImagePaths：提取 image 块的绝对路径 url�
         { type: 'image', data: '', url: '\\\\server\\\\share\\\\img.png' },
         { type: 'image', data: '', url: '/assets/a.png' },
         { type: 'image', data: '', url: 'https://x/y.png' },
+        { type: 'image', data: '', url: '//cdn.example.com/c.png' },
         { type: 'image', data: 'QUJD' },
         { type: 'text', text: 'hi' },
     ]

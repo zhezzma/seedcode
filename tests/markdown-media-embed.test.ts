@@ -21,7 +21,7 @@ test('markdown 音视频链接就地升级为内嵌播放器（enhanceRenderedMe
   // 渲染管线接线：图片包装后追加媒体升级
   assert.match(markdownRendererSource, /enhanceRenderedImages\(\)\s*\n\s*enhanceRenderedMedia\(\)/)
   // 判定复用 workspace-api 的 mediaKindFromPath（与后端 media-whitelist 同步的清单）
-  assert.match(markdownRendererSource, /import \{ mediaKindFromPath \} from '\.\.\/\.\.\/composables\/workspace-api'/)
+  assert.match(markdownRendererSource, /import \{ (?:\w+, )?mediaKindFromPath(?:, \w+)? \} from '\.\.\/\.\.\/composables\/workspace-api'/)
   // 原生控件 + 懒加载（preload=metadata 翻历史不拉全量字节）
   assert.match(markdownRendererSource, /document\.createElement\(kind\)/)
   assert.match(markdownRendererSource, /media\.controls = true/)
